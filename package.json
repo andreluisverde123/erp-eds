@@ -1,0 +1,49 @@
+{
+  "name": "foundation",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Foundation — plataforma ERP para construtoras (multi-tenant)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "npm@11.9.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "type-check": "turbo run type-check",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "prepare": "husky || echo 'husky indisponível (install sem devDependencies ou sem .git) — hooks de commit não instalados'"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.5",
+    "typescript": "^6.0.3",
+    "prettier": "^3.9.6",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.1.1"
+  },
+  "lint-staged": {
+    "apps/api/**/*.ts": [
+      "eslint --fix --config apps/api/eslint.config.mjs"
+    ],
+    "apps/web/**/*.{ts,tsx}": [
+      "eslint --fix --config apps/web/eslint.config.js"
+    ],
+    "packages/ui/**/*.{ts,tsx}": [
+      "eslint --fix --config packages/ui/eslint.config.js"
+    ],
+    "packages/types/**/*.ts": [
+      "eslint --fix --config packages/types/eslint.config.js"
+    ],
+    "*.{ts,tsx,js,jsx,json,md,css}": [
+      "prettier --write"
+    ]
+  }
+}

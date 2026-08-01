@@ -1,0 +1,1 @@
+import{Bt as e,J as t}from"./src-CvR76MDw.js";import{i as n,r}from"./purchase-request-status-Bl37yN7h.js";var i=e();function a({status:e}){return(0,i.jsx)(t,{variant:r(e),children:n(e)})}export{a as t};

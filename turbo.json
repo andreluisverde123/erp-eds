@@ -1,0 +1,36 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build", "prisma:generate"],
+      "outputs": ["dist/**", ".next/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "type-check": {
+      "dependsOn": ["^type-check", "prisma:generate"]
+    },
+    "test": {
+      "dependsOn": ["prisma:generate"],
+      "outputs": []
+    },
+    // O Prisma Client é gerado em `apps/api/generated/` (gitignorado), então
+    // build/type-check/test em uma máquina limpa (CI, imagem Docker) falhariam
+    // antes de qualquer coisa — `prisma.service.ts` importa esse diretório.
+    // Declarar a dependência aqui faz o turbo gerar o client sozinho, e o cache
+    // pular a geração quando o schema não mudou.
+    "prisma:generate": {
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["generated/**"]
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

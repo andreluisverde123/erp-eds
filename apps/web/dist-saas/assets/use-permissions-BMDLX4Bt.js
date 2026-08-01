@@ -1,0 +1,1 @@
+import{O as e}from"./index-DvkMg3lm.js";import{l as t}from"./api-CSzwv-Sl.js";function n(){return e({queryKey:[`permissions`],queryFn:()=>t()})}export{n as t};

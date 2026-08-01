@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+coverage
+.turbo
+pnpm-lock.yaml
+package-lock.json
+**/prisma/migrations
+
+# Skills de terceiros instaladas por `npx skills add` — reformatá-las só gera
+# ruído no diff quando o pacote é atualizado.
+.agents
+.claude/skills

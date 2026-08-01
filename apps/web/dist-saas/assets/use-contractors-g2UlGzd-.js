@@ -1,0 +1,1 @@
+import{N as e,O as t}from"./index-DvkMg3lm.js";import{m as n}from"./api-DVflzJgD.js";function r(r){return t({queryKey:[`contractors`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

@@ -1,0 +1,1 @@
+import{O as e}from"./index-DvkMg3lm.js";import{i as t}from"./api-MQ11d5CV.js";function n(){return e({queryKey:[`account-payables`,`summary`],queryFn:()=>t()})}export{n as t};

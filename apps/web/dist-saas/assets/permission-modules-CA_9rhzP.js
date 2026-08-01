@@ -1,0 +1,1 @@
+var e={dashboard:`Dashboard`,engenharia:`Engenharia`,compras:`Compras`,financeiro:`Financeiro`,rh:`RH`,terceiros:`Terceirizados`,relatorios:`Relatórios`,admin:`Administração`,configuracoes:`Configurações`};function t(t){return e[t]??t}export{t};

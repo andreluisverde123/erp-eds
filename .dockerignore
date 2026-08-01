@@ -1,0 +1,34 @@
+# Tudo que não deve entrar no contexto de build das imagens (docker/*.Dockerfile).
+# Sem este arquivo o `docker build` envia o node_modules inteiro do host para o
+# daemon — lento, e pior: um node_modules compilado no macOS acabaria dentro de
+# uma imagem Linux se algum COPY o pegasse.
+
+node_modules
+**/node_modules
+
+.git
+.gitignore
+.github
+.husky
+
+# Artefatos de build/cache locais — as imagens sempre recompilam do zero.
+.turbo
+**/.turbo
+**/dist
+**/*.tsbuildinfo
+coverage
+**/coverage
+
+# Prisma Client é gerado dentro da imagem (`turbo run build` → `db:generate`).
+apps/api/generated
+
+# Uploads locais de desenvolvimento: em produção isso é um volume montado.
+apps/api/uploads
+
+# Segredos: nunca entram na imagem. `.env.example` continua incluído.
+**/.env
+**/.env.local
+**/.env.*.local
+
+docs
+*.md

@@ -1,0 +1,1 @@
+import{N as e,O as t}from"./index-DTdb2vzA.js";import{h as n}from"./api-0CoElMk_.js";function r(r){return t({queryKey:[`contracts`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

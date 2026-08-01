@@ -1,0 +1,1 @@
+import{N as e,O as t}from"./index-DTdb2vzA.js";import{u as n}from"./api-TdLKEpaT.js";function r(r){return t({queryKey:[`roles`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

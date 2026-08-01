@@ -1,0 +1,1022 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRoleType {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  ENGINEER
+  BUYER
+  HR_ANALYST
+  FINANCE_ANALYST
+  VIEWER
+}
+
+enum ConstructionStatus {
+  PLANNING
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+/// Fluxo linear: DRAFT -> PENDING -> QUOTING -> APPROVED, com CANCELLED
+/// acessível de qualquer estado não-terminal. Sem aprovação em níveis nem
+/// cotação múltipla nesta etapa — QUOTING é só um rótulo de estágio.
+enum PurchaseRequestStatus {
+  DRAFT
+  PENDING
+  QUOTING
+  APPROVED
+  CANCELLED
+}
+
+enum PurchaseOrderStatus {
+  OPEN
+  ISSUED
+  RECEIVED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  RECEIVED
+  VALIDATED
+  CANCELLED
+}
+
+/// Situação da parcela de contas a pagar. "Vencendo hoje/na semana" (tela de
+/// Contas a Pagar) é calculado a partir de `dueDate` em tempo real, não é um
+/// status armazenado — evita a parcela ficar "presa" num status desatualizado.
+enum AccountPayableStatus {
+  OPEN
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+/// Status do registro de pagamento em si (distinto do status da parcela que
+/// ele quita — um pagamento PENDING/PROCESSING ainda não abate o saldo da
+/// AccountPayable; só um pagamento PAID conta pra recalcular o status dela).
+enum PaymentRecordStatus {
+  PENDING
+  PROCESSING
+  PAID
+  REFUNDED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  VACATION
+  ON_LEAVE
+  TERMINATED
+}
+
+/// Situação de um apontamento de ponto. Calculado pelo backend a partir de
+/// entrada/saída (nunca setado à mão pelo cliente): CLOSED quando ambos os
+/// horários batem, INCONSISTENT quando faltam/colidem, OPEN enquanto ainda
+/// não há saída registrada.
+enum TimeEntryStatus {
+  OPEN
+  CLOSED
+  INCONSISTENT
+}
+
+enum ContractorStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+/// Encerramento manual de um contrato (antes do prazo). O badge exibido na
+/// tela (Vigente/Vencendo/Encerrado) é derivado combinando este status com
+/// `endDate` — nunca é um terceiro valor armazenado.
+enum ContractStatus {
+  ACTIVE
+  CANCELLED
+}
+
+/// Tipo de ação registrada no log de auditoria.
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum SettingsTheme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+/// Situação comercial do tenant (Company) em si — distinto de `User.isActive`,
+/// que é por usuário. `ACTIVE` e `TRIAL` permitem usar o sistema; `SUSPENDED`
+/// e `CANCELLED` barram login e refresh (ver `assertCompanyActive`), então
+/// suspender um cliente derruba também as sessões já abertas.
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+/// Plano contratado pelo tenant. Mesma observação: só armazenado, nenhuma
+/// regra de limite/feature-gate por plano existe ainda.
+enum TenantPlan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+// =============================================================================
+// EMPRESA
+// =============================================================================
+
+/// Empresa (construtora) — raiz do isolamento multi-tenant do sistema.
+/// Campos de tenant (slug/status/plan/timezone/locale/currency/cores) vivem
+/// aqui em vez de numa entidade `Tenant` separada: `Company` já É a raiz de
+/// isolamento (todo `companyId` do sistema aponta pra cá) — uma segunda
+/// entidade paralela duplicaria esse papel sem necessidade.
+model Company {
+  id                String       @id @default(uuid()) @db.Uuid
+  slug              String       @unique
+  /// Opcional por causa do cadastro self-service: no trial a empresa entra só
+  /// com nome, e-mail e senha — o CNPJ passa a ser exigido no momento de
+  /// assinar/emitir nota, não na porta de entrada. Continua único: o Postgres
+  /// permite vários NULL num índice único, então empresas em trial coexistem.
+  cnpj              String?      @unique @db.VarChar(14)
+  /// No cadastro nasce igual ao nome informado pelo usuário; a razão social
+  /// de verdade é preenchida depois, em Configurações > Empresa.
+  legalName         String
+  tradeName         String?
+  stateRegistration String?
+  email             String?
+  phone             String?
+  website           String?
+  logoUrl           String?
+  addressLine       String?
+  addressNumber     String?
+  addressComplement String?
+  city              String?
+  state             String?      @db.VarChar(2)
+  zipCode           String?      @db.VarChar(8)
+  responsibleName   String?
+  status            TenantStatus @default(ACTIVE)
+  plan              TenantPlan   @default(STARTER)
+  timezone          String       @default("America/Sao_Paulo")
+  locale            String       @default("pt-BR")
+  currency          String       @default("BRL")
+  primaryColor      String?
+  secondaryColor    String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  users                   User[]
+  roles                   Role[]
+  constructionSites       ConstructionSite[]
+  costCenters             CostCenter[]
+  suppliers               Supplier[]
+  purchaseRequests        PurchaseRequest[]
+  purchaseOrders          PurchaseOrder[]
+  employees               Employee[]
+  contractors             Contractor[]
+  contractorContracts     ContractorContract[]
+  invoices                Invoice[]
+  accountsPayable         AccountPayable[]
+  attachments             Attachment[]
+  auditLogs               AuditLog[]
+  workflowComments        WorkflowComment[]
+  systemSettings          SystemSettings?
+  notificationPreferences NotificationPreference[]
+}
+
+// =============================================================================
+// USUÁRIOS
+// =============================================================================
+
+/// Usuário do sistema (colaborador com acesso ao ERP).
+/// Distinto de Employee: nem todo funcionário (mão de obra) tem login no sistema,
+/// e nem todo usuário do sistema é necessariamente um funcionário CLT (pode ser
+/// um usuário administrativo, contador externo, etc.).
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  name         String
+  email        String    @unique
+  passwordHash String
+  phone        String?
+  position     String?
+  isActive     Boolean   @default(true)
+  /// Ligado quando um admin cria o usuário ou reseta a senha dele: a senha
+  /// temporária circula por fora do sistema (WhatsApp, papel, e-mail pessoal),
+  /// então ela só serve para entrar uma vez. Enquanto estiver `true` a API
+  /// bloqueia todas as rotas exceto trocar a própria senha.
+  /// Nasce `false` no cadastro self-service — ali a senha foi escolhida pelo
+  /// próprio dono da conta.
+  mustChangePassword Boolean @default(false)
+  /// Aceite dos termos de uso, registrado no cadastro self-service. A VERSÃO
+  /// importa tanto quanto a data: sem ela, um aceite antigo não prova o que
+  /// foi aceito depois que o texto mudar. Fica em branco para os usuários
+  /// criados por um admin dentro do sistema (aceite é da empresa, feito por
+  /// quem assinou).
+  acceptedTermsAt   DateTime?
+  termsVersion      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  userRoles        UserRole[]
+  refreshTokens    RefreshToken[]
+  purchaseRequests PurchaseRequest[]
+  attachments      Attachment[]
+  auditLogs        AuditLog[]
+  workflowComments WorkflowComment[]
+
+  @@index([companyId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_email_trgm_idx")
+
+}
+
+/// Refresh token de sessão (um registro por token emitido). Armazena apenas o
+/// hash do token (nunca o valor em texto puro) para que um vazamento do banco
+/// não permita reconstruir sessões válidas. `revokedAt` é setado no logout ou
+/// na rotação (reuso de um token já trocado invalida a cadeia inteira).
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Papel/função atribuível a usuários (RBAC). `type` classifica o papel em uma
+/// categoria de sistema; `name` é o rótulo específico definido pela empresa.
+model Role {
+  id          String       @id @default(uuid()) @db.Uuid
+  companyId   String       @db.Uuid
+  name        String
+  type        UserRoleType
+  description String?
+  /// Papéis do seed (Administrador/Engenharia/Compras/Financeiro/RH/Diretoria)
+  /// — protegidos contra exclusão/renomeação pra nunca deixar o sistema sem
+  /// nenhum papel administrativo por engano. Papéis criados depois pelo
+  /// usuário nascem com `false` e podem ser geridos livremente.
+  isSystem    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  company         Company          @relation(fields: [companyId], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+/// Catálogo de permissões do sistema (ação granular por módulo).
+/// `module`/`action` ficam como texto livre (não enum) para permitir novas
+/// permissões sem exigir migration a cada módulo/tela adicionado.
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+}
+
+/// Associação N:N entre Role e Permission.
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+}
+
+/// Associação N:N entre User e Role.
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+}
+
+// =============================================================================
+// ENGENHARIA
+// =============================================================================
+
+/// Obra/canteiro de construção.
+model ConstructionSite {
+  id              String             @id @default(uuid()) @db.Uuid
+  companyId       String             @db.Uuid
+  code            String
+  name            String
+  clientName      String?
+  responsibleName String?
+  description     String?
+  status          ConstructionStatus @default(PLANNING)
+  addressLine     String?
+  city            String?
+  state           String?            @db.VarChar(2)
+  zipCode         String?            @db.VarChar(8)
+  startDate       DateTime?
+  expectedEndDate DateTime?
+  actualEndDate   DateTime?
+  budgetAmount    Decimal?           @db.Decimal(14, 2)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+
+  company             Company              @relation(fields: [companyId], references: [id])
+  costCenters         CostCenter[]
+  employeeAllocations EmployeeAllocation[]
+  timeEntries         TimeEntry[]
+  productionEntries   ProductionEntry[]
+  purchaseRequests    PurchaseRequest[]
+  purchaseOrders      PurchaseOrder[]
+  contractorContracts ContractorContract[]
+  invoices            Invoice[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([status])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_name_trgm_idx")
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_code_trgm_idx")
+  @@index([clientName(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_clientName_trgm_idx")
+
+}
+
+/// Centro de custo. Pode pertencer a uma obra específica ou ser administrativo
+/// (constructionSiteId nulo), cobrindo despesas de estrutura/overhead.
+model CostCenter {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  constructionSiteId String?   @db.Uuid
+  code               String
+  name               String
+  description        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
+
+  purchaseRequests    PurchaseRequest[]
+  purchaseOrders      PurchaseOrder[]
+  productionEntries   ProductionEntry[]
+  employeeAllocations EmployeeAllocation[]
+  invoices            Invoice[]
+
+  @@unique([companyId, code])
+  @@index([constructionSiteId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "CostCenter_name_trgm_idx")
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "CostCenter_code_trgm_idx")
+
+}
+
+// =============================================================================
+// COMPRAS
+// =============================================================================
+
+/// Fornecedor de materiais/serviços.
+model Supplier {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  legalName   String
+  tradeName   String?
+  document    String // CNPJ ou CPF
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?   @db.VarChar(2)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  purchaseOrders PurchaseOrder[]
+  invoices       Invoice[]
+
+  @@unique([companyId, document])
+  @@index([companyId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([legalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_legalName_trgm_idx")
+  @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_tradeName_trgm_idx")
+  @@index([document(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_document_trgm_idx")
+
+}
+
+/// Requisição de compra originada por uma obra/centro de custo.
+model PurchaseRequest {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  /// DERIVADO do centro de custo, nunca informado pelo solicitante: quem abre
+  /// a solicitação escolhe só o centro de custo, e o destino da compra pode
+  /// não ser uma obra (Escritório, Fazenda). Fica nulo nesses casos — por isso
+  /// é opcional. Continua materializado na linha (em vez de sempre navegar
+  /// pelo centro de custo) porque relatórios e indicadores agrupam por obra.
+  constructionSiteId String? @db.Uuid
+  costCenterId       String  @db.Uuid
+  requestedById      String                @db.Uuid
+  code               String
+  status             PurchaseRequestStatus @default(DRAFT)
+  notes              String?
+  neededBy           DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  deletedAt          DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
+  requestedBy      User              @relation(fields: [requestedById], references: [id])
+
+  items          PurchaseRequestItem[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([companyId, code])
+  @@index([constructionSiteId])
+  @@index([costCenterId])
+  @@index([status])
+  @@index([createdAt])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseRequest_code_trgm_idx")
+
+}
+
+/// Item de linha de uma requisição de compra.
+model PurchaseRequestItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  purchaseRequestId  String   @db.Uuid
+  description        String
+  quantity           Decimal  @db.Decimal(12, 3)
+  unit               String
+  estimatedUnitPrice Decimal? @db.Decimal(14, 2)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseRequestId])
+}
+
+/// Pedido de compra emitido a um fornecedor a partir de uma requisição
+/// aprovada. `constructionSiteId`/`costCenterId` são copiados da requisição
+/// no momento da criação (não são escolhidos de novo pelo usuário).
+model PurchaseOrder {
+  id                   String              @id @default(uuid()) @db.Uuid
+  companyId            String              @db.Uuid
+  purchaseRequestId    String              @db.Uuid
+  supplierId           String              @db.Uuid
+  /// Copiado da solicitação de origem — nulo quando o centro de custo dela não
+  /// pertence a nenhuma obra. Ver a nota em `PurchaseRequest.constructionSiteId`.
+  constructionSiteId   String?             @db.Uuid
+  costCenterId         String              @db.Uuid
+  code                 String
+  status               PurchaseOrderStatus @default(OPEN)
+  totalAmount          Decimal             @db.Decimal(14, 2)
+  issueDate            DateTime
+  expectedDeliveryDate DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  deletedAt            DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  purchaseRequest  PurchaseRequest   @relation(fields: [purchaseRequestId], references: [id])
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
+
+  invoices Invoice[]
+
+  @@unique([companyId, code])
+  @@index([supplierId])
+  @@index([status])
+  @@index([purchaseRequestId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseOrder_code_trgm_idx")
+
+}
+
+// =============================================================================
+// RH
+// =============================================================================
+
+/// Funcionário (folha de pagamento / mão de obra própria).
+model Employee {
+  id              String         @id @default(uuid()) @db.Uuid
+  companyId       String         @db.Uuid
+  name            String
+  cpf             String
+  position        String
+  status          EmployeeStatus @default(ACTIVE)
+  hireDate        DateTime
+  terminationDate DateTime?
+  baseSalary      Decimal?       @db.Decimal(14, 2)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+
+  company           Company              @relation(fields: [companyId], references: [id])
+  allocations       EmployeeAllocation[]
+  timeEntries       TimeEntry[]
+  productionEntries ProductionEntry[]
+  payslips          Payslip[]
+
+  @@unique([companyId, cpf])
+  @@index([companyId])
+  @@index([status])
+  @@index([position])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_name_trgm_idx")
+  @@index([cpf(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_cpf_trgm_idx")
+  @@index([position(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_position_trgm_idx")
+
+}
+
+/// Alocação de um funcionário em uma obra/centro de custo por período.
+/// A alocação "atual" de um funcionário é a de maior startDate sem endDate
+/// (ou com endDate futuro) — não há um campo de status dedicado.
+model EmployeeAllocation {
+  id                 String    @id @default(uuid()) @db.Uuid
+  employeeId         String    @db.Uuid
+  constructionSiteId String    @db.Uuid
+  costCenterId       String?   @db.Uuid
+  startDate          DateTime
+  endDate            DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  employee         Employee         @relation(fields: [employeeId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter?      @relation(fields: [costCenterId], references: [id])
+
+  @@index([employeeId])
+  @@index([constructionSiteId])
+}
+
+/// Apontamento de ponto (entrada/saída) de um funcionário. `status` e
+/// `hoursWorked` são derivados de checkIn/checkOut pelo backend, nunca
+/// setados à mão pelo cliente da API.
+model TimeEntry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  employeeId         String          @db.Uuid
+  constructionSiteId String?         @db.Uuid
+  date               DateTime        @db.Date
+  checkIn            DateTime?
+  checkOut           DateTime?
+  hoursWorked        Decimal?        @db.Decimal(5, 2)
+  status             TimeEntryStatus @default(OPEN)
+  notes              String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
+
+  employee         Employee          @relation(fields: [employeeId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
+
+  @@index([employeeId, date])
+  @@index([constructionSiteId, date])
+}
+
+/// Apontamento de produção/produtividade de um funcionário na obra
+/// (ex.: m² de alvenaria executados no dia).
+model ProductionEntry {
+  id                 String    @id @default(uuid()) @db.Uuid
+  employeeId         String    @db.Uuid
+  constructionSiteId String    @db.Uuid
+  costCenterId       String?   @db.Uuid
+  date               DateTime  @db.Date
+  description        String
+  quantity           Decimal   @db.Decimal(12, 3)
+  unit               String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  employee         Employee         @relation(fields: [employeeId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter?      @relation(fields: [costCenterId], references: [id])
+
+  @@index([employeeId, date])
+  @@index([constructionSiteId, date])
+}
+
+/// Holerite mensal do funcionário. Editável enquanto `paidAt` estiver vazio;
+/// uma vez marcado como pago, o registro trava (correções geram um novo
+/// registro em vez de sobrescrever o anterior). O PDF é anexado via o model
+/// genérico `Attachment` (entityType="Payslip").
+model Payslip {
+  id             String    @id @default(uuid()) @db.Uuid
+  employeeId     String    @db.Uuid
+  referenceYear  Int
+  referenceMonth Int
+  grossSalary    Decimal   @db.Decimal(14, 2)
+  deductions     Decimal   @db.Decimal(14, 2)
+  netSalary      Decimal   @db.Decimal(14, 2)
+  paidAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, referenceYear, referenceMonth])
+  @@index([employeeId])
+}
+
+// =============================================================================
+// TERCEIROS
+// =============================================================================
+
+/// Terceiro/subempreiteiro (prestador de serviço de mão de obra).
+/// Modelado separado de Supplier por domínio de negócio (RH terceirizado vs.
+/// fornecimento de materiais), mesmo que na prática possam ser a mesma pessoa
+/// jurídica em alguns casos.
+model Contractor {
+  id              String           @id @default(uuid()) @db.Uuid
+  companyId       String           @db.Uuid
+  legalName       String
+  tradeName       String?
+  document        String // CNPJ ou CPF
+  specialty       String?
+  responsibleName String?
+  status          ContractorStatus @default(ACTIVE)
+  email           String?
+  phone           String?
+  city            String?
+  state           String?          @db.VarChar(2)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  company   Company              @relation(fields: [companyId], references: [id])
+  contracts ContractorContract[]
+
+  @@unique([companyId, document])
+  @@index([companyId])
+  @@index([status])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([legalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_legalName_trgm_idx")
+  @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_tradeName_trgm_idx")
+  @@index([document(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_document_trgm_idx")
+
+}
+
+/// Contrato de terceirização entre a empresa e um Contractor para uma obra.
+/// `status` só registra encerramento manual (antes do prazo) — o badge
+/// vigente/vencendo/encerrado exibido na tela combina isto com `endDate`
+/// (ver ContractorContractsService.withComputedStatus).
+model ContractorContract {
+  id                 String         @id @default(uuid()) @db.Uuid
+  companyId          String         @db.Uuid
+  contractorId       String         @db.Uuid
+  constructionSiteId String         @db.Uuid
+  code               String
+  scope              String
+  totalValue         Decimal        @db.Decimal(14, 2)
+  startDate          DateTime
+  endDate            DateTime
+  status             ContractStatus @default(ACTIVE)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  deletedAt          DateTime?
+
+  company          Company          @relation(fields: [companyId], references: [id])
+  contractor       Contractor       @relation(fields: [contractorId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+
+  documents ContractDocument[]
+  employees ContractEmployee[]
+
+  @@unique([companyId, code])
+  @@index([contractorId])
+  @@index([constructionSiteId])
+  @@index([endDate])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "ContractorContract_code_trgm_idx")
+
+}
+
+/// Documento obrigatório vinculado a um contrato de terceirização (ex.:
+/// apólice de seguro, ART, certidões). O arquivo em si é anexado via o
+/// model genérico `Attachment` (entityType="ContractDocument"), mesmo
+/// padrão já usado pelo holerite do módulo de RH.
+model ContractDocument {
+  id         String    @id @default(uuid()) @db.Uuid
+  contractId String    @db.Uuid
+  name       String
+  issueDate  DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  contract ContractorContract @relation(fields: [contractId], references: [id])
+
+  @@index([contractId])
+  @@index([expiresAt])
+}
+
+/// Funcionário da empresa terceirizada alocado num contrato específico
+/// (distinto de `Employee`, que é mão de obra própria — ver módulo de RH).
+model ContractEmployee {
+  id         String    @id @default(uuid()) @db.Uuid
+  contractId String    @db.Uuid
+  name       String
+  role       String
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  contract ContractorContract @relation(fields: [contractId], references: [id])
+
+  @@index([contractId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "ContractEmployee_name_trgm_idx")
+
+}
+
+// =============================================================================
+// FINANCEIRO
+// =============================================================================
+
+/// Nota fiscal emitida por um fornecedor — origem das parcelas de contas a
+/// pagar. Nasce sempre vinculada a uma ordem de compra (cadeia
+/// PurchaseOrder -> Invoice -> AccountPayable -> Payment); obra e centro de
+/// custo são copiados da ordem no momento da criação.
+model Invoice {
+  id                 String        @id @default(uuid()) @db.Uuid
+  companyId          String        @db.Uuid
+  supplierId         String        @db.Uuid
+  purchaseOrderId    String        @db.Uuid
+  constructionSiteId String?       @db.Uuid
+  costCenterId       String?       @db.Uuid
+  number             String
+  series             String?
+  issueDate          DateTime
+  totalAmount        Decimal       @db.Decimal(14, 2)
+  status             InvoiceStatus @default(RECEIVED)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  purchaseOrder    PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
+
+  accountsPayable AccountPayable[]
+
+  @@unique([supplierId, series, number])
+  @@index([companyId])
+  @@index([status])
+  @@index([purchaseOrderId])
+  @@index([issueDate])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([number(ops: raw("gin_trgm_ops"))], type: Gin, map: "Invoice_number_trgm_idx")
+
+}
+
+/// Parcela de contas a pagar gerada ao validar uma nota fiscal. `status` é
+/// recalculado a cada mudança nos pagamentos vinculados (soma dos pagamentos
+/// PAID vs. `amount`) — nunca setado à mão pelo cliente da API.
+model AccountPayable {
+  id        String               @id @default(uuid()) @db.Uuid
+  companyId String               @db.Uuid
+  invoiceId String               @db.Uuid
+  dueDate   DateTime
+  amount    Decimal              @db.Decimal(14, 2)
+  status    AccountPayableStatus @default(OPEN)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  deletedAt DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  payments Payment[]
+
+  @@index([invoiceId])
+  @@index([dueDate])
+  @@index([status])
+  @@index([companyId])
+}
+
+/// Pagamento efetuado contra uma parcela de contas a pagar. Relação 1:N com
+/// AccountPayable para suportar pagamentos parciais. Tem ciclo de vida
+/// próprio (`status`) e soft delete, como as demais entidades do módulo —
+/// só pagamentos com status PAID contam pro saldo quitado da parcela.
+model Payment {
+  id               String              @id @default(uuid()) @db.Uuid
+  accountPayableId String              @db.Uuid
+  amount           Decimal             @db.Decimal(14, 2)
+  paidAt           DateTime
+  method           String?
+  status           PaymentRecordStatus @default(PENDING)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  deletedAt        DateTime?
+
+  accountPayable AccountPayable @relation(fields: [accountPayableId], references: [id], onDelete: Cascade)
+
+  @@index([accountPayableId])
+  @@index([paidAt])
+}
+
+// =============================================================================
+// GERAL
+// =============================================================================
+
+/// Anexo genérico associado a qualquer entidade do sistema (associação
+/// polimórfica via entityType/entityId, sem FK física para permitir anexar
+/// arquivos a qualquer model presente ou futuro sem alterar este schema).
+model Attachment {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  entityType   String // nome do model relacionado, ex.: "PurchaseRequest", "Invoice"
+  entityId     String    @db.Uuid
+  fileName     String
+  fileUrl      String
+  mimeType     String
+  sizeBytes    Int?
+  uploadedById String?   @db.Uuid
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  company    Company @relation(fields: [companyId], references: [id])
+  uploadedBy User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([companyId])
+}
+
+/// Log de auditoria — registro imutável de ações relevantes no sistema.
+/// Nunca recebe soft delete; `userId` fica nulo (via SetNull) se o usuário
+/// autor for removido, preservando o histórico.
+model AuditLog {
+  id         String      @id @default(uuid()) @db.Uuid
+  companyId  String      @db.Uuid
+  userId     String?     @db.Uuid
+  action     AuditAction
+  entityType String
+  entityId   String      @db.Uuid
+  ipAddress  String?
+  changes    Json?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+/// Comentário associado a qualquer entidade do sistema, mesma associação
+/// polimórfica (entityType/entityId) usada por Attachment — módulo de
+/// Workflow (ver apps/api/src/workflow) é o único escritor hoje.
+model WorkflowComment {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @db.Uuid
+  entityType String
+  entityId   String    @db.Uuid
+  authorId   String    @db.Uuid
+  body       String
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([companyId])
+}
+
+/// Parâmetros gerais do ERP — uma linha por empresa (1:1), criada sob demanda
+/// com defaults na primeira leitura (ver SystemSettingsService.getOrCreate).
+/// `notificationsEnabled`/`auditEnabled`/`allowAttachments`/`maxUploadSizeMb`
+/// são preferências armazenadas aqui; nenhum outro módulo lê/aplica esses
+/// valores ainda (ver notas de evolução futura).
+model SystemSettings {
+  id                   String        @id @default(uuid()) @db.Uuid
+  companyId            String        @unique @db.Uuid
+  /// Como o cliente chama o sistema. O padrão é neutro de propósito: o produto
+  /// não nasce com o nome de nenhum cliente. Cada empresa renomeia em
+  /// Configurações → Sistema, e a interface usa o nome do produto enquanto
+  /// isso não acontecer.
+  erpName              String        @default("ERP")
+  theme                SettingsTheme @default(SYSTEM)
+  language             String        @default("pt-BR")
+  timezone             String        @default("America/Sao_Paulo")
+  currency             String        @default("BRL")
+  dateFormat           String        @default("DD/MM/YYYY")
+  firstDayOfWeek       Int           @default(0)
+  dueDateAlertDays     Int           @default(7)
+  /// Alçada de aprovação. `0` (padrão) mantém o comportamento antigo: sem
+  /// alçada nenhuma. Acima de zero, aprovar uma solicitação de compra ou
+  /// registrar um pagamento com valor MAIOR que este limite passa a exigir a
+  /// permissão `<módulo>.approve`, além da de escrita.
+  purchaseApprovalThreshold Decimal  @default(0) @db.Decimal(14, 2)
+  paymentApprovalThreshold  Decimal  @default(0) @db.Decimal(14, 2)
+  maxUploadSizeMb      Int           @default(10)
+  allowAttachments     Boolean       @default(true)
+  notificationsEnabled Boolean       @default(true)
+  auditEnabled         Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+}
+
+/// Preferência de canal de notificação por evento (catálogo fixo de eventos
+/// definido em código — ver NOTIFICATION_EVENTS). `channelWhatsapp`/`channelPush`
+/// existem só como estrutura preparatória: a interface os expõe desabilitados
+/// e nenhuma integração real de envio existe ainda para nenhum canal.
+model NotificationPreference {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  eventKey        String
+  channelSystem   Boolean  @default(true)
+  channelEmail    Boolean  @default(false)
+  channelWhatsapp Boolean  @default(false)
+  channelPush     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, eventKey])
+}

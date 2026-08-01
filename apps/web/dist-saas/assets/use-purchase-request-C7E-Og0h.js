@@ -1,0 +1,1 @@
+import{O as e}from"./index-DvkMg3lm.js";import{o as t}from"./api-D727CkvX.js";function n(n){return e({queryKey:[`purchase-requests`,`detail`,n],queryFn:()=>t(n),enabled:!!n})}export{n as t};

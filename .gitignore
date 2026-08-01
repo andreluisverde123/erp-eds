@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Environment
+# `.env*` (e não só `.env`/`.env.local`): antes, um `.env.production` ou
+# `.env.staging` com credenciais reais do Supabase entrava no commit sem
+# nenhum aviso. O `!.env.example` mantém os templates versionados.
+.env*
+!.env.example
+
+# Secrets / certificados — nunca versionados.
+*.pem
+*.p12
+*.pfx
+
+# Documento de acessos gerado por `scripts/demo/gerar-doc-acessos.py`: leva a
+# URL da demonstração e a senha dos usuários em texto puro. O script é
+# versionado; o .docx que ele cospe, não.
+*-acessos-*.docx
+
+# Prisma
+apps/api/generated/
+apps/api/prisma/migrations/dev.db*
+
+# Uploads (dev-local disk storage)
+apps/api/uploads/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Ferramentas
+# Configuração local do Claude Code (permissões da máquina). Estava sendo
+# ignorada só pelo gitignore global do usuário — em outra máquina ou num
+# clone de terceiro ela seria commitada. `settings.json` (compartilhado)
+# continua versionável.
+.claude/settings.local.json
+.vercel
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+Thumbs.db

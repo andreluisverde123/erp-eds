@@ -1,0 +1,18 @@
+# Ambiente de desenvolvimento local.
+# Em produção o Postgres é gerenciado pelo Supabase; este serviço existe
+# apenas como alternativa local caso não se use `supabase start`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: eds
+    ports:
+      - '5432:5432'
+    volumes:
+      - eds_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  eds_postgres_data:

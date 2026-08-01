@@ -1,0 +1,1 @@
+import{O as e}from"./index-DTdb2vzA.js";import{l as t}from"./api-TdLKEpaT.js";function n(){return e({queryKey:[`permissions`],queryFn:()=>t()})}export{n as t};

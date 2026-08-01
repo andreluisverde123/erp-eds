@@ -1,0 +1,1 @@
+import{N as e,O as t}from"./index-DvkMg3lm.js";import{o as n}from"./api-dRPZDWMN.js";function r(r){return t({queryKey:[`construction-sites`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

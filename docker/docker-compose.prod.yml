@@ -1,0 +1,117 @@
+# Stack de produção (API + web) servida em ORIGEM ÚNICA: só o nginx do serviço
+# `web` fica exposto, e ele repassa /api para a API. Isso resolve o cookie de
+# refresh (SameSite=Lax) e mantém o bundle livre de qualquer URL absoluta —
+# a mesma imagem roda em qualquer domínio.
+#
+# Rode a partir da RAIZ do monorepo:
+#
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Para publicar numa URL HTTPS temporária, sem domínio próprio, some
+# `--profile tunnel` (ver o serviço `tunnel` abaixo).
+#
+# O banco NÃO faz parte da stack por padrão — em produção ele é o Supabase
+# (DATABASE_URL/DIRECT_URL apontando para lá). O serviço `postgres` abaixo está
+# atrás do profile `local-db` e existe só para subir a stack inteira numa
+# máquina só (homologação, demo offline):
+#
+#   docker compose -f docker/docker-compose.prod.yml --profile local-db up -d --build
+#
+# Antes do primeiro `up` (e depois de toda mudança de schema), aplique as
+# migrations com a imagem `migrate` — ver docs/deploy.md.
+
+name: eds
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    init: true # PID 1 correto: SIGTERM chega ao Node e o shutdown fica limpo.
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # O nginx do serviço `web` fica na frente da API em qualquer deploy real.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Origem única: o navegador vê /api/auth/refresh, então o cookie do
+      # refresh token tem que viver em /api/auth (senão não é enviado e a
+      # sessão cai quando o access token expira).
+      REFRESH_COOKIE_PATH: ${REFRESH_COOKIE_PATH:-/api/auth}
+      # Com front e API na mesma origem o navegador nem faz preflight — este
+      # valor só importa se algum cliente externo chamar a API direto.
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      DATABASE_URL: ${DATABASE_URL:?defina a URL do Postgres (pooler, porta 6543 no Supabase)}
+      DIRECT_URL: ${DIRECT_URL:?defina a URL direta do Postgres (porta 5432)}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?defina um segredo de no mínimo 32 caracteres}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?defina um segredo de no mínimo 32 caracteres}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Sem `ports`: a API só é alcançável pelo nginx, dentro da rede do compose.
+    # Quem quiser depurar de fora sobe com `--profile expose-api` (abaixo) ou
+    # usa `docker compose exec`.
+    expose:
+      - '3000'
+    volumes:
+      # Anexos (holerites, documentos de contrato, logo). Sem este volume os
+      # arquivos enviados somem no próximo deploy.
+      - eds_uploads:/app/apps/api/uploads
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/web.Dockerfile
+      args:
+        # Caminho RELATIVO de propósito: nenhuma URL absoluta entra no bundle,
+        # então a mesma imagem serve o túnel temporário de hoje e o domínio
+        # definitivo de amanhã, sem rebuild. O nginx repassa /api para a API.
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        # Qual produto esta imagem é. Padrão = plataforma multi-inquilino; uma
+        # instalação dedicada sobrescreve as três no .env do ambiente.
+        VITE_PRODUCT_NAME: ${VITE_PRODUCT_NAME:-OManager}
+        VITE_PRODUCT_LOGO: ${VITE_PRODUCT_LOGO:-/logo-product.svg}
+        VITE_SHOW_TENANT_BADGE: ${VITE_SHOW_TENANT_BADGE:-true}
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:80'
+    depends_on:
+      - api
+
+  # Túnel temporário: publica a stack numa URL HTTPS aleatória
+  # (*.trycloudflare.com) sem domínio próprio, sem conta na Cloudflare e sem
+  # abrir porta no roteador. Sobe com `--profile tunnel`; a URL aparece no log:
+  #
+  #   docker compose -f docker/docker-compose.prod.yml --profile tunnel logs -f tunnel
+  #
+  # Limitações reais: a URL muda a cada restart do container e o túnel morre
+  # junto com a máquina que o roda — serve para alguém testar, não para
+  # produção.
+  tunnel:
+    profiles: ['tunnel']
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://web:80
+    depends_on:
+      - web
+
+  # Só sobe com `--profile local-db`.
+  postgres:
+    profiles: ['local-db']
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-eds}
+    volumes:
+      - eds_prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  eds_uploads:
+  eds_prod_postgres_data:

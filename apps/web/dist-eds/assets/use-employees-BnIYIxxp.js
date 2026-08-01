@@ -1,0 +1,1 @@
+import{N as e,O as t}from"./index-DTdb2vzA.js";import{f as n,p as r}from"./api-BFONZfsm.js";function i(n){return t({queryKey:[`employees`,`list`,n],queryFn:()=>r(n),placeholderData:e})}function a(){return t({queryKey:[`employees`,`positions`],queryFn:()=>n()})}export{i as n,a as t};
