@@ -15,6 +15,7 @@ import { memoryStorage } from 'multer';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import type { JwtPayload } from '../../auth/types/jwt-payload.type';
+import { assertInertAttachment } from '../../common/uploads/attachment-content';
 import { ALLOWED_ENTITY_TYPES, requiredPermissionFor } from '../common/entity-permission.util';
 import { WorkflowAttachmentsService } from './workflow-attachments.service';
 
@@ -43,7 +44,7 @@ export class WorkflowAttachmentsController {
       // aqui (interceptor roda depois de guard), então `req.user` está
       // populado. Ficava no `destination` do diskStorage; com armazenamento em
       // memória, `fileFilter` é o gancho equivalente.
-      fileFilter: (req, _file, callback) => {
+      fileFilter: (req, file, callback) => {
         const entityType = (req.params as { entityType?: string }).entityType;
         const user = (req as { user?: JwtPayload }).user;
 
@@ -58,6 +59,15 @@ export class WorkflowAttachmentsController {
             new ForbiddenException('Você não tem permissão para anexar arquivos a este registro.'),
             false,
           );
+          return;
+        }
+
+        // Mesma barreira de conteúdo ativo do módulo `attachments`: estes
+        // arquivos saem pelo mesmo `FilesController`, então o vetor era o mesmo.
+        try {
+          assertInertAttachment(file);
+        } catch (error) {
+          callback(error as Error, false);
           return;
         }
 

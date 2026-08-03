@@ -1,1 +1,0 @@
-import{N as e,O as t}from"./index-DTdb2vzA.js";import{s as n}from"./api-mAU1zgnF.js";function r(r){return t({queryKey:[`purchase-orders`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

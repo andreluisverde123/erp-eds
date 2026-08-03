@@ -70,6 +70,11 @@ jobs:
       CORS_ORIGIN: http://localhost:5173
       JWT_ACCESS_SECRET: ci-access-secret-com-no-minimo-32-caracteres
       JWT_REFRESH_SECRET: ci-refresh-secret-com-no-minimo-32-caracteres
+      # Exercita o caminho de bootstrap de uma instalação nova: sem estas duas,
+      # o seed popula só o catálogo de permissões e o banco fica sem ninguém que
+      # consiga logar. O e2e verifica exatamente isso.
+      BOOTSTRAP_ADMIN_EMAIL: ci-admin@exemplo.test
+      BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-2026
     steps:
       - uses: actions/checkout@v4
 

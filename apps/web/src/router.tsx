@@ -6,6 +6,7 @@ import { PlaceholderPage } from '@/pages/placeholder-page';
 import { ProtectedRoute } from '@/features/auth/protected-route';
 import { RequirePermission } from '@/features/auth/require-permission';
 import { navLinks } from '@/config/nav';
+import { PUBLIC_SIGNUP_ENABLED } from '@/config/company';
 
 import {
   AlocacoesPage,
@@ -69,13 +70,19 @@ export const router = createBrowserRouter([
       </SuspendedOutlet>
     ),
   },
-  // Pública como o login: quem se cadastra ainda não tem sessão.
+  // Auto-cadastro de construtora. Este ERP é da EDS e tem uma empresa só, então
+  // a rota fica desligada: quem chegar nela vai para o login. A tela e o
+  // endpoint continuam no código (`PUBLIC_SIGNUP_ENABLED` na API os reabilita)
+  // porque provisionar uma nova base ainda passa por eles — mas isso é operação
+  // de implantação, não função da aplicação.
   {
     path: '/cadastro',
-    element: (
+    element: PUBLIC_SIGNUP_ENABLED ? (
       <SuspendedOutlet>
         <CadastroPage />
       </SuspendedOutlet>
+    ) : (
+      <Navigate to="/login" replace />
     ),
   },
   {

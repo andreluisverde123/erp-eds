@@ -6,6 +6,10 @@ node_modules/
 # Build outputs
 dist/
 dist-ssr/
+# Builds paralelos do experimento de bifurcação SaaS x EDS. O ERP tem um
+# destino de build só (dist/); qualquer variante aqui é resíduo.
+dist-eds/
+dist-saas/
 build/
 *.tsbuildinfo
 

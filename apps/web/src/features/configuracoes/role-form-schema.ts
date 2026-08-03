@@ -16,8 +16,12 @@ export const ROLE_FORM_DEFAULTS: RoleFormValues = {
   permissionCodes: [],
 };
 
+/// `SUPER_ADMIN` sai daqui de propósito. O tipo continua no enum do banco, mas
+/// nenhuma linha de código concede alcance além da própria empresa — e num ERP
+/// de empresa única não haveria o que alcançar. Oferecê-lo na tela prometia um
+/// poder inexistente: o administrador criava o papel achando que ganhava algo
+/// e recebia exatamente as permissões que tivesse marcado, nem mais nem menos.
 export const ROLE_TYPE_OPTIONS = [
-  { value: 'SUPER_ADMIN', label: 'Super Administrador' },
   { value: 'ADMIN', label: 'Administrador' },
   { value: 'MANAGER', label: 'Gerente' },
   { value: 'ENGINEER', label: 'Engenharia' },

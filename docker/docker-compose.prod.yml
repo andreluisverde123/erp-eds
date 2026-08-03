@@ -10,7 +10,7 @@
 # Para publicar numa URL HTTPS temporária, sem domínio próprio, some
 # `--profile tunnel` (ver o serviço `tunnel` abaixo).
 #
-# O banco NÃO faz parte da stack por padrão — em produção ele é o Supabase
+# O banco NÃO faz parte da stack por padrão — em produção ele é o Neon
 # (DATABASE_URL/DIRECT_URL apontando para lá). O serviço `postgres` abaixo está
 # atrás do profile `local-db` e existe só para subir a stack inteira numa
 # máquina só (homologação, demo offline):
@@ -41,13 +41,19 @@ services:
       # Com front e API na mesma origem o navegador nem faz preflight — este
       # valor só importa se algum cliente externo chamar a API direto.
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
-      DATABASE_URL: ${DATABASE_URL:?defina a URL do Postgres (pooler, porta 6543 no Supabase)}
-      DIRECT_URL: ${DIRECT_URL:?defina a URL direta do Postgres (porta 5432)}
+      # Em produção as duas precisam declarar `sslmode` (a API se recusa a subir
+      # sem — ver env.validation.ts). No Neon: host com sufixo `-pooler` na
+      # DATABASE_URL, host sem o sufixo na DIRECT_URL, ambas com
+      # `?sslmode=require`. Com `--profile local-db`, `?sslmode=disable`.
+      DATABASE_URL: ${DATABASE_URL:?defina a URL do Postgres pelo pooler, com sslmode declarado}
+      DIRECT_URL: ${DIRECT_URL:?defina a URL direta do Postgres (sem pooler), com sslmode declarado}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?defina um segredo de no mínimo 32 caracteres}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?defina um segredo de no mínimo 32 caracteres}
       JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Auto-cadastro de empresa. Desligado: o ERP da EDS tem uma empresa só.
+      PUBLIC_SIGNUP_ENABLED: ${PUBLIC_SIGNUP_ENABLED:-false}
     # Sem `ports`: a API só é alcançável pelo nginx, dentro da rede do compose.
     # Quem quiser depurar de fora sobe com `--profile expose-api` (abaixo) ou
     # usa `docker compose exec`.
@@ -67,11 +73,10 @@ services:
         # então a mesma imagem serve o túnel temporário de hoje e o domínio
         # definitivo de amanhã, sem rebuild. O nginx repassa /api para a API.
         VITE_API_URL: ${VITE_API_URL:-/api}
-        # Qual produto esta imagem é. Padrão = plataforma multi-inquilino; uma
-        # instalação dedicada sobrescreve as três no .env do ambiente.
-        VITE_PRODUCT_NAME: ${VITE_PRODUCT_NAME:-OManager}
-        VITE_PRODUCT_LOGO: ${VITE_PRODUCT_LOGO:-/logo-product.svg}
-        VITE_SHOW_TENANT_BADGE: ${VITE_SHOW_TENANT_BADGE:-true}
+        # Auto-cadastro de construtora, desligado: o ERP da EDS tem uma empresa
+        # só. Ligar apenas para provisionar uma base nova, junto com
+        # PUBLIC_SIGNUP_ENABLED=true no serviço `api`.
+        VITE_PUBLIC_SIGNUP_ENABLED: ${VITE_PUBLIC_SIGNUP_ENABLED:-false}
     restart: unless-stopped
     ports:
       - '${WEB_PORT:-8080}:80'

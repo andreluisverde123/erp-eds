@@ -3,6 +3,11 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/types/jwt-payload.type';
+import {
+  resolveDeliveryContentType,
+  resolveImageContentType,
+  sanitizeDownloadFileName,
+} from '../common/uploads/attachment-content';
 import { requiredPermissionForEntity } from '../configuracoes/audit-logs/entity-permissions.constant';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.module';
@@ -43,6 +48,10 @@ export class FilesController {
       select: { id: true },
     });
     if (!company) throw new NotFoundException();
+
+    // Fica inline (é renderizado num `<img>`), mas com o tipo derivado da
+    // extensão em vez de adivinhado pelo navegador — ver `resolveImageContentType`.
+    res.type(resolveImageContentType(filename));
 
     return this.stream(`logos/${filename}`, res);
   }
@@ -106,11 +115,33 @@ export class FilesController {
       throw new ForbiddenException('Você não tem permissão para acessar este arquivo.');
     }
 
-    if (attachment.mimeType) res.type(attachment.mimeType);
+    // O Content-Type NUNCA é o que o cliente declarou no upload — ver
+    // `resolveDeliveryContentType`. Anexo sai sempre como download.
+    res.type(resolveDeliveryContentType(attachment.mimeType));
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${sanitizeDownloadFileName(attachment.fileName)}"`,
+    );
+
     return this.stream(`${dir}/${filename}`, res);
   }
 
+  /// Headers que valem para TUDO que sai deste controller, logo e anexo.
+  ///
+  /// A CSP existe aqui porque a global está desligada em `main.ts` (a API só
+  /// responde JSON/arquivo, e uma CSP de página não faria sentido) — mas estas
+  /// respostas são a exceção: são o único conteúdo que um navegador pode
+  /// tentar interpretar, e vêm da MESMA origem do SPA. `default-src 'none'` +
+  /// `sandbox` neutraliza qualquer script que tenha escapado do filtro de
+  /// upload. `nosniff` impede o navegador de ignorar o Content-Type que
+  /// acabamos de escolher e adivinhar outro pelo conteúdo.
+  private applySafetyHeaders(res: Response): void {
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+
   private async stream(key: string, res: Response) {
+    this.applySafetyHeaders(res);
     const stream = await this.storage.getStream(key);
     stream.on('error', () => res.destroy());
     stream.pipe(res);

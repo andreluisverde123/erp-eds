@@ -22,7 +22,7 @@ import {
   Input,
 } from '@repo/ui';
 
-import { ProductLogo } from '@/components/product-logo';
+import { CompanyLogo } from '@/components/company-logo';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/features/auth/context';
 
@@ -83,7 +83,7 @@ export function TrocarSenhaPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted/30 px-4 py-10">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <ProductLogo />
+          <CompanyLogo />
           <CardTitle className="mt-3 text-xl font-semibold text-foreground">
             Defina sua senha
           </CardTitle>

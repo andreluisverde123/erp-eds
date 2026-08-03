@@ -1,31 +1,32 @@
 import { useAuth } from './context';
-import { PRODUCT_LOGO, PRODUCT_NAME } from '@/config/product';
+import { APP_LOGO, APP_NAME, COMPANY_NAME } from '@/config/company';
 
 export interface Brand {
   /// O que aparece como nome do sistema.
   name: string;
   /// Caminho do logo a exibir.
   logo: string;
-  /// Nome do inquilino logado (`null` fora da sessão) — a construtora, não o
-  /// sistema. É o que vai no rodapé da barra lateral.
-  tenantName: string | null;
+  /// Nome da construtora — o que vai no rodapé da barra lateral. Nunca `null`:
+  /// a empresa é única e conhecida antes de existir sessão.
+  companyName: string;
 }
 
 /// Precedência da marca, do mais específico ao mais genérico:
 ///
-/// 1. o nome que o próprio cliente deu ao sistema (Configurações → Sistema)
-/// 2. o nome do produto, por variável de ambiente
+/// 1. o nome e o logo que a própria EDS gravou em Configurações → Sistema
+/// 2. a configuração central da aplicação (`EDS_COMPANY`)
 ///
-/// O logo segue a mesma lógica: o do inquilino quando existe, o do produto
-/// quando não. Nenhuma das duas pontas está fixa no código dos componentes —
-/// é isso que permite a mesma build servir os dois produtos e qualquer cliente.
+/// O primeiro nível continua existindo porque é dado editável pelo usuário
+/// administrador na própria tela de Configurações — não é resquício de
+/// multi-inquilino. O segundo é o que a aplicação mostra antes de existir
+/// sessão (login, splash) e quando nada foi personalizado.
 export function useBrand(): Brand {
   const { user } = useAuth();
-  const tenant = user?.tenant ?? null;
+  const settings = user?.tenant ?? null;
 
   return {
-    name: tenant?.erpName || PRODUCT_NAME,
-    logo: tenant?.logoUrl ?? PRODUCT_LOGO,
-    tenantName: tenant?.name ?? null,
+    name: settings?.erpName || APP_NAME,
+    logo: settings?.logoUrl ?? APP_LOGO,
+    companyName: settings?.name ?? COMPANY_NAME,
   };
 }

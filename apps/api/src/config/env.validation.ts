@@ -1,5 +1,30 @@
 import * as Joi from 'joi';
 
+/// Em produção a URL do Postgres precisa dizer explicitamente o que fazer com
+/// TLS. Não é preciosismo: a aplicação conecta pelo driver adapter
+/// (`PrismaPg` → `pg`), e o `pg` **só liga TLS se `sslmode` estiver na string
+/// de conexão**. Um Postgres gerenciado (Neon, Supabase, RDS) recusa conexão
+/// em texto puro, então o sintoma é um erro de conexão no boot que não indica
+/// a causa; num banco que aceite texto puro, o sintoma é pior — sobe calado,
+/// com as credenciais trafegando sem criptografia.
+///
+/// A regra exige uma DECISÃO, não um valor: `sslmode=require` no banco
+/// gerenciado, `sslmode=disable` no Postgres da própria rede
+/// (`docker-compose.prod.yml --profile local-db`). O que não passa é omitir.
+const productionPostgresUrl = Joi.string()
+  .uri({ scheme: ['postgresql', 'postgres'] })
+  .pattern(/[?&]sslmode=/)
+  .required()
+  .messages({
+    'string.pattern.base':
+      'precisa declarar sslmode na string de conexão (ex.: ?sslmode=require num banco gerenciado, ' +
+      '?sslmode=disable num Postgres da própria rede). Sem isso o driver conecta sem TLS.',
+  });
+
+const postgresUrl = Joi.string()
+  .uri({ scheme: ['postgresql', 'postgres'] })
+  .required();
+
 /// Validado uma única vez no boot pelo `ConfigModule.forRoot({ validationSchema })`.
 /// Se qualquer variável obrigatória faltar ou tiver formato inválido, o
 /// processo derruba imediatamente com uma mensagem clara — em vez de subir
@@ -10,12 +35,16 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().port().default(3000),
 
-  DATABASE_URL: Joi.string()
-    .uri({ scheme: ['postgresql', 'postgres'] })
-    .required(),
-  DIRECT_URL: Joi.string()
-    .uri({ scheme: ['postgresql', 'postgres'] })
-    .required(),
+  DATABASE_URL: Joi.alternatives().conditional('NODE_ENV', {
+    is: 'production',
+    then: productionPostgresUrl,
+    otherwise: postgresUrl,
+  }),
+  DIRECT_URL: Joi.alternatives().conditional('NODE_ENV', {
+    is: 'production',
+    then: productionPostgresUrl,
+    otherwise: postgresUrl,
+  }),
 
   // Número de proxies confiáveis na frente da API (nginx/ALB = 1). 0 desliga
   // o `trust proxy` do Express — ver o comentário em main.ts.
@@ -50,6 +79,11 @@ export const envValidationSchema = Joi.object({
   /// -vitrine com dados de exemplo e senha conhecida — nunca em ambiente
   /// publicado.
   SEED_DEMO: Joi.boolean().default(false),
+
+  /// Auto-cadastro de empresa (`POST /onboarding/signup`). Desligado por
+  /// omissão: este ERP é da EDS e tem uma empresa só. Ligar apenas para
+  /// provisionar uma base nova, e desligar em seguida.
+  PUBLIC_SIGNUP_ENABLED: Joi.boolean().default(false),
 
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')

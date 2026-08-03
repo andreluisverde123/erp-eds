@@ -32,16 +32,14 @@ WORKDIR /app
 ARG VITE_API_URL=http://localhost:3000
 ENV VITE_API_URL=$VITE_API_URL
 
-# Identidade do produto. O Vite resolve `import.meta.env` em tempo de BUILD,
-# então a marca precisa entrar aqui — não dá para trocar depois, na subida do
-# container. É o que separa a imagem da plataforma da imagem de uma instalação
-# dedicada: mesmo código-fonte, dois builds. Ver apps/web/.env.example.
-ARG VITE_PRODUCT_NAME=OManager
-ARG VITE_PRODUCT_LOGO=/logo-product.svg
-ARG VITE_SHOW_TENANT_BADGE=true
-ENV VITE_PRODUCT_NAME=$VITE_PRODUCT_NAME
-ENV VITE_PRODUCT_LOGO=$VITE_PRODUCT_LOGO
-ENV VITE_SHOW_TENANT_BADGE=$VITE_SHOW_TENANT_BADGE
+# A identidade da aplicação NÃO entra por build arg: o ERP é da EDS e a marca
+# vem de `packages/types/src/company.ts`, compilada junto com o resto. Não há
+# imagem "de outro cliente" a produzir a partir deste Dockerfile.
+#
+# Auto-cadastro de construtora, desligado. O Vite resolve `import.meta.env` em
+# tempo de BUILD, então isto precisa estar aqui e não na subida do container.
+ARG VITE_PUBLIC_SIGNUP_ENABLED=false
+ENV VITE_PUBLIC_SIGNUP_ENABLED=$VITE_PUBLIC_SIGNUP_ENABLED
 COPY turbo.json ./
 COPY packages ./packages
 COPY apps/web ./apps/web

@@ -1,1 +1,0 @@
-import{N as e,O as t}from"./index-DvkMg3lm.js";import{d as n}from"./api-CSzwv-Sl.js";function r(r){return t({queryKey:[`configuracoes-users`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

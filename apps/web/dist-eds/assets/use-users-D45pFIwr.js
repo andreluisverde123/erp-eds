@@ -1,1 +1,0 @@
-import{N as e,O as t}from"./index-DTdb2vzA.js";import{d as n}from"./api-TdLKEpaT.js";function r(r){return t({queryKey:[`configuracoes-users`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

@@ -11,7 +11,7 @@ protegida → SPA), não é receita teórica.
 | API        | `docker/api.Dockerfile`                      | NestJS compilado, rodando como usuário `node`    |
 | Migrations | `docker/api.Dockerfile` (`--target migrate`) | Prisma CLI + schema, para job de pré-deploy      |
 | Web        | `docker/web.Dockerfile`                      | Bundle do Vite + nginx, que também repassa a API |
-| Banco      | Supabase (ou Postgres gerenciado)            | Fora das imagens                                 |
+| Banco      | Neon (ou outro Postgres gerenciado)          | Fora das imagens                                 |
 
 ## Origem única
 
@@ -43,12 +43,30 @@ Mínimo para produção:
 NODE_ENV=production
 CORS_ORIGIN=https://app.seu-dominio.com     # obrigatória quando NODE_ENV=production
 TRUST_PROXY=1                                # 1 = há um proxy/LB na frente
-DATABASE_URL=postgresql://…:6543/postgres?pgbouncer=true   # pooler (runtime)
-DIRECT_URL=postgresql://…:5432/postgres                    # direta (migrations)
 JWT_ACCESS_SECRET=…                          # ≥ 32 caracteres, diferente por ambiente
 JWT_REFRESH_SECRET=…                         # ≥ 32 caracteres, diferente do de cima
 LOG_LEVEL=info
+
+# Neon: o pooler é o MESMO host com sufixo `-pooler`, na porta 5432 — não há
+# porta separada. O `sslmode` é obrigatório (ver abaixo).
+DATABASE_URL=postgresql://…@ep-xxxx-pooler.sa-east-1.aws.neon.tech/eds?sslmode=require
+DIRECT_URL=postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=require
 ```
+
+**`sslmode` não é opcional em produção.** A aplicação conecta pelo driver
+adapter (`PrismaPg` → `pg`), e o `pg` **só liga TLS se `sslmode` estiver na
+string de conexão** — não há default seguro. Sem ele, o Neon recusa a conexão e
+o erro no boot não indica a causa; num Postgres que aceite texto puro, é pior:
+sobe calado, com as credenciais trafegando sem criptografia. Por isso o schema
+de validação exige a declaração explícita quando `NODE_ENV=production`:
+`?sslmode=require` num banco gerenciado, `?sslmode=disable` num Postgres da
+própria rede do Docker (`--profile local-db`). Omitir derruba o boot.
+
+Se o **scale-to-zero** do projeto Neon estiver ligado, a primeira conexão depois
+de um período ocioso leva alguns segundos. O `HEALTHCHECK` da imagem já tem
+`--start-period=40s` para isso; um orquestrador externo precisa da mesma folga,
+senão marca o container como unhealthy logo no primeiro deploy de baixa
+atividade.
 
 `TRUST_PROXY` não é detalhe: com `0` atrás de um load balancer, o rate limit
 (`ThrottlerModule`, 100 req/min) passa a contar **todo o tráfego como um único
@@ -78,20 +96,58 @@ réplicas subindo em paralelo tentariam migrar ao mesmo tempo):
 ```bash
 docker build -f docker/api.Dockerfile --target migrate -t eds-api-migrate .
 docker run --rm \
-  -e DIRECT_URL="postgresql://…:5432/postgres" \
+  -e DIRECT_URL="postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=require" \
   eds-api-migrate                      # → prisma migrate deploy
 ```
 
 Fora de container, o equivalente é `npm run prisma:deploy --workspace api`.
-O CLI usa `DIRECT_URL` (porta 5432, sem pooler): o Supavisor em transaction
-mode não suporta os comandos de DDL/advisory lock do Migrate.
+O CLI usa `DIRECT_URL` — o endpoint SEM `-pooler`: um pooler em transaction mode
+não suporta os comandos de DDL/advisory lock do Migrate.
 
-Seed (só na primeira subida de um banco vazio — cria os 6 papéis, as
-permissões e os usuários de exemplo):
+## 3b. Seed e primeiro acesso
+
+O seed tem três partes, e só a primeira roda por omissão:
+
+| Parte        | O que cria                                             | Quando roda                                              |
+| ------------ | ------------------------------------------------------ | -------------------------------------------------------- |
+| Catálogo     | as permissões do produto (tabela global, sem dono)     | sempre                                                   |
+| Bootstrap    | a empresa, os 6 papéis padrão e o administrador        | com `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` |
+| Demonstração | empresa-vitrine com dados de exemplo e senha conhecida | com `SEED_DEMO=true` — **nunca em produção**             |
+
+Rodar o seed sem as variáveis de bootstrap num banco novo popula **apenas o
+catálogo de permissões**. Não há empresa, não há papéis e não há usuário: a API
+sobe, o healthcheck passa e ninguém consegue entrar. Numa instalação nova,
+passe as duas variáveis:
 
 ```bash
-docker run --rm -e DIRECT_URL="…" --entrypoint sh eds-api-migrate -c "npx prisma db seed"
+docker run --rm \
+  -e DATABASE_URL="…" -e DIRECT_URL="…" \
+  -e BOOTSTRAP_ADMIN_EMAIL="admin@edsconstrutora.com.br" \
+  -e BOOTSTRAP_ADMIN_PASSWORD="…" \
+  --entrypoint sh eds-api-migrate -c "npx prisma db seed"
 ```
+
+Detalhes que importam:
+
+- **A senha é temporária.** O usuário nasce com `mustChangePassword`, e o
+  `PasswordChangeGuard` bloqueia todas as rotas até a troca. Ela passou por um
+  arquivo de ambiente; não serve como senha definitiva.
+- **É idempotente.** Se já existe qualquer usuário no banco, o bootstrap não faz
+  nada e diz isso no log. Rodar o seed de novo num sistema em uso não
+  ressuscita um admin com senha de um `.env` antigo.
+- **Mesmas regras de senha da aplicação**: 8 a 72 caracteres, ao menos uma letra
+  e um número. Fora disso o seed falha antes de tocar o banco.
+- **Remova as variáveis depois do primeiro acesso.** Não há razão para a senha
+  continuar em disco.
+- Os papéis vêm de `src/common/tenancy/default-roles.ts` — a mesma fonte do
+  cadastro self-service. Uma empresa criada por aqui é indistinguível de uma
+  criada por qualquer outro caminho.
+
+O `POST /onboarding/signup` continua existindo como caminho alternativo, mas
+fica fechado por `PUBLIC_SIGNUP_ENABLED=false`: este ERP é da EDS e tem uma
+empresa só. A tela `/cadastro` depende de `VITE_PUBLIC_SIGNUP_ENABLED`, que é
+variável de **build** — ligá-la custaria um rebuild da imagem web. O bootstrap
+pelo seed existe justamente para não depender de nada disso.
 
 ## 4. Build e subida
 
@@ -112,8 +168,9 @@ Ou a stack inteira:
 docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-O compose espera um banco externo (Supabase). Para subir tudo numa máquina só
-(homologação/demo), use `--profile local-db`, que adiciona um Postgres 16.
+O compose espera um banco externo (Neon). Para subir tudo numa máquina só
+(homologação/demo), use `--profile local-db`, que adiciona um Postgres 16 — e
+lembre do `?sslmode=disable` nas duas URLs, já que esse Postgres não fala TLS.
 
 ## 4b. URL temporária com Cloudflare Tunnel
 
@@ -130,17 +187,17 @@ docker compose -f docker/docker-compose.prod.yml logs tunnel | grep trycloudflar
 
 Antes de mandar o link:
 
-- **Aplique as migrations** no banco da stack (`--target migrate`, seção 3).
-  Deixar o banco vazio é proposital: sem seed não há credencial padrão exposta,
-  e quem for testar cria a própria construtora em `/cadastro`.
+- **Aplique as migrations e rode o seed com bootstrap** (seções 3 e 3b). A tela
+  `/cadastro` está desligada, então não há como criar o primeiro acesso pela
+  interface: o admin sai do bootstrap, e a senha temporária é trocada no
+  primeiro login.
 - **A URL muda a cada restart** do container do túnel, e o túnel morre junto
   com a máquina que o hospeda. É para uma sessão de teste, não para produção.
 - **Acesse pela URL do túnel, não por `http://localhost`.** Em `NODE_ENV=production`
   o cookie de sessão é `Secure`: o navegador o descarta em HTTP puro, e o
   login parece funcionar mas cai no primeiro refresh.
-- O cadastro fica **público e sem verificação de e-mail** (o módulo de e-mail
-  ainda não existe). O limite é de 5 cadastros por hora por IP; ainda assim,
-  não divulgue a URL além de quem vai testar.
+- **Não divulgue a URL além de quem vai testar.** O link é público: quem o tiver
+  chega na tela de login.
 
 ## 5. Health checks
 
@@ -199,13 +256,10 @@ na marra depois do timeout.
 
 `.github/workflows/ci.yml` roda em todo push/PR:
 
-1. **verify** — lint, type-check, build e testes unitários.
+1. **verify** — formatação (`prettier --check`), lint, type-check, build e
+   testes unitários.
 2. **e2e** — sobe um Postgres, aplica as migrations do zero, roda o seed e
    executa o smoke test de bootstrap (`apps/api/test/app.e2e-spec.ts`). É o
    passo que pega migration faltando na pasta.
 3. **docker** — constrói as duas imagens (sem publicar), pegando quebras que só
    aparecem no build limpo do container.
-
-Não há passo de `prettier --check`: a base de código nunca passou pelo
-prettier (261 arquivos divergem hoje). Para ligar, rode `npm run format` uma
-vez na raiz e adicione o passo ao job `verify`.

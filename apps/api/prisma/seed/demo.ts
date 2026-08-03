@@ -282,7 +282,7 @@ export async function seedDemo(
       timezone: 'America/Sao_Paulo',
       locale: 'pt-BR',
       currency: 'BRL',
-      primaryColor: '#db027d',
+      primaryColor: '#ED2124',
     },
     create: {
       cnpj: '00000000000100',
@@ -295,7 +295,7 @@ export async function seedDemo(
       timezone: 'America/Sao_Paulo',
       locale: 'pt-BR',
       currency: 'BRL',
-      primaryColor: '#db027d',
+      primaryColor: '#ED2124',
     },
   });
 

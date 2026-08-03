@@ -2,12 +2,83 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ERP</title>
+
+    <title>ERP EDS</title>
+    <meta
+      name="description"
+      content="Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal."
+    />
+    <meta name="application-name" content="ERP EDS" />
+    <meta name="author" content="EDS" />
+
+    <!-- Sistema interno da EDS: não é site público, não tem página de captação
+         e não deve aparecer em resultado de busca. -->
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Vermelho institucional da EDS. Espelha `EDS_COMPANY.theme.primary`
+         (packages/types/src/company.ts) — este HTML é servido antes de qualquer
+         JavaScript, então o valor precisa estar literal aqui. -->
+    <meta name="theme-color" content="#ED2124" />
+
+    <!--
+      Splash de carregamento. Cobre a janela entre o primeiro byte do HTML e o
+      primeiro render do React, em que a tela ficaria branca. É markup e CSS
+      inline de propósito: um arquivo externo chegaria depois do momento que
+      este bloco existe para cobrir. O React o descarta ao montar em #root.
+    -->
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: #ffffff;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      #app-splash img {
+        width: 56px;
+        height: auto;
+      }
+      #app-splash span {
+        font-size: 13px;
+        color: #7d7e80;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        #app-splash img {
+          animation: app-splash-pulse 1.4s ease-in-out infinite;
+        }
+      }
+      @keyframes app-splash-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-splash">
+        <img src="/logo-eds.svg" alt="EDS" />
+        <span>Carregando o ERP EDS…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

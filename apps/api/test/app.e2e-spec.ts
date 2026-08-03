@@ -51,4 +51,29 @@ describe('Bootstrap da aplicação (e2e)', () => {
   it('rota protegida sem token responde 401', () => {
     return request(app.getHttpServer()).get('/construction-sites').expect(401);
   });
+
+  /// O teste que faltava. Um banco recém-migrado, com o seed rodado, precisa
+  /// ter alguém capaz de entrar — o seed de produção populava só o catálogo de
+  /// permissões e deixava a instalação sem empresa, sem papéis e sem usuário.
+  /// O sintoma era invisível para todos os outros testes daqui: os healthchecks
+  /// passam, a rota protegida devolve 401 corretamente, e o sistema é
+  /// inutilizável.
+  ///
+  /// Depende das variáveis de bootstrap estarem no ambiente do seed (o job
+  /// `e2e` do CI as define). Sem elas, não há o que verificar.
+  const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
+  const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  const itWithBootstrap = bootstrapEmail && bootstrapPassword ? it : it.skip;
+
+  itWithBootstrap('o administrador criado pelo seed consegue fazer login', () => {
+    return request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: bootstrapEmail, password: bootstrapPassword })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.accessToken).toEqual(expect.any(String));
+        // Senha vinda de variável de ambiente é temporária por definição.
+        expect(body.user.mustChangePassword).toBe(true);
+      });
+  });
 });

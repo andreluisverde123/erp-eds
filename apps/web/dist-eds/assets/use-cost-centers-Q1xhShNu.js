@@ -1,1 +1,0 @@
-import{O as e}from"./index-DTdb2vzA.js";import{s as t}from"./api-DH_7_tWB.js";function n(n){let{enabled:r=!0,...i}=n;return e({queryKey:[`cost-centers`,`list`,i],queryFn:()=>t(i),enabled:r})}export{n as t};

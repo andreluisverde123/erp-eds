@@ -1,1 +1,0 @@
-import{N as e,O as t}from"./index-DvkMg3lm.js";import{h as n}from"./api-DVflzJgD.js";function r(r){return t({queryKey:[`contracts`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

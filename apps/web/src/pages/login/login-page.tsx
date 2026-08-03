@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { Link, Navigate, useLocation, useNavigate, type Location } from 'react-router';
+import { Navigate, useLocation, useNavigate, type Location } from 'react-router';
 import { z } from 'zod';
 import {
   Alert,
@@ -21,7 +21,8 @@ import {
   Input,
 } from '@repo/ui';
 
-import { ProductLogo } from '@/components/product-logo';
+import { CompanyLogo } from '@/components/company-logo';
+import { APP_NAME } from '@/config/company';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/features/auth/context';
 
@@ -68,9 +69,9 @@ export function LoginPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted/30 px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <ProductLogo />
+          <CompanyLogo />
           <CardTitle className="mt-3 text-xl font-semibold text-foreground">Entrar</CardTitle>
-          <CardDescription>Acesse o sistema com suas credenciais.</CardDescription>
+          <CardDescription>Acesse o {APP_NAME} com suas credenciais.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -123,15 +124,9 @@ export function LoginPage() {
                 {form.formState.isSubmitting ? 'Entrando...' : 'Entrar'}
               </Button>
 
-              <p className="text-center text-sm text-muted-foreground">
-                Ainda não tem conta?{' '}
-                <Link
-                  to="/cadastro"
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  Cadastre sua construtora
-                </Link>
-              </p>
+              {/* Sem convite para criar conta: o acesso ao ERP da EDS é
+                  concedido por um administrador em Configurações → Usuários,
+                  nunca por auto-cadastro. */}
             </form>
           </Form>
         </CardContent>

@@ -11,6 +11,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Cor de marca: vermelho institucional da EDS, #ED2124, extraído do logo
+ * oficial. Antes era um rosa que era a marca de um produto vendido — não da
+ * empresa dona deste sistema.
+ *
+ * Só o VALOR de quatro tokens mudou: --primary, --ring, --sidebar-primary e
+ * --pending-foreground. Nenhum token foi criado, renomeado ou removido, e
+ * nenhum componente foi tocado. O tema escuro não entra: ele nunca carregou a
+ * cor de marca, usa neutros.
+ *
+ * O mesmo valor está declarado em `EDS_COMPANY.theme` (packages/types) para
+ * quem precisa da cor em TypeScript — geração de PDF, gráfico, e-mail. Os dois
+ * andam juntos: mudou aqui, muda lá.
+ */
 :root {
   --background: #ffffff;
   --foreground: #212121;
@@ -18,7 +32,7 @@
   --card-foreground: #212121;
   --popover: #ffffff;
   --popover-foreground: #212121;
-  --primary: #db027d;
+  --primary: #ed2124;
   --primary-foreground: #ffffff;
   --secondary: #f6f6f6;
   --secondary-foreground: #212121;
@@ -31,20 +45,20 @@
   --success: #1b993b;
   --success-foreground: #ffffff;
   --pending: #fff1ec;
-  --pending-foreground: #db027d;
+  --pending-foreground: #ed2124;
   --border: #e9e9e9;
   --input: #e9e9e9;
-  --ring: #db027d;
+  --ring: #ed2124;
   --radius: 0.5rem;
 
   --sidebar: #f9f9f9;
   --sidebar-foreground: #211d25;
-  --sidebar-primary: #db027d;
+  --sidebar-primary: #ed2124;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f1f1f1;
   --sidebar-accent-foreground: #212121;
   --sidebar-border: #efefef;
-  --sidebar-ring: #db027d;
+  --sidebar-ring: #ed2124;
 }
 
 .dark {

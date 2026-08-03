@@ -16,6 +16,7 @@ import { memoryStorage } from 'multer';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/types/jwt-payload.type';
+import { inertAttachmentFileFilter } from '../common/uploads/attachment-content';
 import { AttachmentsService } from './attachments.service';
 
 /// Teto absoluto do processo — o arquivo vai para a memória antes de qualquer
@@ -51,6 +52,10 @@ export class AttachmentsController {
     FileInterceptor('file', {
       storage: memoryStorage(),
       limits: { fileSize: MAX_FILE_SIZE_BYTES },
+      // Barra o que carrega script (SVG, HTML, XML…). Defesa em profundidade:
+      // a garantia de verdade está na entrega, em `FilesController`, que devolve
+      // todo anexo como download com Content-Type escolhido pela aplicação.
+      fileFilter: inertAttachmentFileFilter,
     }),
   )
   upload(

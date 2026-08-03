@@ -1,1 +1,0 @@
-import{N as e,O as t}from"./index-DTdb2vzA.js";import{o as n}from"./api-DH_7_tWB.js";function r(r){return t({queryKey:[`construction-sites`,`list`,r],queryFn:()=>n(r),placeholderData:e})}export{r as t};

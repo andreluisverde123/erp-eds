@@ -1,1 +1,0 @@
-import{O as e}from"./index-DTdb2vzA.js";import{o as t}from"./api-mAU1zgnF.js";function n(n){return e({queryKey:[`purchase-requests`,`detail`,n],queryFn:()=>t(n),enabled:!!n})}export{n as t};

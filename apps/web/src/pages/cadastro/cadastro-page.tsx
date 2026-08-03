@@ -23,7 +23,7 @@ import {
   Input,
 } from '@repo/ui';
 
-import { ProductLogo } from '@/components/product-logo';
+import { CompanyLogo } from '@/components/company-logo';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/features/auth/context';
 
@@ -87,7 +87,7 @@ export function CadastroPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted/30 px-4 py-10">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <ProductLogo />
+          <CompanyLogo />
           <CardTitle className="mt-3 text-xl font-semibold text-foreground">Criar conta</CardTitle>
           <CardDescription>
             Cadastre sua construtora e comece a usar o ERP. Os dados fiscais podem ser preenchidos

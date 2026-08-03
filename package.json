@@ -1,8 +1,8 @@
 {
-  "name": "foundation",
+  "name": "erp-eds",
   "private": true,
   "version": "0.1.0",
-  "description": "Foundation — plataforma ERP para construtoras (multi-tenant)",
+  "description": "ERP EDS — sistema de gestão proprietário da construtora EDS",
   "workspaces": [
     "apps/*",
     "packages/*"

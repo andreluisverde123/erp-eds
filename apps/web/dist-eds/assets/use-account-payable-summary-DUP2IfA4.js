@@ -1,1 +1,0 @@
-import{O as e}from"./index-DTdb2vzA.js";import{i as t}from"./api-BdiPZTgR.js";function n(){return e({queryKey:[`account-payables`,`summary`],queryFn:()=>t()})}export{n as t};

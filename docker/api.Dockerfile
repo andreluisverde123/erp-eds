@@ -103,7 +103,11 @@ EXPOSE 3000
 
 # Readiness (processo de pé + banco alcançável) — o mesmo endpoint que um
 # orquestrador usaria; sem curl na imagem, o fetch nativo do Node basta.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+# O start-period cobre também o cold start de um Postgres serverless com
+# scale-to-zero (Neon): a primeira conexão depois de um período ocioso leva
+# alguns segundos, e a readiness bate no banco. Com folga curta demais o
+# container é marcado unhealthy logo no primeiro deploy de baixa atividade.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/readiness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # Use `--init` no `docker run` (ou `init: true` no compose) para o SIGTERM

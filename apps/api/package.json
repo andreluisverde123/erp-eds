@@ -1,7 +1,7 @@
 {
   "name": "api",
   "version": "0.1.0",
-  "description": "API NestJS da Foundation",
+  "description": "API NestJS do ERP EDS",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
