@@ -49,8 +49,8 @@ LOG_LEVEL=info
 
 # Neon: o pooler é o MESMO host com sufixo `-pooler`, na porta 5432 — não há
 # porta separada. O `sslmode` é obrigatório (ver abaixo).
-DATABASE_URL=postgresql://…@ep-xxxx-pooler.sa-east-1.aws.neon.tech/eds?sslmode=require
-DIRECT_URL=postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=require
+DATABASE_URL=postgresql://…@ep-xxxx-pooler.sa-east-1.aws.neon.tech/eds?sslmode=verify-full
+DIRECT_URL=postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=verify-full
 ```
 
 **`sslmode` não é opcional em produção.** A aplicação conecta pelo driver
@@ -59,7 +59,7 @@ string de conexão** — não há default seguro. Sem ele, o Neon recusa a conex
 o erro no boot não indica a causa; num Postgres que aceite texto puro, é pior:
 sobe calado, com as credenciais trafegando sem criptografia. Por isso o schema
 de validação exige a declaração explícita quando `NODE_ENV=production`:
-`?sslmode=require` num banco gerenciado, `?sslmode=disable` num Postgres da
+`?sslmode=verify-full` num banco gerenciado, `?sslmode=disable` num Postgres da
 própria rede do Docker (`--profile local-db`). Omitir derruba o boot.
 
 Se o **scale-to-zero** do projeto Neon estiver ligado, a primeira conexão depois
@@ -96,7 +96,7 @@ réplicas subindo em paralelo tentariam migrar ao mesmo tempo):
 ```bash
 docker build -f docker/api.Dockerfile --target migrate -t eds-api-migrate .
 docker run --rm \
-  -e DIRECT_URL="postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=require" \
+  -e DIRECT_URL="postgresql://…@ep-xxxx.sa-east-1.aws.neon.tech/eds?sslmode=verify-full" \
   eds-api-migrate                      # → prisma migrate deploy
 ```
 

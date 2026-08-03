@@ -10,6 +10,25 @@
       "dependsOn": ["^build", "prisma:generate"],
       "outputs": ["dist/**", ".next/**"]
     },
+    // Builds por ambiente. Precisam entrar aqui como tasks próprias, senão o
+    // turbo não sabe que dependem do Prisma Client nem o que cachear.
+    //
+    // `env` é o detalhe que importa: o turbo cacheia por hash de entrada, e sem
+    // declarar as variáveis o cache de um build de staging seria servido para um
+    // build de produção — o bundle sai com a URL do ambiente errado, e nada no
+    // log denuncia. Declaradas, cada ambiente tem seu próprio hash.
+    "build:staging": {
+      "dependsOn": ["^build", "prisma:generate"],
+      "outputs": ["dist/**"],
+      "env": ["VITE_API_URL", "VITE_PUBLIC_SIGNUP_ENABLED"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.staging"]
+    },
+    "build:production": {
+      "dependsOn": ["^build", "prisma:generate"],
+      "outputs": ["dist/**"],
+      "env": ["VITE_API_URL", "VITE_PUBLIC_SIGNUP_ENABLED"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.production"]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },

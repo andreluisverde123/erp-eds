@@ -18,10 +18,16 @@ build/
 
 # Environment
 # `.env*` (e não só `.env`/`.env.local`): antes, um `.env.production` ou
-# `.env.staging` com credenciais reais do Supabase entrava no commit sem
-# nenhum aviso. O `!.env.example` mantém os templates versionados.
+# `.env.staging` com credenciais reais entrava no commit sem nenhum aviso.
+#
+# As exceções são os TEMPLATES, que nunca contêm segredo:
+#   .env.example          — referência canônica, documenta cada variável
+#   .env.<ambiente>.example — o que muda naquele ambiente
+# O arquivo real (`.env.staging`, `.env.production`, …) continua ignorado —
+# é nele que a credencial do Neon vai morar, e ela não entra no repositório.
 .env*
 !.env.example
+!.env.*.example
 
 # Secrets / certificados — nunca versionados.
 *.pem
