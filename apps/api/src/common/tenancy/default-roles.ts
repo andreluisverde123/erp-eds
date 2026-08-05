@@ -121,6 +121,15 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     description: 'Registrar pagamentos acima da alçada definida em Configurações.',
   },
   {
+    /// Separada de `manage_users` de propósito: quem administra usuários não
+    /// deveria ganhar junto o certificado digital da empresa, que é a
+    /// identidade jurídica dela e permite assinar documento fiscal.
+    code: 'admin.fiscal_integration',
+    module: 'admin',
+    action: 'fiscal_integration',
+    description: 'Configurar o certificado digital e a sincronização de documentos fiscais.',
+  },
+  {
     code: 'admin.manage_users',
     module: 'admin',
     action: 'manage_users',

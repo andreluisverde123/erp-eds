@@ -38,6 +38,19 @@ export const FornecedoresPage = lazy(() =>
 export const NotasFiscaisPage = lazy(() =>
   import('@/pages/financeiro/notas-fiscais-page').then((m) => ({ default: m.NotasFiscaisPage })),
 );
+export const IntegracaoFiscalPage = lazy(() =>
+  import('@/pages/administracao/integracao-fiscal-page').then((m) => ({
+    default: m.IntegracaoFiscalPage,
+  })),
+);
+export const ConciliacaoPage = lazy(() =>
+  import('@/pages/financeiro/conciliacao-page').then((m) => ({ default: m.ConciliacaoPage })),
+);
+export const ConciliacaoDetailPage = lazy(() =>
+  import('@/pages/financeiro/conciliacao-detail-page').then((m) => ({
+    default: m.ConciliacaoDetailPage,
+  })),
+);
 export const ContasAPagarPage = lazy(() =>
   import('@/pages/financeiro/contas-a-pagar-page').then((m) => ({ default: m.ContasAPagarPage })),
 );
@@ -67,6 +80,22 @@ export const RelatoriosPage = lazy(() =>
 );
 export const WorkflowPage = lazy(() =>
   import('@/pages/workflow/workflow-page').then((m) => ({ default: m.WorkflowPage })),
+);
+export const UsuariosPage = lazy(() =>
+  import('@/pages/administracao/usuarios-page').then((m) => ({ default: m.UsuariosPage })),
+);
+export const NovoUsuarioPage = lazy(() =>
+  import('@/pages/administracao/novo-usuario-page').then((m) => ({ default: m.NovoUsuarioPage })),
+);
+export const EditarUsuarioPage = lazy(() =>
+  import('@/pages/administracao/editar-usuario-page').then((m) => ({
+    default: m.EditarUsuarioPage,
+  })),
+);
+export const UsuarioDetailPage = lazy(() =>
+  import('@/pages/administracao/usuario-detail-page').then((m) => ({
+    default: m.UsuarioDetailPage,
+  })),
 );
 export const ConfiguracoesPage = lazy(() =>
   import('@/pages/configuracoes/configuracoes-page').then((m) => ({

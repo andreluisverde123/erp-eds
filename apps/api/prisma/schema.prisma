@@ -198,6 +198,11 @@ model Company {
   workflowComments        WorkflowComment[]
   systemSettings          SystemSettings?
   notificationPreferences NotificationPreference[]
+  inboundInvoices         InboundInvoice[]
+  fiscalCertificate       FiscalCertificate?
+  fiscalSyncState         FiscalSyncState?
+  fiscalSyncRuns          FiscalSyncRun[]
+  fiscalDocuments         FiscalDocument[]
 }
 
 // =============================================================================
@@ -209,39 +214,43 @@ model Company {
 /// e nem todo usuário do sistema é necessariamente um funcionário CLT (pode ser
 /// um usuário administrativo, contador externo, etc.).
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  companyId    String    @db.Uuid
-  name         String
-  email        String    @unique
-  passwordHash String
-  phone        String?
-  position     String?
-  isActive     Boolean   @default(true)
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  name               String
+  email              String    @unique
+  passwordHash       String
+  phone              String?
+  position           String?
+  isActive           Boolean   @default(true)
   /// Ligado quando um admin cria o usuário ou reseta a senha dele: a senha
   /// temporária circula por fora do sistema (WhatsApp, papel, e-mail pessoal),
   /// então ela só serve para entrar uma vez. Enquanto estiver `true` a API
   /// bloqueia todas as rotas exceto trocar a própria senha.
   /// Nasce `false` no cadastro self-service — ali a senha foi escolhida pelo
   /// próprio dono da conta.
-  mustChangePassword Boolean @default(false)
+  mustChangePassword Boolean   @default(false)
   /// Aceite dos termos de uso, registrado no cadastro self-service. A VERSÃO
   /// importa tanto quanto a data: sem ela, um aceite antigo não prova o que
   /// foi aceito depois que o texto mudar. Fica em branco para os usuários
   /// criados por um admin dentro do sistema (aceite é da empresa, feito por
   /// quem assinou).
-  acceptedTermsAt   DateTime?
-  termsVersion      String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  acceptedTermsAt    DateTime?
+  termsVersion       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
 
-  company          Company           @relation(fields: [companyId], references: [id])
-  userRoles        UserRole[]
-  refreshTokens    RefreshToken[]
-  purchaseRequests PurchaseRequest[]
-  attachments      Attachment[]
-  auditLogs        AuditLog[]
-  workflowComments WorkflowComment[]
+  company                   Company             @relation(fields: [companyId], references: [id])
+  userRoles                 UserRole[]
+  refreshTokens             RefreshToken[]
+  purchaseRequests          PurchaseRequest[]
+  attachments               Attachment[]
+  auditLogs                 AuditLog[]
+  workflowComments          WorkflowComment[]
+  /// Notas que este usuário conciliou — a rastreabilidade de quem validou.
+  reconciledInboundInvoices InboundInvoice[]
+  fiscalCertificates        FiscalCertificate[]
+  fiscalSyncRuns            FiscalSyncRun[]
 
   @@index([companyId])
   /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
@@ -249,7 +258,6 @@ model User {
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_email_trgm_idx")
-
 }
 
 /// Refresh token de sessão (um registro por token emitido). Armazena apenas o
@@ -387,7 +395,6 @@ model ConstructionSite {
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_name_trgm_idx")
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_code_trgm_idx")
   @@index([clientName(ops: raw("gin_trgm_ops"))], type: Gin, map: "ConstructionSite_clientName_trgm_idx")
-
 }
 
 /// Centro de custo. Pode pertencer a uma obra específica ou ser administrativo
@@ -419,7 +426,6 @@ model CostCenter {
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "CostCenter_name_trgm_idx")
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "CostCenter_code_trgm_idx")
-
 }
 
 // =============================================================================
@@ -443,9 +449,10 @@ model Supplier {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  company        Company         @relation(fields: [companyId], references: [id])
-  purchaseOrders PurchaseOrder[]
-  invoices       Invoice[]
+  company         Company          @relation(fields: [companyId], references: [id])
+  purchaseOrders  PurchaseOrder[]
+  invoices        Invoice[]
+  inboundInvoices InboundInvoice[]
 
   @@unique([companyId, document])
   @@index([companyId])
@@ -455,20 +462,19 @@ model Supplier {
   @@index([legalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_legalName_trgm_idx")
   @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_tradeName_trgm_idx")
   @@index([document(ops: raw("gin_trgm_ops"))], type: Gin, map: "Supplier_document_trgm_idx")
-
 }
 
 /// Requisição de compra originada por uma obra/centro de custo.
 model PurchaseRequest {
-  id        String @id @default(uuid()) @db.Uuid
-  companyId String @db.Uuid
+  id                 String                @id @default(uuid()) @db.Uuid
+  companyId          String                @db.Uuid
   /// DERIVADO do centro de custo, nunca informado pelo solicitante: quem abre
   /// a solicitação escolhe só o centro de custo, e o destino da compra pode
   /// não ser uma obra (Escritório, Fazenda). Fica nulo nesses casos — por isso
   /// é opcional. Continua materializado na linha (em vez de sempre navegar
   /// pelo centro de custo) porque relatórios e indicadores agrupam por obra.
-  constructionSiteId String? @db.Uuid
-  costCenterId       String  @db.Uuid
+  constructionSiteId String?               @db.Uuid
+  costCenterId       String                @db.Uuid
   requestedById      String                @db.Uuid
   code               String
   status             PurchaseRequestStatus @default(DRAFT)
@@ -495,7 +501,6 @@ model PurchaseRequest {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseRequest_code_trgm_idx")
-
 }
 
 /// Item de linha de uma requisição de compra.
@@ -542,7 +547,8 @@ model PurchaseOrder {
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
   costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
 
-  invoices Invoice[]
+  invoices        Invoice[]
+  inboundInvoices InboundInvoice[]
 
   @@unique([companyId, code])
   @@index([supplierId])
@@ -552,7 +558,6 @@ model PurchaseOrder {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseOrder_code_trgm_idx")
-
 }
 
 // =============================================================================
@@ -590,7 +595,6 @@ model Employee {
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_name_trgm_idx")
   @@index([cpf(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_cpf_trgm_idx")
   @@index([position(ops: raw("gin_trgm_ops"))], type: Gin, map: "Employee_position_trgm_idx")
-
 }
 
 /// Alocação de um funcionário em uma obra/centro de custo por período.
@@ -722,7 +726,6 @@ model Contractor {
   @@index([legalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_legalName_trgm_idx")
   @@index([tradeName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_tradeName_trgm_idx")
   @@index([document(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contractor_document_trgm_idx")
-
 }
 
 /// Contrato de terceirização entre a empresa e um Contractor para uma obra.
@@ -759,7 +762,6 @@ model ContractorContract {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "ContractorContract_code_trgm_idx")
-
 }
 
 /// Documento obrigatório vinculado a um contrato de terceirização (ex.:
@@ -801,7 +803,6 @@ model ContractEmployee {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "ContractEmployee_name_trgm_idx")
-
 }
 
 // =============================================================================
@@ -835,6 +836,7 @@ model Invoice {
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
 
   accountsPayable AccountPayable[]
+  inboundInvoices InboundInvoice[]
 
   @@unique([supplierId, series, number])
   @@index([companyId])
@@ -845,7 +847,6 @@ model Invoice {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([number(ops: raw("gin_trgm_ops"))], type: Gin, map: "Invoice_number_trgm_idx")
-
 }
 
 /// Parcela de contas a pagar gerada ao validar uma nota fiscal. `status` é
@@ -971,32 +972,32 @@ model WorkflowComment {
 /// são preferências armazenadas aqui; nenhum outro módulo lê/aplica esses
 /// valores ainda (ver notas de evolução futura).
 model SystemSettings {
-  id                   String        @id @default(uuid()) @db.Uuid
-  companyId            String        @unique @db.Uuid
+  id                        String        @id @default(uuid()) @db.Uuid
+  companyId                 String        @unique @db.Uuid
   /// Como o cliente chama o sistema. O padrão é neutro de propósito: o produto
   /// não nasce com o nome de nenhum cliente. Cada empresa renomeia em
   /// Configurações → Sistema, e a interface usa o nome do produto enquanto
   /// isso não acontecer.
-  erpName              String        @default("ERP")
-  theme                SettingsTheme @default(SYSTEM)
-  language             String        @default("pt-BR")
-  timezone             String        @default("America/Sao_Paulo")
-  currency             String        @default("BRL")
-  dateFormat           String        @default("DD/MM/YYYY")
-  firstDayOfWeek       Int           @default(0)
-  dueDateAlertDays     Int           @default(7)
+  erpName                   String        @default("ERP")
+  theme                     SettingsTheme @default(SYSTEM)
+  language                  String        @default("pt-BR")
+  timezone                  String        @default("America/Sao_Paulo")
+  currency                  String        @default("BRL")
+  dateFormat                String        @default("DD/MM/YYYY")
+  firstDayOfWeek            Int           @default(0)
+  dueDateAlertDays          Int           @default(7)
   /// Alçada de aprovação. `0` (padrão) mantém o comportamento antigo: sem
   /// alçada nenhuma. Acima de zero, aprovar uma solicitação de compra ou
   /// registrar um pagamento com valor MAIOR que este limite passa a exigir a
   /// permissão `<módulo>.approve`, além da de escrita.
-  purchaseApprovalThreshold Decimal  @default(0) @db.Decimal(14, 2)
-  paymentApprovalThreshold  Decimal  @default(0) @db.Decimal(14, 2)
-  maxUploadSizeMb      Int           @default(10)
-  allowAttachments     Boolean       @default(true)
-  notificationsEnabled Boolean       @default(true)
-  auditEnabled         Boolean       @default(true)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  purchaseApprovalThreshold Decimal       @default(0) @db.Decimal(14, 2)
+  paymentApprovalThreshold  Decimal       @default(0) @db.Decimal(14, 2)
+  maxUploadSizeMb           Int           @default(10)
+  allowAttachments          Boolean       @default(true)
+  notificationsEnabled      Boolean       @default(true)
+  auditEnabled              Boolean       @default(true)
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 
   company Company @relation(fields: [companyId], references: [id])
 }
@@ -1019,4 +1020,361 @@ model NotificationPreference {
   company Company @relation(fields: [companyId], references: [id])
 
   @@unique([companyId, eventKey])
+}
+
+// =============================================================================
+// CONCILIAÇÃO DE NOTAS FISCAIS
+// =============================================================================
+
+/// Situação da nota recebida dentro do fluxo de conciliação. É DISTINTO de
+/// `InvoiceStatus`: aquele descreve a nota já vinculada a uma ordem de compra
+/// (o documento contábil), este descreve o documento que chegou e ainda pode
+/// não virar nada.
+enum InboundInvoiceStatus {
+  PENDING
+  RECONCILED
+  DIVERGENT
+  CANCELLED
+}
+
+/// Como o documento entrou no sistema. Hoje só `MANUAL` acontece de fato; os
+/// outros dois existem para que a captura automática (importação de XML e
+/// consulta à SEFAZ) entre depois sem migração de dados — a coluna já sabe
+/// distinguir a origem de cada nota que já estiver na base.
+enum InboundInvoiceSource {
+  MANUAL
+  XML_IMPORT
+  SEFAZ
+}
+
+/// Forma de pagamento escolhida na geração financeira.
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  CASH
+  BANK_SLIP
+}
+
+/// Condição de pagamento: quantas parcelas de `AccountPayable` a conciliação
+/// gera e com que espaçamento. `NET_30_60_90` gera três parcelas, não uma.
+enum PaymentTerms {
+  CASH
+  NET_30
+  NET_30_60
+  NET_30_60_90
+}
+
+/// Nota fiscal recebida, antes (e depois) da conciliação.
+///
+/// Existe separada de `Invoice` porque as duas respondem perguntas diferentes:
+/// `Invoice` é a nota JÁ vinculada a uma ordem de compra — tem `purchaseOrderId`
+/// obrigatório e é o que gera contas a pagar. Uma nota que acabou de chegar
+/// ainda não tem ordem de compra nenhuma, pode nunca ter (nota indevida,
+/// cancelada) e pode nem ser de um fornecedor cadastrado. Forçá-la dentro de
+/// `Invoice` exigiria afrouxar aquele vínculo obrigatório, e aí o módulo
+/// financeiro perderia a garantia de que toda conta a pagar nasce de uma
+/// compra aprovada.
+///
+/// Por isso os dados do emitente ficam DESNORMALIZADOS aqui (`supplierName`,
+/// `supplierDocument`): eles são o que veio no documento fiscal, não o que
+/// está no cadastro. `supplierId` é preenchido quando o CNPJ casa com um
+/// fornecedor conhecido — e continua nulo quando não casa, que é justamente
+/// o caso em que o financeiro precisa ver a nota para agir.
+model InboundInvoice {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  /// Emitente COMO VEIO no documento fiscal. Preservado mesmo depois de
+  /// vincular o fornecedor: é a prova do que a nota dizia.
+  supplierName     String
+  supplierDocument String
+  /// Nulo enquanto o CNPJ não casar com nenhum fornecedor cadastrado.
+  supplierId       String? @db.Uuid
+
+  number    String
+  series    String?
+  /// Chave de acesso da NF-e (44 dígitos). Opcional porque a entrada manual
+  /// desta versão nem sempre a tem; é única quando informada, o que impede a
+  /// mesma nota de entrar duas vezes quando a captura automática existir.
+  accessKey String? @db.VarChar(44)
+
+  issueDate   DateTime
+  totalAmount Decimal  @db.Decimal(14, 2)
+
+  status InboundInvoiceStatus @default(PENDING)
+  source InboundInvoiceSource @default(MANUAL)
+
+  /// Caminhos no storage. Nulos nesta versão (sem captura automática); a tela
+  /// de conciliação já os exibe como indisponíveis quando faltam.
+  xmlPath String?
+  pdfPath String?
+
+  /// Preenchidos na conciliação e nunca mais alterados — é o vínculo
+  /// permanente entre a nota e a compra que a originou.
+  purchaseOrderId String?   @db.Uuid
+  /// A `Invoice` criada no ato da conciliação. É por ela que a nota alcança
+  /// as contas a pagar, sem que este módulo precise escrever em `AccountPayable`
+  /// por fora do caminho normal do financeiro.
+  invoiceId       String?   @db.Uuid
+  reconciledAt    DateTime?
+  reconciledById  String?   @db.Uuid
+
+  /// Escolhas da geração financeira, guardadas aqui porque `AccountPayable`
+  /// não tem onde registrá-las e alterá-la sairia do escopo deste módulo.
+  paymentMethod PaymentMethod?
+  paymentTerms  PaymentTerms?
+  notes         String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  company       Company        @relation(fields: [companyId], references: [id])
+  supplier      Supplier?      @relation(fields: [supplierId], references: [id])
+  /// `Restrict` nos dois: a conciliação é um vínculo permanente, e um
+  /// `SET NULL` transformaria uma exclusão de ordem de compra em perda
+  /// silenciosa de rastreabilidade. O sistema usa exclusão lógica em todo
+  /// lugar, então na prática isto nunca dispara — é a rede de proteção para
+  /// quando alguém apagar de verdade.
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  reconciledBy  User?          @relation(fields: [reconciledById], references: [id])
+
+  items InboundInvoiceItem[]
+
+  /// Mesma nota (emitente + série + número) não entra duas vezes.
+  @@unique([companyId, supplierDocument, series, number])
+  @@unique([accessKey])
+  @@index([companyId])
+  @@index([status])
+  @@index([issueDate])
+  @@index([supplierId])
+  @@index([purchaseOrderId])
+  /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
+  /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
+  /// digitação no campo de busca — o custo só aparece quando a base cresce.
+  @@index([number(ops: raw("gin_trgm_ops"))], type: Gin, map: "InboundInvoice_number_trgm_idx")
+  @@index([supplierName(ops: raw("gin_trgm_ops"))], type: Gin, map: "InboundInvoice_supplierName_trgm_idx")
+  @@index([supplierDocument(ops: raw("gin_trgm_ops"))], type: Gin, map: "InboundInvoice_supplierDocument_trgm_idx")
+}
+
+/// Item da nota recebida. Existe "quando disponível": a entrada manual pode
+/// não trazer item nenhum, e a tela de conciliação lida com a lista vazia.
+model InboundInvoiceItem {
+  id               String  @id @default(uuid()) @db.Uuid
+  inboundInvoiceId String  @db.Uuid
+  description      String
+  unit             String?
+  quantity         Decimal @db.Decimal(14, 4)
+  unitPrice        Decimal @db.Decimal(14, 4)
+  totalPrice       Decimal @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inboundInvoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade)
+
+  @@index([inboundInvoiceId])
+}
+
+// =============================================================================
+// INTEGRAÇÃO FISCAL (Distribuição DF-e)
+// =============================================================================
+
+/// Resultado de uma execução da sincronização.
+enum FiscalSyncStatus {
+  SUCCESS
+  /// Trouxe documentos, mas ainda há mais na fila (`ultNSU < maxNSU`).
+  PARTIAL
+  /// Nada novo — é o caso mais comum e NÃO é erro.
+  EMPTY
+  /// Não chegou a consultar: sem certificado, ou dentro do bloqueio de 1h.
+  SKIPPED
+  ERROR
+}
+
+enum FiscalSyncTrigger {
+  SCHEDULED
+  MANUAL
+}
+
+/// Situação do documento dentro do pipeline. Esta sprint só consulta, baixa,
+/// persiste e ENCAMINHA — a leitura do XML é da sprint seguinte, e é por isso
+/// que `PENDING` e `FORWARDED` existem separados de `PROCESSED`.
+enum FiscalDocumentStatus {
+  PENDING
+  FORWARDED
+  PROCESSED
+  ERROR
+}
+
+/// O que o documento é, derivado do atributo `schema` que a SEFAZ envia —
+/// não da leitura do conteúdo. É a única classificação feita nesta sprint.
+enum FiscalDocumentType {
+  NFE_COMPLETA
+  RESUMO_NFE
+  EVENTO_COMPLETO
+  RESUMO_EVENTO
+  DESCONHECIDO
+}
+
+/// Certificado digital A1 da empresa.
+///
+/// O `.pfx` E a senha ficam CIFRADOS (AES-256-GCM, chave em
+/// `FISCAL_CERT_ENCRYPTION_KEY`). Guardar a senha em texto puro entregaria a
+/// identidade jurídica da empresa a quem lesse uma linha do banco: com o par
+/// arquivo+senha é possível assinar e emitir documento fiscal em nome dela.
+///
+/// Os campos de identificação (`cnpj`, `subjectName`, validade) são extraídos
+/// do certificado no upload e guardados em claro DE PROPÓSITO: o painel
+/// precisa exibi-los e alertar sobre vencimento sem decifrar nada.
+model FiscalCertificate {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @unique @db.Uuid
+
+  /// Conteúdo do .pfx cifrado. `Bytes` e não `String`: é binário, e
+  /// base64 no meio do caminho só aumentaria o tamanho.
+  encryptedPfx      Bytes
+  /// Senha cifrada, no formato `iv:authTag:ciphertext` (hex).
+  encryptedPassword String
+
+  /// Extraídos do certificado no upload — nunca informados pelo usuário.
+  cnpj         String   @db.VarChar(14)
+  subjectName  String
+  issuerName   String
+  serialNumber String
+  notBefore    DateTime
+  notAfter     DateTime
+
+  /// Desligar sem apagar: mantém a rastreabilidade de qual certificado estava
+  /// em uso em cada sincronização passada.
+  isActive Boolean @default(true)
+
+  uploadedById String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id])
+  uploadedBy User?   @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId])
+}
+
+/// Ponteiro da sincronização. Uma linha por empresa.
+///
+/// Separado de `FiscalCertificate` porque o ciclo de vida é outro: trocar o
+/// certificado (renovação anual) NÃO pode reiniciar a leitura do zero —
+/// pedir de `ultNSU=0` é tratado pela SEFAZ como consumo indevido.
+model FiscalSyncState {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @unique @db.Uuid
+
+  /// Último NSU efetivamente lido. 15 dígitos com zeros à esquerda.
+  lastNSU String @default("000000000000000") @db.VarChar(15)
+  /// Maior NSU que a SEFAZ informou existir. `lastNSU < maxNSU` significa
+  /// que há mais páginas a buscar.
+  maxNSU  String @default("000000000000000") @db.VarChar(15)
+
+  lastSyncAt    DateTime?
+  lastSuccessAt DateTime?
+  totalImported Int       @default(0)
+
+  /// Até quando NÃO se pode consultar. A SEFAZ bloqueia por 1 hora ao
+  /// detectar consumo indevido (cStat 656) e CADA nova tentativa durante o
+  /// bloqueio reinicia o relógio — então o job precisa se conter sozinho, ou
+  /// uma execução horária transformaria uma hora de espera em bloqueio
+  /// permanente.
+  blockedUntil DateTime?
+  blockReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+}
+
+/// Histórico de sincronizações. Uma linha por execução, com ou sem sucesso.
+model FiscalSyncRun {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  trigger FiscalSyncTrigger
+  status  FiscalSyncStatus
+
+  startedAt  DateTime
+  finishedAt DateTime?
+  durationMs Int?
+
+  /// Retorno cru da SEFAZ, para diagnóstico posterior sem precisar reproduzir.
+  cStat   String? @db.VarChar(3)
+  xMotivo String?
+
+  documentsFound    Int @default(0)
+  documentsImported Int @default(0)
+  /// Documentos que já existiam (mesma NSU) e foram ignorados. Separado de
+  /// `imported` para que uma execução que não trouxe nada novo não pareça
+  /// falha.
+  documentsSkipped  Int @default(0)
+
+  nsuFrom String? @db.VarChar(15)
+  nsuTo   String? @db.VarChar(15)
+  maxNSU  String? @db.VarChar(15)
+
+  /// Mensagem já higienizada — nunca contém senha, conteúdo de certificado
+  /// nem XML completo.
+  errorMessage String?
+
+  triggeredById String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  company     Company @relation(fields: [companyId], references: [id])
+  triggeredBy User?   @relation(fields: [triggeredById], references: [id])
+
+  @@index([companyId, startedAt])
+  @@index([status])
+}
+
+/// Documento fiscal como a SEFAZ entregou. É o arquivo ORIGINAL, sem
+/// alteração: é ele que tem valor legal e precisa ser guardado por 5 anos.
+///
+/// O XML fica no banco (e não no storage de arquivos) por três razões: são
+/// ~10 KB cada; precisam ser gravados na MESMA transação que o avanço do
+/// ponteiro NSU, senão um arquivo perdido vira um documento que nunca mais
+/// será oferecido pela SEFAZ; e a guarda legal exige durabilidade que o disco
+/// local de uma instância não dá. Migrar para storage depois é trocar uma
+/// coluna por uma chave.
+model FiscalDocument {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  /// NSU é único por empresa — é o identificador do documento NA FILA.
+  nsu    String             @db.VarChar(15)
+  schema String
+  type   FiscalDocumentType
+
+  /// Chave de acesso (44 dígitos). NÃO é única de propósito: a mesma nota
+  /// chega DUAS vezes em NSUs diferentes — primeiro como resumo, depois como
+  /// documento completo (medido na POC em 2026-08-05). Quem consumir daqui
+  /// deduplica por esta chave, preferindo o `NFE_COMPLETA`.
+  accessKey String? @db.VarChar(44)
+
+  /// O XML original, exatamente como veio (após o gunzip do docZip).
+  xml Bytes
+
+  status       FiscalDocumentStatus @default(PENDING)
+  forwardedAt  DateTime?
+  /// Preenchido pela sprint seguinte, quando o XML for interpretado.
+  processedAt  DateTime?
+  errorMessage String?
+
+  receivedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, nsu])
+  @@index([companyId, status])
+  @@index([accessKey])
+  @@index([receivedAt])
 }

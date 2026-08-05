@@ -6,12 +6,15 @@ import {
   CreditCard,
   Factory,
   Fingerprint,
+  FileCheck2,
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
+  PlugZap,
   Settings,
   ShoppingCart,
   Truck,
+  UserCog,
   UserRound,
   Users,
   Wallet,
@@ -102,6 +105,12 @@ export const navEntries: NavEntry[] = [
         permission: 'financeiro.view',
       },
       {
+        title: 'Conciliação de Notas',
+        path: '/financeiro/conciliacao',
+        icon: FileCheck2,
+        permission: 'financeiro.view',
+      },
+      {
         title: 'Pagamentos',
         path: '/financeiro/pagamentos',
         icon: CreditCard,
@@ -132,6 +141,24 @@ export const navEntries: NavEntry[] = [
     path: '/workflow',
     icon: Workflow,
     permission: 'dashboard.view',
+  },
+  {
+    type: 'group',
+    label: 'Administração',
+    items: [
+      {
+        title: 'Usuários',
+        path: '/administracao/usuarios',
+        icon: UserCog,
+        permission: 'admin.manage_users',
+      },
+      {
+        title: 'Integração Fiscal',
+        path: '/administracao/integracao-fiscal',
+        icon: PlugZap,
+        permission: 'admin.fiscal_integration',
+      },
+    ],
   },
   {
     type: 'link',

@@ -11,16 +11,21 @@ import { PUBLIC_SIGNUP_ENABLED } from '@/config/company';
 import {
   AlocacoesPage,
   CadastroPage,
+  ConciliacaoDetailPage,
+  ConciliacaoPage,
   ConfiguracoesPage,
+  IntegracaoFiscalPage,
   ContasAPagarPage,
   DashboardPage,
   EditarSolicitacaoPage,
+  EditarUsuarioPage,
   FornecedoresPage,
   FuncionariosPage,
   HoleritesPage,
   LoginPage,
   NotasFiscaisPage,
   NovaSolicitacaoPage,
+  NovoUsuarioPage,
   ObraDetailPage,
   ObrasPage,
   OrdensDeCompraPage,
@@ -33,8 +38,19 @@ import {
   SuspendedOutlet,
   TrocarSenhaPage,
   TerceirosPage,
+  UsuarioDetailPage,
+  UsuariosPage,
   WorkflowPage,
 } from '@/router-pages';
+
+/// Rotas com guarda de permissão própria (ver os blocos `RequirePermission`
+/// abaixo) — ficam fora do laço genérico que monta uma rota por item da
+/// sidebar, senão entrariam duas vezes.
+const PERMISSION_GUARDED_PATHS = new Set([
+  '/configuracoes',
+  '/administracao/usuarios',
+  '/administracao/integracao-fiscal',
+]);
 
 const PAGE_OVERRIDES: Record<string, ReactNode> = {
   '/dashboard': <DashboardPage />,
@@ -51,6 +67,7 @@ const PAGE_OVERRIDES: Record<string, ReactNode> = {
   '/compras/ordens-de-compra': <OrdensDeCompraPage />,
   '/compras/fornecedores': <FornecedoresPage />,
   '/financeiro/notas-fiscais': <NotasFiscaisPage />,
+  '/financeiro/conciliacao': <ConciliacaoPage />,
   '/financeiro/contas-a-pagar': <ContasAPagarPage />,
   '/financeiro/pagamentos': <PagamentosPage />,
   '/rh/funcionarios': <FuncionariosPage />,
@@ -105,7 +122,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           ...navLinks
-            .filter((link) => link.path !== '/configuracoes')
+            .filter((link) => !PERMISSION_GUARDED_PATHS.has(link.path))
             .map((link) => ({
               path: link.path.slice(1),
               element: (
@@ -116,6 +133,14 @@ export const router = createBrowserRouter([
                 </SuspendedOutlet>
               ),
             })),
+          {
+            path: 'financeiro/conciliacao/:id',
+            element: (
+              <SuspendedOutlet>
+                <ConciliacaoDetailPage />
+              </SuspendedOutlet>
+            ),
+          },
           {
             path: 'engenharia/obras/:id',
             element: (
@@ -157,6 +182,21 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            // Permissão própria: quem administra usuários não recebe junto o
+            // acesso ao certificado digital da empresa.
+            element: <RequirePermission permission="admin.fiscal_integration" />,
+            children: [
+              {
+                path: 'administracao/integracao-fiscal',
+                element: (
+                  <SuspendedOutlet>
+                    <IntegracaoFiscalPage />
+                  </SuspendedOutlet>
+                ),
+              },
+            ],
+          },
+          {
             element: <RequirePermission permission="admin.manage_users" />,
             children: [
               {
@@ -164,6 +204,38 @@ export const router = createBrowserRouter([
                 element: (
                   <SuspendedOutlet>
                     <ConfiguracoesPage />
+                  </SuspendedOutlet>
+                ),
+              },
+              {
+                path: 'administracao/usuarios',
+                element: (
+                  <SuspendedOutlet>
+                    <UsuariosPage />
+                  </SuspendedOutlet>
+                ),
+              },
+              {
+                path: 'administracao/usuarios/novo',
+                element: (
+                  <SuspendedOutlet>
+                    <NovoUsuarioPage />
+                  </SuspendedOutlet>
+                ),
+              },
+              {
+                path: 'administracao/usuarios/:id/editar',
+                element: (
+                  <SuspendedOutlet>
+                    <EditarUsuarioPage />
+                  </SuspendedOutlet>
+                ),
+              },
+              {
+                path: 'administracao/usuarios/:id',
+                element: (
+                  <SuspendedOutlet>
+                    <UsuarioDetailPage />
                   </SuspendedOutlet>
                 ),
               },

@@ -66,6 +66,19 @@ export const envValidationSchema = Joi.object({
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
+  /// Chave AES-256 que protege o certificado A1 e a senha dele no banco.
+  /// Opcional: sem ela a Integração Fiscal simplesmente não sobe, e o resto do
+  /// ERP segue funcionando — exigi-la sempre quebraria toda instalação que não
+  /// usa o módulo fiscal. Gere com `openssl rand -hex 32`.
+  ///
+  /// Trocar esta chave torna ILEGÍVEL o certificado já gravado: é preciso
+  /// reenviar o .pfx pelo painel depois.
+  FISCAL_CERT_ENCRYPTION_KEY: Joi.string().optional(),
+  /// Liga o job horário de sincronização. Desligado por padrão para que uma
+  /// cópia local do banco de produção não saia consultando a SEFAZ com o
+  /// certificado real — e, pior, avançando o NSU compartilhado.
+  FISCAL_SYNC_ENABLED: Joi.boolean().default(false),
+
   STORAGE_DRIVER: Joi.string().valid('local', 's3').default('local'),
   STORAGE_LOCAL_ROOT: Joi.string().default('uploads'),
   S3_BUCKET: Joi.string().when('STORAGE_DRIVER', { is: 's3', then: Joi.required() }),

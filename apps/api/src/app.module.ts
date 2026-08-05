@@ -3,12 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
+import { AdministracaoModule } from './administracao/administracao.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { ConciliacaoModule } from './conciliacao/conciliacao.module';
+import { FiscalModule } from './fiscal/fiscal.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PasswordChangeGuard } from './auth/guards/password-change.guard';
@@ -80,6 +84,12 @@ import { WorkflowModule } from './workflow/workflow.module';
     RhModule,
     TerceirosModule,
     ConfiguracoesModule,
+    AdministracaoModule,
+    // Agendador do job horário da Integração Fiscal. O job em si se
+    // desliga por FISCAL_SYNC_ENABLED — aqui só o mecanismo é instalado.
+    ScheduleModule.forRoot(),
+    ConciliacaoModule,
+    FiscalModule,
     RelatoriosModule,
     SearchModule,
     WorkflowModule,
