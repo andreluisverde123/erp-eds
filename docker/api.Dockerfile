@@ -44,7 +44,15 @@ RUN npx turbo run build --filter=api
 # ---------------------------------------------------------------------------
 # migrate — imagem separada, usada como job de pré-deploy:
 #   docker build -f docker/api.Dockerfile --target migrate -t eds-api-migrate .
-#   docker run --rm --env-file apps/api/.env eds-api-migrate
+#   grep -E '^(DATABASE_URL|DIRECT_URL)=' apps/api/.env | tr -d '"' > /tmp/m.env
+#   docker run --rm --env-file /tmp/m.env eds-api-migrate; rm -f /tmp/m.env
+#
+# O `tr -d '"'` NÃO é firula: `docker run --env-file` entrega o valor LITERAL,
+# aspas incluídas, ao contrário do `docker compose --env-file`, que as remove.
+# Com as aspas, o Prisma recebe `"postgresql://…` e falha com um P1013 que
+# fala em "scheme not recognized" — sem nenhuma pista de que o problema é
+# citação. Aconteceu no deploy da Integração Fiscal em 2026-08-05.
+#
 # Fica fora da imagem final de propósito: `prisma migrate deploy` precisa do
 # CLI do Prisma (devDependency), do prisma.config.ts e do dotenv — nada disso
 # tem por que viajar junto com o runtime, que só precisa do Client gerado.
