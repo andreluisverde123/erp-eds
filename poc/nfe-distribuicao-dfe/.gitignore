@@ -1,0 +1,9 @@
+# NUNCA versionar material criptográfico nem documento fiscal de verdade.
+# O certificado A1 é a identidade jurídica da empresa: quem tem o .pfx e a
+# senha consegue emitir e assinar em nome da EDS.
+certs/*
+!certs/.gitkeep
+out/*
+!out/.gitkeep
+
+node_modules/

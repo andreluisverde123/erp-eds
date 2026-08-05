@@ -1,0 +1,19 @@
+{
+  "name": "poc-nfe-distribuicao-dfe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "POC isolada: consulta de DF-e emitidos contra o CNPJ da EDS via certificado A1. NAO faz parte do ERP.",
+  "scripts": {
+    "doctor": "node src/index.js doctor",
+    "selftest": "node src/index.js selftest",
+    "cert": "node src/index.js cert",
+    "distribuicao": "node src/index.js distribuicao",
+    "consulta-nsu": "node src/index.js consulta-nsu",
+    "download-chave": "node src/index.js download-chave"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.1",
+    "node-forge": "^1.3.1"
+  }
+}
