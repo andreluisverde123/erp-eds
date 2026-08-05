@@ -29,11 +29,42 @@ const KEY_LENGTH = 32; // 256 bits
 @Injectable()
 export class FiscalCryptoService {
   private readonly logger = new Logger(FiscalCryptoService.name);
-  private readonly key: Buffer;
+  private readonly rawKey: string | undefined;
+  private cachedKey: Buffer | null = null;
 
+  /// A chave é resolvida na PRIMEIRA USO, não no construtor.
+  ///
+  /// Com `getOrThrow` no construtor, um ambiente sem `FISCAL_CERT_ENCRYPTION_KEY`
+  /// derrubava a aplicação INTEIRA no boot — o ERP todo ficava fora do ar por
+  /// causa de um módulo opcional. Aconteceu no primeiro deploy da Integração
+  /// Fiscal em 2026-08-05. Agora a ausência da chave só falha quem realmente
+  /// tenta usar o cofre, com uma mensagem que diz o que fazer.
   constructor(configService: ConfigService) {
-    const raw = configService.getOrThrow<string>('FISCAL_CERT_ENCRYPTION_KEY');
-    this.key = this.parseKey(raw);
+    this.rawKey = configService.get<string>('FISCAL_CERT_ENCRYPTION_KEY');
+    if (!this.rawKey) {
+      this.logger.warn(
+        'FISCAL_CERT_ENCRYPTION_KEY não definida — a Integração Fiscal fica indisponível. ' +
+          'O restante do sistema não é afetado. Gere com: openssl rand -hex 32',
+      );
+    }
+  }
+
+  private get key(): Buffer {
+    if (this.cachedKey) return this.cachedKey;
+    if (!this.rawKey) {
+      throw new InternalServerErrorException(
+        'A Integração Fiscal não está configurada neste ambiente: falta a variável ' +
+          'FISCAL_CERT_ENCRYPTION_KEY. Gere com `openssl rand -hex 32` e reinicie a API.',
+      );
+    }
+    this.cachedKey = this.parseKey(this.rawKey);
+    return this.cachedKey;
+  }
+
+  /// O painel usa para explicar por que os botões estão desabilitados, em vez
+  /// de deixar o usuário descobrir com um erro ao clicar.
+  get configurado(): boolean {
+    return Boolean(this.rawKey);
   }
 
   /// Cifra e devolve `iv:authTag:ciphertext` em hex. Os três num campo só

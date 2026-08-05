@@ -54,6 +54,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Auto-cadastro de empresa. Desligado: o ERP da EDS tem uma empresa só.
       PUBLIC_SIGNUP_ENABLED: ${PUBLIC_SIGNUP_ENABLED:-false}
+      # Integração Fiscal (Distribuição DF-e). As três são OPCIONAIS: sem a
+      # chave o módulo fica indisponível e o resto do ERP segue normal.
+      #
+      # Precisam estar listadas aqui, e não só no .env: o `--env-file` do
+      # compose alimenta a INTERPOLAÇÃO deste arquivo, não o ambiente do
+      # container. Variável que não aparece nesta lista não chega ao Node.
+      FISCAL_CERT_ENCRYPTION_KEY: ${FISCAL_CERT_ENCRYPTION_KEY:-}
+      FISCAL_SYNC_ENABLED: ${FISCAL_SYNC_ENABLED:-false}
+      FISCAL_AMBIENTE: ${FISCAL_AMBIENTE:-producao}
     # Sem `ports`: a API só é alcançável pelo nginx, dentro da rede do compose.
     # Quem quiser depurar de fora sobe com `--profile expose-api` (abaixo) ou
     # usa `docker compose exec`.
