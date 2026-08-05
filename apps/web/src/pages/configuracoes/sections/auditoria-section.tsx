@@ -4,7 +4,6 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { exportToCsv } from '@/lib/csv-export';
@@ -179,7 +179,9 @@ export function AuditoriaSection() {
 
       {isError && <ErrorState message="Não foi possível carregar a auditoria. Tente novamente." />}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando auditoria..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando auditoria..." />
+      )}
 
       {data && (
         <>

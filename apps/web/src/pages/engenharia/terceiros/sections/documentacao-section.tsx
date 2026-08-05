@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { AlertTriangle, Plus, Search, XCircle } from 'lucide-react';
 import {
+  Button,
   Card,
   CardContent,
-  Input,
-  Button,
   ErrorState,
-  LoadingState,
+  Input,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -15,6 +14,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -169,7 +169,9 @@ export function DocumentacaoSection() {
         <ErrorState message="Não foi possível carregar os documentos. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando documentos..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando documentos..." />
+      )}
 
       {data && (
         <>

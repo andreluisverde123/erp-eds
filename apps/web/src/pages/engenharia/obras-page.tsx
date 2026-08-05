@@ -7,10 +7,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   ErrorState,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { BulkActionsBar } from '@/components/bulk-actions-bar';
@@ -203,7 +203,9 @@ export function ObrasPage() {
 
       {isError && <ErrorState message="Não foi possível carregar as obras. Tente novamente." />}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando obras..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={8} rows={PAGE_SIZE} message="Carregando obras..." />
+      )}
 
       {data && (
         <>

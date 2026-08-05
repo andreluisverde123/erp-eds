@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { ErrorState, LoadingState, Pagination, PaginationNext, PaginationPrevious } from '@repo/ui';
+import {
+  ErrorState,
+  Pagination,
+  PaginationNext,
+  PaginationPrevious,
+  TableSkeleton,
+} from '@repo/ui';
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useSuppliers } from '@/features/compras/hooks/use-suppliers';
@@ -89,7 +95,9 @@ export function ContasAPagarPage() {
         <ErrorState message="Não foi possível carregar as contas a pagar. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando contas a pagar..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando contas a pagar..." />
+      )}
 
       {data && (
         <>

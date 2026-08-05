@@ -4,10 +4,10 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -92,7 +92,9 @@ export function FornecedoresPage() {
         <ErrorState message="Não foi possível carregar os fornecedores. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando fornecedores..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={7} rows={PAGE_SIZE} message="Carregando fornecedores..." />
+      )}
 
       {data && (
         <>

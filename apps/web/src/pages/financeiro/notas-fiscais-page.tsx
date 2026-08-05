@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
+  Button,
+  ErrorState,
   Input,
   Pagination,
   PaginationNext,
@@ -10,9 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Button,
-  ErrorState,
-  LoadingState,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -133,7 +133,9 @@ export function NotasFiscaisPage() {
         <ErrorState message="Não foi possível carregar as notas fiscais. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando notas fiscais..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={7} rows={PAGE_SIZE} message="Carregando notas fiscais..." />
+      )}
 
       {data && (
         <>

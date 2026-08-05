@@ -1,4 +1,4 @@
-import { ErrorState, LoadingState } from '@repo/ui';
+import { ErrorState, TableSkeleton } from '@repo/ui';
 
 import { NotificationPreferencesTable } from '@/features/configuracoes/components/notification-preferences-table';
 import { useNotificationPreferences } from '@/features/configuracoes/hooks/use-notification-preferences';
@@ -13,7 +13,7 @@ export function NotificacoesSection() {
   }
 
   if (isLoading || !preferences) {
-    return <LoadingState message="Carregando preferências..." />;
+    return <TableSkeleton columns={6} message="Carregando preferências..." />;
   }
 
   return (

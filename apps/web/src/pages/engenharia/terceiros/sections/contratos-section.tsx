@@ -4,7 +4,6 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -157,7 +157,9 @@ export function ContratosSection() {
 
       {isError && <ErrorState message="Não foi possível carregar os contratos. Tente novamente." />}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando contratos..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={9} rows={PAGE_SIZE} message="Carregando contratos..." />
+      )}
 
       {data && (
         <>

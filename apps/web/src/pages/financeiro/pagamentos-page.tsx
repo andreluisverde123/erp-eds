@@ -4,7 +4,6 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -103,7 +103,9 @@ export function PagamentosPage() {
         <ErrorState message="Não foi possível carregar os pagamentos. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando pagamentos..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando pagamentos..." />
+      )}
 
       {data && (
         <>

@@ -4,10 +4,10 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -76,7 +76,9 @@ export function HoleritesPage() {
 
       {isError && <ErrorState message="Não foi possível carregar os holerites. Tente novamente." />}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando holerites..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={5} rows={PAGE_SIZE} message="Carregando holerites..." />
+      )}
 
       {data && (
         <>

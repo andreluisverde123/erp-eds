@@ -3,7 +3,6 @@ import { Plus } from 'lucide-react';
 import {
   Button,
   ErrorState,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -12,6 +11,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -112,7 +112,9 @@ export function ProducaoPage() {
         <ErrorState message="Não foi possível carregar os apontamentos de produção. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando produção..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando produção..." />
+      )}
 
       {data && (
         <>

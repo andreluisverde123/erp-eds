@@ -4,10 +4,10 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -97,7 +97,9 @@ export function PerfisSection() {
 
       {isError && <ErrorState message="Não foi possível carregar os perfis. Tente novamente." />}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando perfis..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={5} rows={PAGE_SIZE} message="Carregando perfis..." />
+      )}
 
       {data && (
         <>

@@ -4,7 +4,6 @@ import { ArrowLeft } from 'lucide-react';
 import {
   Button,
   ErrorState,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -125,7 +125,7 @@ export function AlocacoesPage() {
       {isError && <ErrorState message="Não foi possível carregar as alocações. Tente novamente." />}
 
       {!isError && isLoading && !data && (
-        <LoadingState message="Carregando alocações..." className="min-h-[30vh]" />
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando alocações..." />
       )}
 
       {data && (

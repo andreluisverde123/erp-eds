@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router';
 import {
   Button,
   ErrorState,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -120,7 +120,9 @@ export function SolicitacoesPage({
         <ErrorState message="Não foi possível carregar as solicitações. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando solicitações..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando solicitações..." />
+      )}
 
       {data && (
         <>

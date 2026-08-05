@@ -4,7 +4,6 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -156,7 +156,9 @@ export function FuncionariosSection() {
         <ErrorState message="Não foi possível carregar os funcionários. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando funcionários..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando funcionários..." />
+      )}
 
       {data && (
         <>

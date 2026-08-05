@@ -4,7 +4,6 @@ import {
   Button,
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -13,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -132,7 +132,9 @@ export function PontoPage() {
         <ErrorState message="Não foi possível carregar os apontamentos. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando apontamentos..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={7} rows={PAGE_SIZE} message="Carregando apontamentos..." />
+      )}
 
       {data && (
         <>

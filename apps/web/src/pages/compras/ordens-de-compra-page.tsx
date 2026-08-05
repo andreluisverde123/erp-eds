@@ -3,7 +3,6 @@ import { Search } from 'lucide-react';
 import {
   ErrorState,
   Input,
-  LoadingState,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -12,6 +11,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TableSkeleton,
 } from '@repo/ui';
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -93,7 +93,9 @@ export function OrdensDeCompraPage() {
         <ErrorState message="Não foi possível carregar as ordens de compra. Tente novamente." />
       )}
 
-      {!isError && isLoading && !data && <LoadingState message="Carregando ordens de compra..." />}
+      {!isError && isLoading && !data && (
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando ordens de compra..." />
+      )}
 
       {data && (
         <>
