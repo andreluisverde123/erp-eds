@@ -17,11 +17,18 @@ interface SupplierRef {
 
 export interface InboundInvoiceItem {
   id: string;
+  /// Posição do item na nota — a ordem em que o financeiro confere.
+  itemNumber: number | null;
+  /// Código no catálogo do EMITENTE, não no nosso.
+  code: string | null;
   description: string;
   unit: string | null;
   quantity: string;
   unitPrice: string;
   totalPrice: string;
+  ncm: string | null;
+  cfop: string | null;
+  cst: string | null;
 }
 
 /// Nota fiscal recebida. Campos Decimal do Prisma (`totalAmount`, valores dos
@@ -41,6 +48,28 @@ export interface InboundInvoice {
   accessKey: string | null;
   issueDate: string;
   totalAmount: string;
+  /// Dados que só o documento COMPLETO traz. Nulos enquanto a SEFAZ só
+  /// entregou o resumo (ver `hasFullDocument`).
+  supplierTradeName: string | null;
+  supplierIe: string | null;
+  supplierAddress: string | null;
+  supplierCity: string | null;
+  supplierState: string | null;
+  supplierZipCode: string | null;
+  productsAmount: string | null;
+  freightAmount: string | null;
+  discountAmount: string | null;
+  icmsAmount: string | null;
+  ipiAmount: string | null;
+  pisAmount: string | null;
+  cofinsAmount: string | null;
+  additionalInfo: string | null;
+  protocolNumber: string | null;
+  /// `false` significa que só o RESUMO chegou: a nota não tem itens ainda, e
+  /// a tela precisa dizer isso em vez de mostrar lista vazia como se a nota
+  /// não tivesse produtos.
+  hasFullDocument: boolean;
+  cancelledAt: string | null;
   status: InboundInvoiceStatus;
   source: InboundInvoiceSource;
   xmlPath: string | null;

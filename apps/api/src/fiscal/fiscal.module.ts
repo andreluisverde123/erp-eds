@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { FiscalCertificateService } from './certificate/fiscal-certificate.service';
 import { FiscalCryptoService } from './crypto/fiscal-crypto.service';
 import { DfeClientService } from './dfe/dfe-client.service';
+import { FiscalImportJob } from './import/fiscal-import.job';
+import { FiscalImportService } from './import/fiscal-import.service';
 import { FiscalIntegrationController } from './fiscal-integration.controller';
 import { FiscalIntegrationService } from './fiscal-integration.service';
 import { FiscalSyncJob } from './sync/fiscal-sync.job';
@@ -26,8 +28,10 @@ import { FiscalSyncService } from './sync/fiscal-sync.service';
     DfeClientService,
     FiscalSyncService,
     FiscalSyncJob,
+    FiscalImportService,
+    FiscalImportJob,
     FiscalIntegrationService,
   ],
-  exports: [FiscalSyncService],
+  exports: [FiscalSyncService, FiscalImportService],
 })
 export class FiscalModule {}

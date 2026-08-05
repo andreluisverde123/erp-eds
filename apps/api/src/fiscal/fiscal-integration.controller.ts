@@ -22,6 +22,7 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { FiscalCertificateService } from './certificate/fiscal-certificate.service';
 import { UploadCertificateDto } from './dto/upload-certificate.dto';
 import { FiscalIntegrationService } from './fiscal-integration.service';
+import { FiscalImportService } from './import/fiscal-import.service';
 import { FiscalSyncService } from './sync/fiscal-sync.service';
 
 /// Um A1 tem uns poucos KB. O teto existe para que um upload equivocado (um
@@ -42,6 +43,7 @@ export class FiscalIntegrationController {
     private readonly integration: FiscalIntegrationService,
     private readonly certificates: FiscalCertificateService,
     private readonly sync: FiscalSyncService,
+    private readonly importer: FiscalImportService,
   ) {}
 
   /// Tudo que o painel exibe, numa chamada.
@@ -112,5 +114,15 @@ export class FiscalIntegrationController {
     @CurrentUser('sub') actingUserId: string,
   ) {
     return this.sync.sync(companyId, 'MANUAL', actingUserId);
+  }
+
+  /// Processa manualmente a fila de documentos baixados. O job faz isto a cada
+  /// 5 minutos; o botão existe para não esperar depois de uma sincronização
+  /// manual, e para reprocessar o que ficou em erro.
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('import')
+  importNow(@CurrentUser('companyId') companyId: string) {
+    return this.importer.processPending(companyId);
   }
 }

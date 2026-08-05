@@ -203,6 +203,7 @@ model Company {
   fiscalSyncState         FiscalSyncState?
   fiscalSyncRuns          FiscalSyncRun[]
   fiscalDocuments         FiscalDocument[]
+  fiscalImportLogs        FiscalImportLog[]
 }
 
 // =============================================================================
@@ -1101,6 +1102,40 @@ model InboundInvoice {
   issueDate   DateTime
   totalAmount Decimal  @db.Decimal(14, 2)
 
+  /// Dados do emitente que só o documento COMPLETO traz — o resumo tem
+  /// apenas razão social e IE. Ficam nulos enquanto só o resumo chegou.
+  supplierTradeName String?
+  supplierIe        String?
+  supplierAddress   String?
+  supplierCity      String?
+  supplierState     String? @db.VarChar(2)
+  supplierZipCode   String? @db.VarChar(8)
+
+  /// Totais e impostos, todos do procNFe. `totalAmount` (vNF) já vem no
+  /// resumo; os demais não.
+  productsAmount Decimal? @db.Decimal(14, 2)
+  freightAmount  Decimal? @db.Decimal(14, 2)
+  discountAmount Decimal? @db.Decimal(14, 2)
+  icmsAmount     Decimal? @db.Decimal(14, 2)
+  ipiAmount      Decimal? @db.Decimal(14, 2)
+  pisAmount      Decimal? @db.Decimal(14, 2)
+  cofinsAmount   Decimal? @db.Decimal(14, 2)
+
+  additionalInfo String?
+  /// Protocolo de autorização da SEFAZ. É a prova de que o documento foi
+  /// autorizado — substitui, para o nosso uso, revalidar a assinatura XML.
+  protocolNumber String?
+
+  /// Ligado quando o `procNFe` chegou. Enquanto for `false`, a nota tem só o
+  /// cabeçalho do resumo e NÃO tem itens — a tela precisa dizer isso ao
+  /// financeiro em vez de mostrar uma lista vazia como se a nota não tivesse
+  /// produtos.
+  hasFullDocument Boolean @default(false)
+
+  /// Quando a nota foi cancelada pelo emitente (cSitNFe=3 no resumo ou evento
+  /// 110111). Cancelada não entra na fila de conciliação.
+  cancelledAt DateTime?
+
   status InboundInvoiceStatus @default(PENDING)
   source InboundInvoiceSource @default(MANUAL)
 
@@ -1140,7 +1175,8 @@ model InboundInvoice {
   invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   reconciledBy  User?          @relation(fields: [reconciledById], references: [id])
 
-  items InboundInvoiceItem[]
+  items      InboundInvoiceItem[]
+  importLogs FiscalImportLog[]
 
   /// Mesma nota (emitente + série + número) não entra duas vezes.
   @@unique([companyId, supplierDocument, series, number])
@@ -1163,11 +1199,20 @@ model InboundInvoice {
 model InboundInvoiceItem {
   id               String  @id @default(uuid()) @db.Uuid
   inboundInvoiceId String  @db.Uuid
+  /// Número do item dentro da nota (`nItem`). Preserva a ordem original do
+  /// documento fiscal, que é a ordem em que o financeiro confere.
+  itemNumber       Int?
+  /// Código do produto no catálogo do EMITENTE (`cProd`) — não é o nosso.
+  code             String?
   description      String
   unit             String?
   quantity         Decimal @db.Decimal(14, 4)
   unitPrice        Decimal @db.Decimal(14, 4)
   totalPrice       Decimal @db.Decimal(14, 2)
+  /// Classificação fiscal. Nulos quando o item veio de lançamento manual.
+  ncm              String? @db.VarChar(8)
+  cfop             String? @db.VarChar(4)
+  cst              String? @db.VarChar(3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1371,10 +1416,61 @@ model FiscalDocument {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
+  company    Company           @relation(fields: [companyId], references: [id])
+  importLogs FiscalImportLog[]
 
   @@unique([companyId, nsu])
   @@index([companyId, status])
   @@index([accessKey])
   @@index([receivedAt])
+}
+
+/// Resultado da tentativa de transformar um documento fiscal em nota.
+enum FiscalImportResult {
+  /// Nota criada ou atualizada com sucesso.
+  IMPORTED
+  /// Documento reconhecido, mas sem efeito — evento que não é cancelamento,
+  /// ou resumo que chegou depois do documento completo.
+  SKIPPED
+  /// Cancelamento aplicado a uma nota.
+  CANCELLED
+  FAILED
+}
+
+/// Log por documento processado. Uma linha por tentativa, com ou sem sucesso.
+///
+/// Existe separado de `FiscalSyncRun` porque as duas etapas falham por motivos
+/// diferentes: a sincronização falha por rede, certificado ou bloqueio da
+/// SEFAZ; a importação falha por XML fora do esperado. Misturar as duas faria
+/// "10 documentos com erro" não distinguir "a SEFAZ está fora do ar" de "dez
+/// notas com estrutura estranha".
+model FiscalImportLog {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  fiscalDocumentId String @db.Uuid
+  /// Origem: o schema do documento (`procNFe_v4.00`, `resNFe_v1.01`…) e o NSU.
+  /// Guardados aqui porque o `FiscalDocument` pode ser expurgado no futuro e o
+  /// log de importação precisa continuar explicando o que aconteceu.
+  sourceSchema     String
+  sourceNsu        String @db.VarChar(15)
+
+  result       FiscalImportResult
+  itemsCount   Int                @default(0)
+  durationMs   Int
+  /// Mensagem já higienizada — nunca contém o XML.
+  errorMessage String?
+
+  /// A nota resultante. Nulo quando o documento não gerou nota.
+  inboundInvoiceId String? @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument  @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  inboundInvoice InboundInvoice? @relation(fields: [inboundInvoiceId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([result])
+  @@index([fiscalDocumentId])
 }
