@@ -57,7 +57,13 @@ export function RoleFormDrawer({ open, onOpenChange, role }: RoleFormDrawerProps
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-xl">
+      {/* Alarga em telas grandes: as descrições das permissões são frases
+          inteiras e, a 576px, quase todas quebravam em duas linhas. Continua
+          ocupando a tela toda no celular. */}
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col gap-0 sm:max-w-xl lg:max-w-2xl xl:max-w-3xl"
+      >
         <div className="border-b border-border px-6 py-5">
           <SheetTitle>{isEditing ? 'Editar perfil' : 'Novo perfil'}</SheetTitle>
           <SheetDescription>
