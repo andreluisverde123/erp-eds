@@ -100,6 +100,36 @@ services:
     depends_on:
       - web
 
+  # Túnel NOMEADO: publica a stack num domínio próprio, com TLS válido, sem IP
+  # público e sem abrir porta no roteador. É o caminho para um ambiente que
+  # alguém vai usar de verdade — ao contrário do `tunnel` acima, a URL é fixa e
+  # sobrevive a restart.
+  #
+  #   docker compose -p eds-staging -f docker/docker-compose.prod.yml \
+  #     --env-file apps/api/.env.staging --profile tunnel-named up -d
+  #
+  # Pré-requisitos, todos no painel da Cloudflare (ver docs/ambientes.md):
+  #   1. o domínio precisa estar na conta (nameservers apontando para a Cloudflare)
+  #   2. Zero Trust > Networks > Tunnels > Create a tunnel (tipo Cloudflared)
+  #   3. em Public Hostname, apontar o subdomínio para `http://web:80`
+  #   4. copiar o token e definir CLOUDFLARE_TUNNEL_TOKEN no arquivo de ambiente
+  #
+  # O token É uma credencial: quem o tiver publica o que quiser nesse hostname.
+  # Ele mora no `.env.<ambiente>`, que é gitignorado — nunca no compose.
+  #
+  # Com este perfil, o `ports` do serviço `web` deixa de ser necessário: o
+  # cloudflared alcança o nginx pela rede interna do compose. Mantê-lo publicado
+  # no host é conveniência de depuração, não requisito.
+  tunnel-named:
+    profiles: ['tunnel-named']
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?defina o token em Zero Trust > Networks > Tunnels}
+    depends_on:
+      - web
+
   # Só sobe com `--profile local-db`.
   postgres:
     profiles: ['local-db']

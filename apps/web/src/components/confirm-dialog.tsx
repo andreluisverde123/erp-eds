@@ -15,6 +15,10 @@ interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel?: string;
+  /// Rótulo do botão enquanto a ação roda. O padrão atende os diálogos de
+  /// exclusão, que são a maioria; quem confirma outra coisa (gerar senha,
+  /// desativar) passa o verbo correspondente.
+  loadingLabel?: string;
   isLoading?: boolean;
   variant?: 'default' | 'destructive';
   onConfirm: () => void;
@@ -26,6 +30,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = 'Confirmar',
+  loadingLabel = 'Excluindo...',
   isLoading = false,
   variant = 'default',
   onConfirm,
@@ -44,7 +49,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={isLoading}
           >
-            {isLoading ? 'Excluindo...' : confirmLabel}
+            {isLoading ? loadingLabel : confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
