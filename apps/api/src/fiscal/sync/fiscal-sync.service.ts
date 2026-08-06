@@ -9,10 +9,20 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { FiscalCertificateService } from '../certificate/fiscal-certificate.service';
 import { CSTAT, DfeClientService, type DfeDocument } from '../dfe/dfe-client.service';
 
-/// Quanto tempo esperar depois de um `cStat 656`. A SEFAZ fala em 1 hora; 65
-/// minutos dão folga para diferença de relógio, porque errar para menos custa
-/// outra hora inteira de bloqueio.
-const COOLDOWN_MINUTES = 65;
+/// Espera depois de um bloqueio REAL da SEFAZ (`cStat 656`). Ela fala em 1
+/// hora; 65 minutos dão folga para diferença de relógio, porque errar para
+/// menos custa outra hora inteira de bloqueio.
+const COOLDOWN_AFTER_BLOCK_MINUTES = 65;
+
+/// Espera preventiva depois de "nenhum documento novo" (`cStat 137`). A SEFAZ
+/// trata consulta repetida sem novidade como consumo indevido, então o
+/// silêncio também precisa de intervalo.
+///
+/// Precisa ser MENOR que o intervalo do job (1 hora). Com 65 minutos — o mesmo
+/// valor do bloqueio real — toda execução seguinte a um resultado vazio caía
+/// dentro da janela e era pulada, e a integração passava a sincronizar de duas
+/// em duas horas. Medido em staging: 6 execuções puladas sem nenhum 656 real.
+const COOLDOWN_AFTER_EMPTY_MINUTES = 50;
 
 /// Teto de páginas por execução. Cada chamada traz ~50 documentos; 20 páginas
 /// cobrem 1000 documentos, o que é muito mais que uma hora de movimento
@@ -141,7 +151,7 @@ export class FiscalSyncService {
           documentsSkipped: ignorados,
           lastNSU: sugerido,
           maxNSU,
-          message: `Consumo indevido (656). Bloqueado por ${COOLDOWN_MINUTES} min. NSU ajustado para ${sugerido}.`,
+          message: `Consumo indevido (656). Bloqueado por ${COOLDOWN_AFTER_BLOCK_MINUTES} min. NSU ajustado para ${sugerido}.`,
           durationMs: Date.now() - inicio,
         };
       }
@@ -258,19 +268,19 @@ export class FiscalSyncService {
     await this.atualizarEstado(companyId, {
       lastNSU: nsuSugerido,
       lastSyncAt: new Date(),
-      blockedUntil: new Date(Date.now() + COOLDOWN_MINUTES * 60_000),
+      blockedUntil: new Date(Date.now() + COOLDOWN_AFTER_BLOCK_MINUTES * 60_000),
       blockReason: motivo,
     });
     this.logger.warn(
-      `Empresa ${companyId} bloqueada por consumo indevido até ${new Date(Date.now() + COOLDOWN_MINUTES * 60_000).toISOString()}.`,
+      `Empresa ${companyId} bloqueada por consumo indevido até ${new Date(Date.now() + COOLDOWN_AFTER_BLOCK_MINUTES * 60_000).toISOString()}.`,
     );
   }
 
-  /// Depois de um lote sem novidade, a próxima consulta só pode acontecer
-  /// daqui a uma hora — é a mesma janela do bloqueio, aplicada preventivamente
-  /// para nunca chegar a tomar o 656.
+  /// Janela preventiva depois de um lote sem novidade. Encurtada de propósito
+  /// para caber DENTRO do intervalo do job: uma janela igual ou maior que ele
+  /// faz a execução seguinte ser sempre pulada.
   private proximaJanela(): Date {
-    return new Date(Date.now() + COOLDOWN_MINUTES * 60_000);
+    return new Date(Date.now() + COOLDOWN_AFTER_EMPTY_MINUTES * 60_000);
   }
 
   async obterEstado(companyId: string) {
