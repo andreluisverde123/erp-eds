@@ -44,6 +44,21 @@ export class InboundInvoicesController {
     return this.inboundInvoices.suggestions(companyId, id);
   }
 
+  /// Ordens de compra em aberto para escolha manual, quando não há sugestão.
+  @Get('options/purchase-orders')
+  openOrders(
+    @Query('search') search: string | undefined,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inboundInvoices.listOpenOrders(companyId, search);
+  }
+
+  /// Centros de custo, para o lançamento sem ordem de compra.
+  @Get('options/cost-centers')
+  costCenters(@CurrentUser('companyId') companyId: string) {
+    return this.inboundInvoices.listCostCenters(companyId);
+  }
+
   /// Entrada manual — o único caminho de entrada desta versão. A captura
   /// automática (XML/SEFAZ) entrará por aqui também, mudando só a origem.
   @RequirePermissions('financeiro.manage')

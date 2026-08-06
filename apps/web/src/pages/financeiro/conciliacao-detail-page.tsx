@@ -23,7 +23,9 @@ import { PurchaseOrderPanel } from '@/features/conciliacao/components/purchase-o
 import { ReconcileForm } from '@/features/conciliacao/components/reconcile-form';
 import { useReconcileInboundInvoice } from '@/features/conciliacao/hooks/use-inbound-invoice-mutations';
 import {
+  useCostCenters,
   useInboundInvoice,
+  useOpenPurchaseOrders,
   usePurchaseOrderSuggestions,
 } from '@/features/conciliacao/hooks/use-inbound-invoices';
 import { formatAmount, formatDate } from '@/features/conciliacao/format';
@@ -37,6 +39,7 @@ import {
   type ReconcileFormValues,
 } from '@/features/conciliacao/reconcile-form-schema';
 import type { PurchaseOrderSuggestion } from '@/features/conciliacao/types';
+import type { ReconcileMode } from '@/features/conciliacao/components/purchase-order-panel';
 
 const LIST_PATH = '/financeiro/conciliacao';
 
@@ -54,7 +57,16 @@ export function ConciliacaoDetailPage() {
     Boolean(isPending),
   );
 
+  // As duas listas só são buscadas enquanto há o que conciliar.
+  const { data: openOrders } = useOpenPurchaseOrders(Boolean(isPending));
+  const { data: costCenters } = useCostCenters(Boolean(isPending));
+
   const reconcileMutation = useReconcileInboundInvoice(id ?? '');
+
+  /// Com ordem de compra (compra planejada) ou sem (balcão). A escolha muda
+  /// o que é exigido: ordem num caso, centro de custo no outro.
+  const [mode, setMode] = useState<ReconcileMode>('order');
+  const [costCenterId, setCostCenterId] = useState<string | null>(null);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   /// Qual ordem teve a divergência aceita — não um booleano solto. A
@@ -138,13 +150,18 @@ export function ConciliacaoDetailPage() {
   const difference = selected ? Number(invoice.totalAmount) - Number(selected.openAmount) : 0;
   const hasDivergence = selected ? Math.abs(difference) >= 0.01 : false;
   const divergenceAccepted = Boolean(selectedId) && divergenceAcceptedFor === selectedId;
-  const canSubmit = Boolean(selectedId) && (!hasDivergence || divergenceAccepted);
+  const canSubmit =
+    mode === 'no-order'
+      ? Boolean(costCenterId)
+      : Boolean(selectedId) && (!hasDivergence || divergenceAccepted);
 
   async function onSubmit(values: ReconcileFormValues) {
     setSubmitError(null);
     try {
       await reconcileMutation.mutateAsync({
-        purchaseOrderId: values.purchaseOrderId,
+        // Sem ordem: manda só o centro de custo. A API exige um dos dois.
+        purchaseOrderId: mode === 'no-order' ? undefined : values.purchaseOrderId,
+        costCenterId: mode === 'no-order' ? (costCenterId ?? undefined) : undefined,
         paymentMethod: values.paymentMethod,
         paymentTerms: values.paymentTerms,
         dueDate: values.dueDate || undefined,
@@ -194,8 +211,14 @@ export function ConciliacaoDetailPage() {
             <InvoicePanel invoice={invoice} />
             <PurchaseOrderPanel
               suggestions={panelSuggestions}
+              openOrders={openOrders ?? []}
+              costCenters={costCenters ?? []}
+              mode={mode}
+              onModeChange={setMode}
               selectedId={panelSelectedId}
               onSelect={(value) => form.setValue('purchaseOrderId', value)}
+              costCenterId={costCenterId}
+              onCostCenterChange={setCostCenterId}
               isLoading={isLoadingSuggestions}
               invoiceAmount={invoice.totalAmount}
               readOnly={!isPending}
@@ -204,7 +227,7 @@ export function ConciliacaoDetailPage() {
 
           {isPending ? (
             <>
-              {hasDivergence && (
+              {mode === 'order' && hasDivergence && (
                 <Alert variant="destructive">
                   <AlertTriangle />
                   <AlertTitle>

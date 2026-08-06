@@ -2,10 +2,12 @@ import { apiClient } from '@/lib/api-client';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
+  CostCenterOption,
   InboundInvoice,
   InboundInvoiceDetail,
   InboundInvoiceInput,
   InboundInvoiceQuery,
+  OpenPurchaseOrder,
   PaginatedResult,
   PurchaseOrderSuggestion,
   ReconcileInput,
@@ -24,6 +26,17 @@ export function getInboundInvoice(id: string): Promise<InboundInvoiceDetail> {
 /// Ordens de compra compatíveis, já ordenadas da mais provável para a menos.
 export function getPurchaseOrderSuggestions(id: string): Promise<PurchaseOrderSuggestion[]> {
   return apiClient.get(`/inbound-invoices/${id}/suggestions`);
+}
+
+/// Todas as ordens em aberto, sem filtro de fornecedor — para quando o
+/// sistema não tem sugestão a dar mas o usuário sabe qual é a ordem.
+export function listOpenPurchaseOrders(search?: string): Promise<OpenPurchaseOrder[]> {
+  return apiClient.get(`/inbound-invoices/options/purchase-orders${toQueryString({ search })}`);
+}
+
+/// Centros de custo, para o lançamento sem ordem de compra.
+export function listCostCenters(): Promise<CostCenterOption[]> {
+  return apiClient.get('/inbound-invoices/options/cost-centers');
 }
 
 /// Entrada manual. Enquanto não existir captura automática de XML, é por aqui

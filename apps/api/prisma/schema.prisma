@@ -818,7 +818,15 @@ model Invoice {
   id                 String        @id @default(uuid()) @db.Uuid
   companyId          String        @db.Uuid
   supplierId         String        @db.Uuid
-  purchaseOrderId    String        @db.Uuid
+  /// OPCIONAL desde 2026-08-06. Era obrigatório porque toda nota deveria
+  /// nascer de uma compra aprovada — o que é verdade para compra planejada,
+  /// mas não para compra de balcão: o fornecedor emite a nota na loja e não
+  /// existe ordem nenhuma no sistema. Exigir a ordem ali significava que a
+  /// nota simplesmente não podia virar conta a pagar.
+  ///
+  /// Quando nulo, `costCenterId` passa a ser a informação que diz A QUEM a
+  /// despesa pertence — ver `InboundInvoicesService.reconcile`.
+  purchaseOrderId    String?       @db.Uuid
   constructionSiteId String?       @db.Uuid
   costCenterId       String?       @db.Uuid
   number             String
@@ -832,7 +840,7 @@ model Invoice {
 
   company          Company           @relation(fields: [companyId], references: [id])
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
-  purchaseOrder    PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder    PurchaseOrder?    @relation(fields: [purchaseOrderId], references: [id])
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
 

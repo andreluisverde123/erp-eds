@@ -258,9 +258,10 @@ export class InboundInvoicesService {
   async suggestions(companyId: string, id: string): Promise<PurchaseOrderSuggestion[]> {
     const invoice = await this.findOne(companyId, id);
 
-    // Sem fornecedor cadastrado não há como sugerir: o vínculo por CNPJ é o
-    // que dá confiança à sugestão. A tela mostra o aviso e o usuário resolve
-    // cadastrando o fornecedor.
+    // Sem fornecedor cadastrado não há SUGESTÃO: o vínculo por CNPJ é o que dá
+    // confiança a ela. A tela, porém, não fica sem saída — ela oferece a busca
+    // manual de qualquer ordem em aberto (`listOpenOrders`) e o caminho sem
+    // ordem de compra. Sugerir é diferente de permitir.
     if (!invoice.supplierId) return [];
 
     const orders = await this.prisma.purchaseOrder.findMany({
@@ -336,6 +337,65 @@ export class InboundInvoicesService {
     }));
   }
 
+
+  /// Ordens de compra em aberto para ESCOLHA MANUAL, sem filtro de fornecedor.
+  ///
+  /// Existe porque sugerir e permitir são coisas diferentes: o sistema só
+  /// sugere ordem do mesmo emitente (sugerir errado é pior que não sugerir),
+  /// mas o usuário precisa poder escolher quando conhece o caso — por exemplo
+  /// uma nota cujo emitente ainda não foi cadastrado como fornecedor. Sem
+  /// isto, a tela ficava num beco: nenhuma sugestão e nenhum modo de escolher.
+  async listOpenOrders(companyId: string, search?: string) {
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: { not: 'CANCELLED' },
+        code: search ? { contains: search, mode: 'insensitive' } : undefined,
+      },
+      select: {
+        id: true,
+        code: true,
+        issueDate: true,
+        totalAmount: true,
+        supplier: { select: { id: true, legalName: true, tradeName: true } },
+        costCenter: { select: { id: true, code: true, name: true } },
+        constructionSite: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { issueDate: 'desc' },
+      take: 50,
+    });
+
+    const reconciledByOrder = await this.reconciledAmountByOrder(
+      companyId,
+      orders.map((order) => order.id),
+    );
+
+    return orders
+      .map((order) => ({
+        ...order,
+        reconciledAmount: reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0),
+        openAmount: order.totalAmount.minus(reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0)),
+      }))
+      // Ordem sem saldo não pode receber nota — não faz sentido oferecê-la.
+      .filter((order) => order.openAmount.greaterThan(0));
+  }
+
+  /// Centros de custo para o lançamento SEM ordem de compra. É a informação
+  /// que substitui a ordem: sem ela a despesa não pertenceria a nada.
+  async listCostCenters(companyId: string) {
+    return this.prisma.costCenter.findMany({
+      where: { companyId, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        constructionSite: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { code: 'asc' },
+    });
+  }
+
   /// Conciliação: vincula a nota à ordem de compra e gera o financeiro.
   ///
   /// Tudo numa transação só — nota vinculada sem conta a pagar, ou conta a
@@ -360,47 +420,96 @@ export class InboundInvoicesService {
       );
     }
 
-    const order = await this.prisma.purchaseOrder.findFirst({
-      where: { id: dto.purchaseOrderId, companyId, deletedAt: null, status: { not: 'CANCELLED' } },
-      select: {
-        id: true,
-        code: true,
-        supplierId: true,
-        totalAmount: true,
-        constructionSiteId: true,
-        costCenterId: true,
-      },
-    });
-    if (!order) {
+    // DOIS CAMINHOS. Com ordem de compra, valem as regras de saldo e
+    // divergência — a nota é conferida contra um pedido aprovado. Sem ordem
+    // (compra de balcão), não há contra o que conferir: o que se exige é o
+    // centro de custo, para a despesa ter dono.
+    const order = dto.purchaseOrderId
+      ? await this.prisma.purchaseOrder.findFirst({
+          where: {
+            id: dto.purchaseOrderId,
+            companyId,
+            deletedAt: null,
+            status: { not: 'CANCELLED' },
+          },
+          select: {
+            id: true,
+            code: true,
+            supplierId: true,
+            totalAmount: true,
+            constructionSiteId: true,
+            costCenterId: true,
+          },
+        })
+      : null;
+
+    if (dto.purchaseOrderId && !order) {
       throw new BadRequestException('Ordem de compra informada não existe ou está cancelada.');
     }
 
-    // Fornecedor da nota e da ordem têm de ser o mesmo. Sem esta checagem, a
-    // escolha manual conseguiria fazer o que a sugestão automática se recusa.
-    if (invoice.supplierId && invoice.supplierId !== order.supplierId) {
-      throw new BadRequestException(
-        'A ordem de compra escolhida é de outro fornecedor. Selecione uma ordem do mesmo emitente da nota.',
-      );
+    let costCenterId: string;
+    let constructionSiteId: string | null;
+    let isDivergent = false;
+
+    if (order) {
+      // Fornecedor da nota e da ordem têm de ser o mesmo. Sem esta checagem, a
+      // escolha manual conseguiria fazer o que a sugestão automática se recusa.
+      if (invoice.supplierId && invoice.supplierId !== order.supplierId) {
+        throw new BadRequestException(
+          'A ordem de compra escolhida é de outro fornecedor. Selecione uma ordem do mesmo emitente da nota.',
+        );
+      }
+
+      const reconciled =
+        (await this.reconciledAmountByOrder(companyId, [order.id])).get(order.id) ??
+        new Prisma.Decimal(0);
+      const openAmount = order.totalAmount.minus(reconciled);
+
+      if (openAmount.lessThanOrEqualTo(0)) {
+        throw new ConflictException(
+          `A ordem de compra ${order.code} já está totalmente conciliada e não pode receber outra nota.`,
+        );
+      }
+
+      // Divergência não bloqueia para sempre — exige aceite. A tela mostra a
+      // diferença destacada antes de deixar confirmar; a API é quem garante que
+      // ninguém pule esse passo chamando o endpoint direto.
+      isDivergent = !invoice.totalAmount.equals(openAmount);
+      if (isDivergent && !dto.acceptDivergence) {
+        throw new BadRequestException(
+          `O valor da nota (${format(invoice.totalAmount)}) difere do saldo em aberto da ordem ${order.code} (${format(openAmount)}). Confirme a divergência para prosseguir.`,
+        );
+      }
+
+      costCenterId = order.costCenterId;
+      constructionSiteId = order.constructionSiteId;
+    } else {
+      if (!dto.costCenterId) {
+        throw new BadRequestException(
+          'Sem ordem de compra, informe o centro de custo — é ele que diz a que a despesa pertence.',
+        );
+      }
+      const costCenter = await this.prisma.costCenter.findFirst({
+        where: { id: dto.costCenterId, companyId, deletedAt: null },
+        select: { id: true, constructionSiteId: true },
+      });
+      if (!costCenter) {
+        throw new BadRequestException('Centro de custo informado não existe.');
+      }
+      costCenterId = costCenter.id;
+      // A obra vem do centro de custo, não é escolhida de novo — mesma regra
+      // que a solicitação de compra já usa. Fica nula quando o centro não
+      // pertence a obra nenhuma (Escritório, por exemplo).
+      constructionSiteId = costCenter.constructionSiteId;
     }
 
-    const reconciled =
-      (await this.reconciledAmountByOrder(companyId, [order.id])).get(order.id) ??
-      new Prisma.Decimal(0);
-    const openAmount = order.totalAmount.minus(reconciled);
-
-    if (openAmount.lessThanOrEqualTo(0)) {
-      throw new ConflictException(
-        `A ordem de compra ${order.code} já está totalmente conciliada e não pode receber outra nota.`,
-      );
-    }
-
-    // Divergência não bloqueia para sempre — exige aceite. A tela mostra a
-    // diferença destacada antes de deixar confirmar; a API é quem garante que
-    // ninguém pule esse passo chamando o endpoint direto.
-    const isDivergent = !invoice.totalAmount.equals(openAmount);
-    if (isDivergent && !dto.acceptDivergence) {
+    // Sem fornecedor cadastrado não há como pendurar a nota do financeiro em
+    // ninguém: `Invoice.supplierId` é obrigatório. É o caso mais comum na
+    // compra de balcão, e a mensagem precisa dizer o que fazer.
+    const supplierId = order?.supplierId ?? invoice.supplierId;
+    if (!supplierId) {
       throw new BadRequestException(
-        `O valor da nota (${format(invoice.totalAmount)}) difere do saldo em aberto da ordem ${order.code} (${format(openAmount)}). Confirme a divergência para prosseguir.`,
+        `O emitente ${invoice.supplierName} (CNPJ ${invoice.supplierDocument}) não está cadastrado como fornecedor. Cadastre-o em Compras > Fornecedores para conciliar esta nota.`,
       );
     }
 
@@ -415,10 +524,10 @@ export class InboundInvoicesService {
       const created = await tx.invoice.create({
         data: {
           companyId,
-          purchaseOrderId: order.id,
-          supplierId: order.supplierId,
-          constructionSiteId: order.constructionSiteId,
-          costCenterId: order.costCenterId,
+          purchaseOrderId: order?.id ?? null,
+          supplierId,
+          constructionSiteId,
+          costCenterId,
           number: invoice.number,
           series: invoice.series,
           issueDate: invoice.issueDate,
@@ -441,7 +550,7 @@ export class InboundInvoicesService {
         where: { id, companyId },
         data: {
           status: finalStatus,
-          purchaseOrderId: order.id,
+          purchaseOrderId: order?.id ?? null,
           invoiceId: created.id,
           reconciledAt: new Date(),
           reconciledById: actingUserId,
@@ -461,8 +570,9 @@ export class InboundInvoicesService {
       ipAddress,
       changes: {
         action: 'reconcile',
-        purchaseOrderId: order.id,
-        purchaseOrderCode: order.code,
+        purchaseOrderId: order?.id ?? null,
+        purchaseOrderCode: order?.code ?? null,
+        costCenterId,
         status: finalStatus,
         paymentMethod: dto.paymentMethod,
         paymentTerms: dto.paymentTerms,
@@ -471,7 +581,8 @@ export class InboundInvoicesService {
     });
 
     this.logger.log(
-      `Nota ${invoice.number} conciliada com a OC ${order.code} (${installments.length} parcela(s), status ${finalStatus}).`,
+      `Nota ${invoice.number} conciliada ${order ? `com a OC ${order.code}` : 'sem ordem de compra'} ` +
+        `(${installments.length} parcela(s), status ${finalStatus}).`,
     );
 
     return this.findOne(companyId, id);

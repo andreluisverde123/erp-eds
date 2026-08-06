@@ -1,6 +1,12 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
-import { getInboundInvoice, getPurchaseOrderSuggestions, listInboundInvoices } from '../api';
+import {
+  getInboundInvoice,
+  getPurchaseOrderSuggestions,
+  listCostCenters,
+  listInboundInvoices,
+  listOpenPurchaseOrders,
+} from '../api';
 import type { InboundInvoiceQuery } from '../types';
 
 export function useInboundInvoices(query: InboundInvoiceQuery) {
@@ -27,5 +33,23 @@ export function usePurchaseOrderSuggestions(id: string | undefined, enabled: boo
     queryKey: ['inbound-invoices', 'suggestions', id],
     queryFn: () => getPurchaseOrderSuggestions(id as string),
     enabled: Boolean(id) && enabled,
+  });
+}
+
+/// Só é buscado quando o usuário pede a escolha manual — a lista é grande e
+/// não faz sentido carregá-la em toda abertura de nota.
+export function useOpenPurchaseOrders(enabled: boolean) {
+  return useQuery({
+    queryKey: ['inbound-invoices', 'open-orders'],
+    queryFn: () => listOpenPurchaseOrders(),
+    enabled,
+  });
+}
+
+export function useCostCenters(enabled: boolean) {
+  return useQuery({
+    queryKey: ['inbound-invoices', 'cost-centers'],
+    queryFn: listCostCenters,
+    enabled,
   });
 }

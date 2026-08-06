@@ -62,7 +62,8 @@ export class FinanceiroPipelineService {
       series: row.series,
       stage: deriveFinanceiroStage(row, row.accountsPayable),
       supplier: row.supplier,
-      responsavel: row.purchaseOrder.purchaseRequest.requestedBy,
+      // Nulo em nota de balcão, que não tem ordem nem requisição de origem.
+      responsavel: row.purchaseOrder?.purchaseRequest.requestedBy ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }));
@@ -135,8 +136,13 @@ export class FinanceiroPipelineService {
       stage,
       status: invoice.status,
       supplier: invoice.supplier,
-      responsavel: invoice.purchaseOrder.purchaseRequest.requestedBy,
-      responsavelOrigin: 'via requisição de origem' as const,
+      // A ordem de compra passou a ser opcional (compra de balcão não tem
+      // ordem). Sem ela não existe requisição de origem, e portanto não há
+      // "responsável" a herdar — a nota entrou pela SEFAZ, não por um pedido.
+      responsavel: invoice.purchaseOrder?.purchaseRequest.requestedBy ?? null,
+      responsavelOrigin: invoice.purchaseOrder
+        ? ('via requisição de origem' as const)
+        : ('sem ordem de compra' as const),
       createdAt: invoice.createdAt,
       updatedAt: invoice.updatedAt,
       accountsPayable: invoice.accountsPayable,

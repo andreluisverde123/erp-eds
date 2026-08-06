@@ -33,7 +33,15 @@ function Field({ label, value }: { label: string; value: string }) {
 /// Uma linha de total só aparece quando tem valor. Frete e desconto zerados
 /// são a maioria das notas de obra — exibir "R$ 0,00" em toda nota faria o
 /// financeiro parar de ler o bloco.
-function Total({ label, value, destaque }: { label: string; value: string | null; destaque?: boolean }) {
+function Total({
+  label,
+  value,
+  destaque,
+}: {
+  label: string;
+  value: string | null;
+  destaque?: boolean;
+}) {
   if (value === null || Number(value) === 0) return null;
   return (
     <div className="flex items-baseline justify-between gap-4">
@@ -106,9 +114,7 @@ export function InvoicePanel({ invoice }: { invoice: InboundInvoiceDetail }) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Fornecedor" value={emitente} />
           <Field label="CNPJ" value={formatDocument(invoice.supplierDocument)} />
-          {invoice.supplierTradeName && (
-            <Field label="Razão social" value={invoice.supplierName} />
-          )}
+          {invoice.supplierTradeName && <Field label="Razão social" value={invoice.supplierName} />}
           {invoice.supplierIe && <Field label="Inscrição estadual" value={invoice.supplierIe} />}
           {invoice.supplierAddress && <Field label="Endereço" value={invoice.supplierAddress} />}
           {localizacao && <Field label="Cidade / UF" value={localizacao} />}

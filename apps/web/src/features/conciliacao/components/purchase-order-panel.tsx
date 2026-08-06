@@ -1,6 +1,7 @@
-import { AlertTriangle, CheckCircle2, PackageSearch } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, PackageSearch, Store } from 'lucide-react';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -21,7 +22,7 @@ import {
 } from '@repo/ui';
 
 import { formatAmount, formatDate, formatQuantity } from '../format';
-import type { PurchaseOrderSuggestion } from '../types';
+import type { CostCenterOption, OpenPurchaseOrder, PurchaseOrderSuggestion } from '../types';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -32,41 +33,67 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/// Compra planejada passa por ordem de compra; compra de balcão não tem
+/// ordem nenhuma — o fornecedor emite a nota na loja. Os dois modos existem
+/// porque o ERP precisa atender os dois jeitos de comprar da EDS.
+export type ReconcileMode = 'order' | 'no-order';
+
 interface PurchaseOrderPanelProps {
   suggestions: PurchaseOrderSuggestion[];
+  /// Todas as ordens em aberto, para escolha manual quando não há sugestão.
+  openOrders: OpenPurchaseOrder[];
+  costCenters: CostCenterOption[];
+  mode: ReconcileMode;
+  onModeChange: (mode: ReconcileMode) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  costCenterId: string | null;
+  onCostCenterChange: (id: string) => void;
   isLoading: boolean;
-  /// Valor da nota, para confrontar com o saldo em aberto da ordem.
   invoiceAmount: string;
-  /// Somente leitura depois que a nota já foi conciliada.
   readOnly?: boolean;
 }
 
-/// Lado direito da comparação: a ordem de compra escolhida. O seletor fica no
-/// topo porque trocar a ordem é a ação central desta tela — o usuário aceita a
-/// sugestão ou escolhe outra, e o painel inteiro reage.
 export function PurchaseOrderPanel({
   suggestions,
+  openOrders,
+  costCenters,
+  mode,
+  onModeChange,
   selectedId,
   onSelect,
+  costCenterId,
+  onCostCenterChange,
   isLoading,
   invoiceAmount,
   readOnly = false,
 }: PurchaseOrderPanelProps) {
   const selected = suggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
+  // Escolhida manualmente: não está entre as sugestões, então os dados vêm da
+  // lista de ordens em aberto.
+  const manual = !selected ? (openOrders.find((order) => order.id === selectedId) ?? null) : null;
 
-  const difference = selected ? Number(invoiceAmount) - Number(selected.openAmount) : 0;
-  const hasDivergence = selected ? Math.abs(difference) >= 0.01 : false;
+  const openAmount = selected?.openAmount ?? manual?.openAmount ?? null;
+  const difference = openAmount === null ? 0 : Number(invoiceAmount) - Number(openAmount);
+  const hasDivergence = openAmount !== null && Math.abs(difference) >= 0.01;
+
+  // As sugestões primeiro (com o rótulo), depois as demais em aberto. Sem o
+  // `filter`, uma ordem sugerida apareceria duas vezes na lista.
+  const sugeridasIds = new Set(suggestions.map((s) => s.id));
+  const outras = openOrders.filter((order) => !sugeridasIds.has(order.id));
+
+  const centro = costCenters.find((c) => c.id === costCenterId) ?? null;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <CardTitle>Ordem de Compra</CardTitle>
+            <CardTitle>{mode === 'order' ? 'Ordem de Compra' : 'Lançamento sem ordem'}</CardTitle>
             <CardDescription>
-              {selected ? `Nº ${selected.code}` : 'Selecione a ordem correspondente'}
+              {mode === 'order'
+                ? (selected?.code ?? manual?.code ?? 'Selecione a ordem correspondente')
+                : 'Compra de balcão — informe o centro de custo'}
             </CardDescription>
           </div>
           {selected?.isPrimary && !readOnly && (
@@ -80,70 +107,156 @@ export function PurchaseOrderPanel({
 
       <CardContent className="flex flex-col gap-4">
         {!readOnly && (
-          <Select value={selectedId ?? ''} onValueChange={onSelect} disabled={isLoading}>
-            <SelectTrigger>
-              <SelectValue
-                placeholder={isLoading ? 'Buscando ordens...' : 'Escolher ordem de compra'}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {suggestions.map((suggestion) => (
-                <SelectItem key={suggestion.id} value={suggestion.id}>
-                  {suggestion.code} — {formatAmount(suggestion.openAmount)} em aberto
-                  {suggestion.isPrimary ? ' (sugerida)' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <>
+            {/* A escolha entre os dois caminhos fica no topo porque muda tudo
+                abaixo dela. Dois botões e não um select: são duas opções
+                mutuamente exclusivas e ambas visíveis o tempo todo. */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === 'order' ? 'default' : 'outline'}
+                onClick={() => onModeChange('order')}
+              >
+                <PackageSearch />
+                Com ordem de compra
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === 'no-order' ? 'default' : 'outline'}
+                onClick={() => onModeChange('no-order')}
+              >
+                <Store />
+                Sem ordem (balcão)
+              </Button>
+            </div>
+
+            {mode === 'order' ? (
+              <Select value={selectedId ?? ''} onValueChange={onSelect} disabled={isLoading}>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={isLoading ? 'Buscando ordens...' : 'Escolher ordem de compra'}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {suggestions.map((suggestion) => (
+                    <SelectItem key={suggestion.id} value={suggestion.id}>
+                      {suggestion.code} — {formatAmount(suggestion.openAmount)} em aberto
+                      {suggestion.isPrimary ? ' (sugerida)' : ''}
+                    </SelectItem>
+                  ))}
+                  {outras.map((order) => (
+                    <SelectItem key={order.id} value={order.id}>
+                      {order.code} — {formatAmount(order.openAmount)} em aberto ·{' '}
+                      {order.supplier.tradeName ?? order.supplier.legalName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={costCenterId ?? ''}
+                onValueChange={onCostCenterChange}
+                disabled={isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Escolher centro de custo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {costCenters.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.code} — {option.name}
+                      {option.constructionSite ? ` · ${option.constructionSite.code}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </>
         )}
 
-        {!isLoading && suggestions.length === 0 && (
+        {mode === 'order' && !isLoading && suggestions.length === 0 && outras.length === 0 && (
           <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-center">
             <PackageSearch className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
             <p className="text-sm text-muted-foreground">
-              Nenhuma ordem de compra deste fornecedor com saldo em aberto.
+              Nenhuma ordem de compra em aberto no sistema.
             </p>
             <p className="text-xs text-muted-foreground">
-              Ordens canceladas ou já totalmente conciliadas não aparecem aqui.
+              Se esta compra foi feita no balcão, use “Sem ordem (balcão)”.
             </p>
           </div>
         )}
 
-        {selected && (
+        {mode === 'no-order' && costCenters.length === 0 && !isLoading && (
+          <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-center">
+            <Store className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+            <p className="text-sm text-muted-foreground">Nenhum centro de custo cadastrado.</p>
+            <p className="text-xs text-muted-foreground">
+              Cadastre em Engenharia para poder lançar despesas sem ordem de compra.
+            </p>
+          </div>
+        )}
+
+        {mode === 'no-order' && centro && (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Centro de custo" value={`${centro.code} — ${centro.name}`} />
+              <Field
+                label="Obra"
+                value={
+                  centro.constructionSite
+                    ? `${centro.constructionSite.code} — ${centro.constructionSite.name}`
+                    : 'Sem obra vinculada'
+                }
+              />
+              <Field label="Valor da nota" value={formatAmount(invoiceAmount)} />
+            </div>
+            <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Sem ordem de compra não há conferência contra pedido aprovado: a conta a pagar nasce
+              pelo valor integral da nota, no centro de custo escolhido.
+            </p>
+          </>
+        )}
+
+        {mode === 'order' && (selected || manual) && (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field
                 label="Fornecedor"
-                value={selected.supplier.tradeName ?? selected.supplier.legalName}
+                value={
+                  (selected ?? manual)!.supplier.tradeName ??
+                  (selected ?? manual)!.supplier.legalName
+                }
               />
               <Field
                 label="Centro de Custo"
                 value={
-                  selected.costCenter
-                    ? `${selected.costCenter.code} — ${selected.costCenter.name}`
+                  (selected ?? manual)!.costCenter
+                    ? `${(selected ?? manual)!.costCenter!.code} — ${(selected ?? manual)!.costCenter!.name}`
                     : '—'
                 }
               />
               <Field
                 label="Obra"
                 value={
-                  selected.constructionSite
-                    ? `${selected.constructionSite.code} — ${selected.constructionSite.name}`
+                  (selected ?? manual)!.constructionSite
+                    ? `${(selected ?? manual)!.constructionSite!.code} — ${(selected ?? manual)!.constructionSite!.name}`
                     : 'Sem obra vinculada'
                 }
               />
-              <Field label="Emissão" value={formatDate(selected.issueDate)} />
-              <Field label="Valor aprovado" value={formatAmount(selected.totalAmount)} />
-              <Field label="Saldo em aberto" value={formatAmount(selected.openAmount)} />
+              <Field label="Emissão" value={formatDate((selected ?? manual)!.issueDate)} />
+              <Field
+                label="Valor aprovado"
+                value={formatAmount((selected ?? manual)!.totalAmount)}
+              />
+              <Field label="Saldo em aberto" value={formatAmount(openAmount)} />
             </div>
 
-            {/* Entregas parciais são a regra em obra: uma ordem pode receber
-                várias notas até fechar o valor aprovado. Mostrar o já
-                conciliado explica por que o saldo difere do total. */}
-            {Number(selected.reconciledAmount) > 0 && (
+            {Number((selected ?? manual)!.reconciledAmount) > 0 && (
               <p className="text-xs text-muted-foreground">
-                {formatAmount(selected.reconciledAmount)} já conciliados nesta ordem por outras
-                notas.
+                {formatAmount((selected ?? manual)!.reconciledAmount)} já conciliados nesta ordem
+                por outras notas.
               </p>
             )}
 
@@ -180,39 +293,42 @@ export function PurchaseOrderPanel({
               </div>
             </div>
 
-            <Separator />
-
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Itens comprados</span>
-              {selected.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  A requisição de origem não tem itens detalhados.
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Qtd.</TableHead>
-                      <TableHead>Unit. estimado</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selected.items.map((item, index) => (
-                      <TableRow key={`${item.description}-${index}`}>
-                        <TableCell className="text-foreground">{item.description}</TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {formatQuantity(item.quantity)} {item.unit}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {formatAmount(item.estimatedUnitPrice)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </div>
+            {selected && (
+              <>
+                <Separator />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Itens comprados</span>
+                  {selected.items.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      A requisição de origem não tem itens detalhados.
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Qtd.</TableHead>
+                          <TableHead>Unit. estimado</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selected.items.map((item, index) => (
+                          <TableRow key={`${item.description}-${index}`}>
+                            <TableCell className="text-foreground">{item.description}</TableCell>
+                            <TableCell className="tabular-nums text-muted-foreground">
+                              {formatQuantity(item.quantity)} {item.unit}
+                            </TableCell>
+                            <TableCell className="tabular-nums text-muted-foreground">
+                              {formatAmount(item.estimatedUnitPrice)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              </>
+            )}
           </>
         )}
       </CardContent>

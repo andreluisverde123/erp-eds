@@ -6,8 +6,20 @@ export class ReconcileInboundInvoiceDto {
   /// A ordem de compra escolhida. Vem sempre do cliente, mesmo quando é a
   /// sugestão principal: conciliar é um ato do financeiro, não do sistema —
   /// nada é vinculado sem alguém ter confirmado na tela.
+  ///
+  /// OPCIONAL: compra de balcão não tem ordem. O fornecedor emite a nota na
+  /// loja e nunca existiu pedido no sistema. Nesse caso `costCenterId` passa
+  /// a ser obrigatório — a despesa precisa pertencer a algum lugar.
+  @IsOptional()
   @IsUUID(undefined, { message: 'Ordem de compra inválida.' })
-  purchaseOrderId!: string;
+  purchaseOrderId?: string;
+
+  /// Centro de custo do lançamento. Ignorado quando há ordem de compra (ali o
+  /// centro vem da própria ordem, que já foi aprovada com ele) e obrigatório
+  /// quando não há.
+  @IsOptional()
+  @IsUUID(undefined, { message: 'Centro de custo inválido.' })
+  costCenterId?: string;
 
   @IsEnum(PaymentMethod, { message: 'Forma de pagamento inválida.' })
   paymentMethod!: PaymentMethod;

@@ -170,8 +170,33 @@ export interface InboundInvoiceInput {
   items?: InboundInvoiceItemInput[];
 }
 
+/// Ordem de compra em aberto, para escolha MANUAL — sem filtro de fornecedor.
+/// Diferente de `PurchaseOrderSuggestion`, que é o que o sistema recomenda.
+export interface OpenPurchaseOrder {
+  id: string;
+  code: string;
+  issueDate: string;
+  totalAmount: string;
+  reconciledAmount: string;
+  openAmount: string;
+  supplier: { id: string; legalName: string; tradeName: string | null };
+  costCenter: { id: string; code: string; name: string } | null;
+  constructionSite: { id: string; code: string; name: string } | null;
+}
+
+export interface CostCenterOption {
+  id: string;
+  code: string;
+  name: string;
+  constructionSite: { id: string; code: string; name: string } | null;
+}
+
 export interface ReconcileInput {
-  purchaseOrderId: string;
+  /// Ausente na compra de balcão, que não tem ordem.
+  purchaseOrderId?: string;
+  /// Obrigatório quando não há ordem de compra: é ele que diz a que a despesa
+  /// pertence.
+  costCenterId?: string;
   paymentMethod: PaymentMethod;
   paymentTerms: PaymentTerms;
   dueDate?: string;
