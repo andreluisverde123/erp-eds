@@ -160,7 +160,7 @@ export class FiscalImportService {
   ): Promise<{ result: FiscalImportResult; id: string | null; itemsCount: number }> {
     const existente = await this.prisma.inboundInvoice.findFirst({
       where: { companyId, accessKey: nota.accessKey },
-      select: { id: true, hasFullDocument: true, status: true },
+      select: { id: true, hasFullDocument: true, status: true, totalAmount: true },
     });
 
     // Nota já completa recebendo um resumo: nada a fazer. Sobrescrever
@@ -169,11 +169,36 @@ export class FiscalImportService {
       return { result: 'SKIPPED', id: existente.id, itemsCount: 0 };
     }
 
-    // Conciliada é terminal: o financeiro já casou esta nota com uma ordem de
-    // compra e gerou conta a pagar. Um documento posterior não pode reescrever
-    // o que já virou dívida.
-    if (existente && existente.status !== 'PENDING' && existente.status !== 'CANCELLED') {
-      return { result: 'SKIPPED', id: existente.id, itemsCount: 0 };
+    // Conciliada é terminal para o que virou dinheiro: o financeiro já casou
+    // esta nota com uma ordem de compra e gerou conta a pagar.
+    //
+    // Mas o documento completo chega HORAS depois do resumo, e quem conciliava
+    // dentro dessa janela ficava com uma nota SEM itens para sempre — o NSU não
+    // volta e a SEFAZ não reenvia. Por isso o completo ainda ENRIQUECE a nota
+    // conciliada (itens, impostos, endereço do emitente), que é informação que
+    // o resumo não tinha como dar e que não altera valor nenhum.
+    //
+    // Duas condições, as duas necessárias: só o documento completo entra por
+    // aqui — resumo nunca toca nota conciliada — e o total precisa bater. Se
+    // divergir, não é atraso de entrega: é nota diferente da que virou dívida,
+    // e reconciliar isso é decisão do financeiro, não do importador.
+    const conciliada =
+      existente && existente.status !== 'PENDING' && existente.status !== 'CANCELLED'
+        ? existente
+        : null;
+
+    if (conciliada) {
+      if (!nota.isComplete) {
+        return { result: 'SKIPPED', id: conciliada.id, itemsCount: 0 };
+      }
+      if (!conciliada.totalAmount.equals(nota.totalAmount)) {
+        this.logger.warn(
+          `Nota ${nota.accessKey} já conciliada por ${conciliada.totalAmount.toFixed(2)}, ` +
+            `mas o documento completo traz ${nota.totalAmount}. Itens e impostos não foram ` +
+            `aplicados — conferir manualmente.`,
+        );
+        return { result: 'SKIPPED', id: conciliada.id, itemsCount: 0 };
+      }
     }
 
     const supplier = await this.prisma.supplier.findFirst({
@@ -215,7 +240,11 @@ export class FiscalImportService {
       if (existente) {
         await tx.inboundInvoice.update({
           where: { id: existente.id },
-          data: limparNulos(dados, nota.isComplete),
+          // Na nota conciliada, só o que o resumo não tinha. Na pendente, o
+          // documento completo é a versão boa e substitui o cabeçalho inteiro.
+          data: conciliada
+            ? apenasEnriquecimento(dados)
+            : limparNulos(dados, nota.isComplete),
         });
         // Só o documento completo mexe nos itens. Substituir em vez de
         // acrescentar: reprocessar o mesmo XML não pode duplicar linhas.
@@ -295,6 +324,42 @@ export class FiscalImportService {
     });
     return nota?.id ?? null;
   }
+}
+
+/// O que o documento completo acrescenta a uma nota JÁ CONCILIADA: dados do
+/// emitente, impostos discriminados e o protocolo de autorização.
+///
+/// Ficam de fora, de propósito, os campos que o financeiro tinha na tela quando
+/// conciliou — `totalAmount`, `supplierId`, `number`, `series`, `issueDate` — e
+/// também `status`/`cancelledAt`. A nota conciliada já é conta a pagar; nada
+/// vindo da SEFAZ depois pode reescrever dívida ou cancelar por fora. Cancelar
+/// nota conciliada já era recusado em `aplicarEvento`, e continua sendo.
+const CAMPOS_DE_ENRIQUECIMENTO = [
+  'supplierName',
+  'supplierTradeName',
+  'supplierIe',
+  'supplierAddress',
+  'supplierCity',
+  'supplierState',
+  'supplierZipCode',
+  'productsAmount',
+  'freightAmount',
+  'discountAmount',
+  'icmsAmount',
+  'ipiAmount',
+  'pisAmount',
+  'cofinsAmount',
+  'additionalInfo',
+  'protocolNumber',
+  'hasFullDocument',
+] as const;
+
+function apenasEnriquecimento<T extends Record<(typeof CAMPOS_DE_ENRIQUECIMENTO)[number], unknown>>(
+  dados: T,
+): Partial<T> {
+  return Object.fromEntries(
+    CAMPOS_DE_ENRIQUECIMENTO.map((campo) => [campo, dados[campo]]),
+  ) as Partial<T>;
 }
 
 /// Ao ATUALIZAR com um resumo, não sobrescreve com `null` o que o documento
