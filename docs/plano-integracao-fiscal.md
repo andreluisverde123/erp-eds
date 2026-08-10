@@ -63,7 +63,7 @@ O caminho é o mesmo de staging, com três diferenças que precisam de atenção
 | 4.2 | **Desempenho da importação** — ~370ms por documento. A causa é distância: cinco idas e voltas ao Neon por documento. Duas correções: carregar os fornecedores uma vez por lote (hoje são N consultas que quase sempre voltam vazias) e juntar as duas transações em uma. Não é urgente: a fila se esvazia sozinha.        | P       |
 | 4.3 | **Fechar o branch.** `feat/fiscal-e-primeiro-acesso` com 10 commits nunca foi para a `main`.                                                                                                                                                                                                                                | P       |
 | 4.4 | **Alerta de expiração do certificado.** O painel mostra os dias restantes, mas ninguém olha o painel todo dia. Um A1 vale 12 meses e, vencido, a integração para sem aviso. O da EDS vence em **06/02/2027**.                                                                                                                | P       |
-| 4.5 | **Rever a mensagem de "bloqueio" no painel.** Hoje a tela diz "Consultas bloqueadas pela SEFAZ" também quando é a janela preventiva do próprio sistema — foi o que levou a crer, em 06/08, que a SEFAZ havia bloqueado a integração. A mensagem precisa distinguir bloqueio real (`cStat 656`) de espera preventiva.                                                                             | P       |
+| ~~4.5~~ | ~~**Rever a mensagem de "bloqueio" no painel.**~~ — **feito (10/08)**: `blockReason` separa os dois casos (só o 656 o preenche). Bloqueio real segue vermelho, agora dizendo que nenhum documento se perde; espera preventiva virou aviso neutro ("Próxima consulta a partir de…") e deixou de pintar o selo de conexão. `cStat` passou a ser gravado em coluna própria no `FiscalSyncRun`.  | P       |
 | 4.6 | **Expurgo de `FiscalDocument`.** Os XMLs ficam no banco (~10 KB cada). Guarda legal são 5 anos; depois disso, decidir entre apagar ou mover para storage. Não é problema hoje (2.500 documentos ≈ 25 MB), vira um em alguns anos.                                                                                        | P       |
 
 ---
@@ -72,10 +72,23 @@ O caminho é o mesmo de staging, com três diferenças que precisam de atenção
 
 **Quem mais consulta a DF-e deste CNPJ?** Havia 50.485 NSUs consumidos antes
 da nossa primeira consulta — alguém já lia esse fluxo, provavelmente o
-contador. Deixou de ser bloqueante quando se confirmou que cada consumidor
-mantém o próprio cursor (pedimos a partir do 50.485 e recebemos normalmente).
-O que é compartilhado é o **limite de consumo**, e o código já se contém. Vale
-saber por organização, não por risco.
+contador. Cada consumidor mantém o próprio cursor (pedimos a partir do 50.485 e
+recebemos normalmente), mas o **limite de consumo é compartilhado por CNPJ**.
+
+Isto deixou de ser curiosidade e virou a explicação dos `656` que sobraram.
+Medido entre 08/08 e 10/08, já com a cadência corrigida: 27 consultas com
+intervalo cravado em **1:10:00**, e ainda assim 6 rejeições. A decisiva foi em
+10/08 11:21 — **11h20 sem nenhuma execução nossa** (a máquina do staging
+dormiu, zero linhas no período) e mesmo assim veio "Deve ser aguardado 1 hora".
+Nenhum intervalo nosso evita isso: o relógio da SEFAZ é reiniciado pela
+consulta de OUTRO consumidor do mesmo CNPJ.
+
+Não há perda: `lastNSU` alcança o `maxNSU`, e um 656 custa atraso, não
+documento. As saídas são organizacionais — perguntar ao contador se o sistema
+dele varre a DF-e da EDS e com que frequência, e decidir entre conviver ou
+espaçar mais as nossas consultas (subir a janela de 65 min para ~3h reduz as
+colisões na mesma proporção, atrasando a fila em algo que o documento completo
+já atrasa muito mais).
 
 **O módulo de Compras vai ser usado?** A conciliação com ordem de compra só
 faz sentido se as ordens existirem no ERP. Se a compra de balcão for a regra,

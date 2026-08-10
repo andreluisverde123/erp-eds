@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PlugZap, RefreshCw } from 'lucide-react';
+import { Clock, PlugZap, RefreshCw } from 'lucide-react';
 import {
   Alert,
   AlertDescription,
@@ -152,7 +152,26 @@ export function IntegracaoFiscalPage() {
           </AlertTitle>
           <AlertDescription>
             {connection.motivoBloqueio ?? 'Consumo indevido.'} Não tente sincronizar antes disso:
-            cada tentativa reinicia a contagem de 1 hora.
+            cada tentativa reinicia a contagem de 1 hora. Nenhum documento se perde — a SEFAZ os
+            guarda e eles chegam na primeira consulta liberada.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Espera preventiva NÃO é bloqueio: é o sistema respeitando o intervalo
+          de 1 hora que a SEFAZ exige entre consultas sem novidade. Ficava com o
+          mesmo texto vermelho do 656, e foi o que levou a crer que a integração
+          tinha sido barrada. Aqui não há nada a fazer — por isso informa e
+          pronto. */}
+      {connection.esperaPreventivaAte && (
+        <Alert>
+          <Clock />
+          <AlertTitle>
+            Próxima consulta à SEFAZ a partir de {formatDateTime(connection.esperaPreventivaAte)}
+          </AlertTitle>
+          <AlertDescription>
+            Não há documento novo a buscar. A SEFAZ exige 1 hora entre consultas sem novidade, e o
+            sistema aguarda sozinho — nada está parado e nada precisa ser feito.
           </AlertDescription>
         </Alert>
       )}

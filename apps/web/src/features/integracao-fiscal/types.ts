@@ -45,8 +45,12 @@ export interface IntegrationStatus {
     status: ConnectionStatus;
     agendamentoAtivo: boolean;
     proximaExecucao: string | null;
+    /// Bloqueio REAL da SEFAZ (`cStat 656`). Exige ação: não insistir.
     bloqueadoAte: string | null;
     motivoBloqueio: string | null;
+    /// Espera preventiva entre consultas, decidida pelo próprio sistema. É
+    /// rotina — informa, não alarma.
+    esperaPreventivaAte: string | null;
   };
   certificate: CertificateInfo | null;
   sync: {

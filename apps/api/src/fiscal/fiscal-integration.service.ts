@@ -40,16 +40,27 @@ export class FiscalIntegrationService {
       }),
     ]);
 
-    const bloqueado = Boolean(estado.blockedUntil && estado.blockedUntil > new Date());
+    /// Duas situações muito diferentes compartilham o mesmo `blockedUntil`, e
+    /// tratá-las como uma só fazia o painel acusar a SEFAZ de bloquear a
+    /// integração toda vez que ela estava apenas esperando a próxima consulta.
+    ///
+    /// Quem separa é o `blockReason`: só um `cStat 656` de verdade o preenche
+    /// (ver `FiscalSyncService.bloquear`); a espera preventiva o zera.
+    const emJanela = Boolean(estado.blockedUntil && estado.blockedUntil > new Date());
+    const bloqueioReal = emJanela && estado.blockReason !== null;
 
     return {
       connection: {
-        status: this.classificarConexao(certificate, bloqueado),
+        /// A espera preventiva NÃO entra aqui: é operação normal, e pintar o
+        /// selo de vermelho durante a maior parte do dia treina o usuário a
+        /// ignorar o aviso que importa.
+        status: this.classificarConexao(certificate, bloqueioReal),
         /// Ligado só quando o job automático está habilitado no ambiente.
         agendamentoAtivo: this.job.habilitado,
         proximaExecucao: this.job.proximaExecucao(),
-        bloqueadoAte: bloqueado ? estado.blockedUntil : null,
-        motivoBloqueio: bloqueado ? estado.blockReason : null,
+        bloqueadoAte: bloqueioReal ? estado.blockedUntil : null,
+        motivoBloqueio: bloqueioReal ? estado.blockReason : null,
+        esperaPreventivaAte: emJanela && !bloqueioReal ? estado.blockedUntil : null,
       },
       certificate,
       sync: {
