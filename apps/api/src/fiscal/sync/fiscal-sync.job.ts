@@ -5,7 +5,18 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FiscalSyncService } from './fiscal-sync.service';
 
-/// Job horário da sincronização fiscal.
+/// Job da sincronização fiscal, a cada 10 minutos.
+///
+/// A cadência NÃO é o intervalo entre consultas à SEFAZ: quem manda nisso é a
+/// janela preventiva de 65 min do `FiscalSyncService`. Rodando com folga acima
+/// dela, o job quase sempre só lê o `FiscalSyncState`, vê que a espera não
+/// venceu e volta — sem tocar na SEFAZ e sem gravar nada.
+///
+/// As duas coisas precisam ser independentes. Enquanto o job era horário, a
+/// janela tinha de caber dentro de uma hora, e aí a consulta caía em 60min
+/// cravados — o limite exato da SEFAZ, que responde 656 quando o pedido chega
+/// um décimo de segundo cedo. Separadas, a espera real fica entre 65 e 75
+/// minutos: acima do exigido, sem perder a hora seguinte.
 ///
 /// Roda para TODA empresa que tenha certificado ativo — o sistema é
 /// multi-tenant e cada uma tem o seu ponteiro NSU. As empresas são
@@ -30,12 +41,12 @@ export class FiscalSyncJob {
     this.enabled = configService.get<boolean>('FISCAL_SYNC_ENABLED') === true;
     this.logger.log(
       this.enabled
-        ? 'Sincronização fiscal automática LIGADA (a cada 1 hora).'
+        ? 'Sincronização fiscal automática LIGADA (verifica a cada 10 min; consulta a SEFAZ no máximo a cada 65 min sem novidade).'
         : 'Sincronização fiscal automática desligada (FISCAL_SYNC_ENABLED=false).',
     );
   }
 
-  @Cron(CronExpression.EVERY_HOUR, { name: 'fiscal-sync' })
+  @Cron(CronExpression.EVERY_10_MINUTES, { name: 'fiscal-sync' })
   async executar(): Promise<void> {
     if (!this.enabled) return;
 
@@ -52,10 +63,13 @@ export class FiscalSyncJob {
     for (const empresa of empresas) {
       try {
         const resultado = await this.sync.sync(empresa.companyId, 'SCHEDULED');
-        this.logger.log(
+        const linha =
           `[${empresa.cnpj}] ${resultado.status} — ${resultado.documentsImported} importado(s), ` +
-            `NSU ${resultado.lastNSU}, ${resultado.durationMs}ms.`,
-        );
+          `NSU ${resultado.lastNSU}, ${resultado.durationMs}ms.`;
+        // A espera preventiva é o caso comum agora (5 de cada 6 execuções) e
+        // não diz nada: fica em debug para não afogar o log das que agiram.
+        if (resultado.preventiveWait) this.logger.debug(linha);
+        else this.logger.log(linha);
       } catch (error) {
         // Uma empresa com problema não pode impedir as outras de sincronizar.
         // O erro já foi gravado em FiscalSyncRun pelo serviço.
@@ -68,10 +82,14 @@ export class FiscalSyncJob {
 
   /// Quando o job roda de novo. Usado pelo painel para exibir "Próxima
   /// execução" sem precisar consultar o scheduler.
+  ///
+  /// É quando ele VERIFICA, não quando consulta a SEFAZ: se a espera preventiva
+  /// ainda estiver de pé, a execução não sai daqui. O painel mostra a espera em
+  /// campo próprio (`bloqueadoAte`).
   proximaExecucao(): Date | null {
     if (!this.enabled) return null;
     const proxima = new Date();
-    proxima.setHours(proxima.getHours() + 1, 0, 0, 0);
+    proxima.setMinutes(Math.floor(proxima.getMinutes() / 10) * 10 + 10, 0, 0);
     return proxima;
   }
 

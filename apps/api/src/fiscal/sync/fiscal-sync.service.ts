@@ -16,13 +16,21 @@ const COOLDOWN_AFTER_BLOCK_MINUTES = 65;
 
 /// Espera preventiva depois de "nenhum documento novo" (`cStat 137`). A SEFAZ
 /// trata consulta repetida sem novidade como consumo indevido, então o
-/// silêncio também precisa de intervalo.
+/// silêncio também precisa de intervalo — de 1 hora, igual ao do bloqueio.
 ///
-/// Precisa ser MENOR que o intervalo do job (1 hora). Com 65 minutos — o mesmo
-/// valor do bloqueio real — toda execução seguinte a um resultado vazio caía
-/// dentro da janela e era pulada, e a integração passava a sincronizar de duas
-/// em duas horas. Medido em staging: 6 execuções puladas sem nenhum 656 real.
-const COOLDOWN_AFTER_EMPTY_MINUTES = 50;
+/// Já valeu 50 minutos, para caber dentro de um job que rodava de hora em hora.
+/// Foi troca de um defeito por outro: parou de pular execuções, mas passou a
+/// consultar a cada 60min00s cravados, em cima do limite da SEFAZ. Medido em
+/// staging: intervalos entre 59:59.868 e 60:00.069, com 656 em dois deles — a
+/// SEFAZ conta do instante em que ELA processou o pedido anterior, então
+/// latência e relógio decidem o resultado.
+///
+/// O valor não pode ser menor que a hora exigida. Quem garante que nenhuma
+/// execução se perca é a CADÊNCIA do job (`FiscalSyncJob`, a cada 10 min), não
+/// o tamanho desta janela: vencida a espera, a próxima tentativa vem em no
+/// máximo 10 minutos. Um job horário não consegue respeitar com folga um
+/// intervalo horário — nenhum valor aqui resolveria isso.
+const COOLDOWN_AFTER_EMPTY_MINUTES = 65;
 
 /// Teto de páginas por execução. Cada chamada traz ~50 documentos; 20 páginas
 /// cobrem 1000 documentos, o que é muito mais que uma hora de movimento
@@ -46,6 +54,13 @@ export interface SyncOutcome {
   maxNSU: string;
   message: string | null;
   durationMs: number;
+  /// O `cStat` que a SEFAZ devolveu, quando houve resposta dela. Guardado em
+  /// coluna própria porque `errorMessage` é texto livre: sem isto não dá para
+  /// separar, no histórico, um 656 de verdade de uma espera nossa.
+  cStat?: string | null;
+  /// `true` só na espera preventiva entre consultas — que é decisão NOSSA, não
+  /// bloqueio da SEFAZ. O job usa isto para não encher o histórico de no-ops.
+  preventiveWait?: boolean;
 }
 
 @Injectable()
@@ -85,6 +100,13 @@ export class FiscalSyncService {
     const iniciadoEm = new Date();
     try {
       const resultado = await this.executar(companyId);
+
+      // Espera preventiva em execução automática não é evento: nada foi
+      // tentado e nada mudou. Com o job de 10 min seriam ~6 linhas por hora
+      // sem informação, afogando no histórico as execuções que importam.
+      // Disparo manual continua registrando — quem clicou merece a resposta.
+      if (resultado.preventiveWait && trigger === 'SCHEDULED') return resultado;
+
       return await this.registrar(companyId, trigger, triggeredById, iniciadoEm, resultado);
     } finally {
       this.emAndamento.delete(companyId);
@@ -100,6 +122,11 @@ export class FiscalSyncService {
     // hora em bloqueio permanente.
     if (estado.blockedUntil && estado.blockedUntil > new Date()) {
       const minutos = Math.ceil((estado.blockedUntil.getTime() - Date.now()) / 60_000);
+      // Os dois casos usam o mesmo `blockedUntil`, mas são coisas diferentes, e
+      // dizer "bloqueado pela SEFAZ" na espera preventiva já levou a crer que a
+      // integração tinha sido barrada. Quem separa é o `blockReason`: só o 656
+      // de verdade o preenche (ver `bloquear`); a espera preventiva o zera.
+      const bloqueioReal = estado.blockReason !== null;
       return {
         status: 'SKIPPED',
         documentsFound: 0,
@@ -107,7 +134,11 @@ export class FiscalSyncService {
         documentsSkipped: 0,
         lastNSU: estado.lastNSU,
         maxNSU: estado.maxNSU,
-        message: `Bloqueio de consumo indevido ativo — faltam ${minutos} min.`,
+        cStat: bloqueioReal ? CSTAT.CONSUMO_INDEVIDO : null,
+        preventiveWait: !bloqueioReal,
+        message: bloqueioReal
+          ? `Bloqueio da SEFAZ por consumo indevido — faltam ${minutos} min.`
+          : `Espera preventiva entre consultas — faltam ${minutos} min.`,
         durationMs: Date.now() - inicio,
       };
     }
@@ -151,6 +182,7 @@ export class FiscalSyncService {
           documentsSkipped: ignorados,
           lastNSU: sugerido,
           maxNSU,
+          cStat: resposta.cStat,
           message: `Consumo indevido (656). Bloqueado por ${COOLDOWN_AFTER_BLOCK_MINUTES} min. NSU ajustado para ${sugerido}.`,
           durationMs: Date.now() - inicio,
         };
@@ -177,6 +209,7 @@ export class FiscalSyncService {
           documentsSkipped: ignorados,
           lastNSU: resposta.ultNSU ?? lastNSU,
           maxNSU,
+          cStat: resposta.cStat,
           message: encontrados > 0 ? null : 'Nenhum documento novo.',
           durationMs: Date.now() - inicio,
         };
@@ -190,6 +223,7 @@ export class FiscalSyncService {
           documentsSkipped: ignorados,
           lastNSU,
           maxNSU,
+          cStat: resposta.cStat,
           message: `SEFAZ retornou ${resposta.cStat}: ${resposta.xMotivo}`,
           durationMs: Date.now() - inicio,
         };
@@ -215,6 +249,22 @@ export class FiscalSyncService {
     }
 
     const restou = Number(lastNSU) < Number(maxNSU);
+
+    // Fila esvaziada é o MESMO estado que "nenhum documento novo": a próxima
+    // consulta não teria novidade, e a SEFAZ responde 656 a repetição sem
+    // novidade. Sem armar a janela aqui, o lote que termina zerando a fila
+    // deixava a porta aberta — foi assim que um "Sincronizar agora" 43 min
+    // depois de um lote de 7 documentos levou "Deve ser utilizado o ultNSU nas
+    // solicitacoes subsequentes".
+    //
+    // `PARTIAL` não arma: ali AINDA há fila, e continuar é consumo legítimo.
+    if (!restou) {
+      await this.atualizarEstado(companyId, {
+        blockedUntil: this.proximaJanela(),
+        blockReason: null,
+      });
+    }
+
     return {
       status: restou ? 'PARTIAL' : 'SUCCESS',
       documentsFound: encontrados,
@@ -222,6 +272,7 @@ export class FiscalSyncService {
       documentsSkipped: ignorados,
       lastNSU,
       maxNSU,
+      cStat: CSTAT.DOCUMENTOS_LOCALIZADOS,
       message: restou ? `Ainda há documentos na fila (${lastNSU} de ${maxNSU}).` : null,
       durationMs: Date.now() - inicio,
     };
@@ -276,9 +327,8 @@ export class FiscalSyncService {
     );
   }
 
-  /// Janela preventiva depois de um lote sem novidade. Encurtada de propósito
-  /// para caber DENTRO do intervalo do job: uma janela igual ou maior que ele
-  /// faz a execução seguinte ser sempre pulada.
+  /// Janela preventiva. Armada nos DOIS casos em que a próxima consulta não
+  /// teria novidade: `cStat 137` e lote que terminou zerando a fila.
   private proximaJanela(): Date {
     return new Date(Date.now() + COOLDOWN_AFTER_EMPTY_MINUTES * 60_000);
   }
@@ -326,6 +376,7 @@ export class FiscalSyncService {
         nsuFrom: outcome.lastNSU || null,
         nsuTo: outcome.lastNSU || null,
         maxNSU: outcome.maxNSU || null,
+        cStat: outcome.cStat ?? null,
         errorMessage: outcome.status === 'ERROR' ? outcome.message : null,
         xMotivo: outcome.status !== 'ERROR' ? outcome.message : null,
         triggeredById: triggeredById ?? null,
