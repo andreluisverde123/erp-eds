@@ -506,7 +506,21 @@ export class InboundInvoicesService {
     // Sem fornecedor cadastrado não há como pendurar a nota do financeiro em
     // ninguém: `Invoice.supplierId` é obrigatório. É o caso mais comum na
     // compra de balcão, e a mensagem precisa dizer o que fazer.
-    const supplierId = order?.supplierId ?? invoice.supplierId;
+    //
+    // O vínculo da nota nasce na IMPORTAÇÃO, quando o emitente quase nunca
+    // existe ainda no cadastro — e nunca era refeito depois. O efeito é que
+    // cadastrar o fornecedor NÃO destravava as notas já na fila: elas ficavam
+    // recusadas para sempre, e o caminho de balcão era inalcançável para todas
+    // as 1.262 notas já importadas. Daí a segunda busca, por CNPJ, no ato da
+    // conciliação — o dado para resolver isso sempre esteve na própria nota.
+    let supplierId = order?.supplierId ?? invoice.supplierId;
+    if (!supplierId && invoice.supplierDocument) {
+      const cadastrado = await this.prisma.supplier.findFirst({
+        where: { companyId, document: invoice.supplierDocument, deletedAt: null },
+        select: { id: true },
+      });
+      supplierId = cadastrado?.id ?? null;
+    }
     if (!supplierId) {
       throw new BadRequestException(
         `O emitente ${invoice.supplierName} (CNPJ ${invoice.supplierDocument}) não está cadastrado como fornecedor. Cadastre-o em Compras > Fornecedores para conciliar esta nota.`,
@@ -551,6 +565,10 @@ export class InboundInvoicesService {
         data: {
           status: finalStatus,
           purchaseOrderId: order?.id ?? null,
+          // Grava o vínculo que a importação não tinha como fazer, para a nota
+          // não continuar dizendo que o emitente é desconhecido depois de
+          // virar conta a pagar em nome dele.
+          supplierId,
           invoiceId: created.id,
           reconciledAt: new Date(),
           reconciledById: actingUserId,
