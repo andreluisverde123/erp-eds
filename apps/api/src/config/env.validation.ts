@@ -74,6 +74,15 @@ export const envValidationSchema = Joi.object({
   /// Trocar esta chave torna ILEGÍVEL o certificado já gravado: é preciso
   /// reenviar o .pfx pelo painel depois.
   FISCAL_CERT_ENCRYPTION_KEY: Joi.string().optional(),
+
+  /// Chave AES-256 que protege o número da conta e a chave PIX gravados em
+  /// `BankAccount`. Opcional pela mesma razão da chave fiscal: sem ela só os
+  /// dados bancários ficam indisponíveis, e o resto do ERP segue de pé. Gere
+  /// com `openssl rand -hex 32`.
+  ///
+  /// SEPARADA da chave fiscal de propósito — trocar uma não pode tornar o
+  /// material da outra ilegível. Perdê-la exige recadastrar as contas.
+  BANK_DATA_ENCRYPTION_KEY: Joi.string().optional(),
   /// Liga o job horário de sincronização. Desligado por padrão para que uma
   /// cópia local do banco de produção não saia consultando a SEFAZ com o
   /// certificado real — e, pior, avançando o NSU compartilhado.

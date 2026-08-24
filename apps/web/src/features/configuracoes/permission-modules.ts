@@ -10,6 +10,7 @@ export const MODULE_LABELS: Record<string, string> = {
   terceiros: 'Terceirizados',
   relatorios: 'Relatórios',
   admin: 'Administração',
+  dados_bancarios: 'Dados bancários',
   configuracoes: 'Configurações',
 };
 

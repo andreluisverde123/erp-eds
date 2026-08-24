@@ -22,6 +22,7 @@ const ENTITY_TYPE_TO_MODULE: Record<string, string> = {
   Company: 'configuracoes',
   User: 'configuracoes',
   Role: 'configuracoes',
+  BankAccount: 'dados_bancarios',
 };
 
 export function getModuleForEntityType(entityType: string): string {

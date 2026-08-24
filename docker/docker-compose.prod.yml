@@ -63,6 +63,10 @@ services:
       FISCAL_CERT_ENCRYPTION_KEY: ${FISCAL_CERT_ENCRYPTION_KEY:-}
       FISCAL_SYNC_ENABLED: ${FISCAL_SYNC_ENABLED:-false}
       FISCAL_AMBIENTE: ${FISCAL_AMBIENTE:-producao}
+      # Dados bancários. Também opcional e pela mesma razão — sem ela só o
+      # cadastro de conta bancária fica indisponível. Chave PRÓPRIA: não
+      # reaproveite a do certificado fiscal.
+      BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:-}
     # Sem `ports`: a API só é alcançável pelo nginx, dentro da rede do compose.
     # Quem quiser depurar de fora sobe com `--profile expose-api` (abaixo) ou
     # usa `docker compose exec`.

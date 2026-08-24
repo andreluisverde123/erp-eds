@@ -1,5 +1,5 @@
 export type SettingsTheme = 'LIGHT' | 'DARK' | 'SYSTEM';
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
 export interface PaginatedResult<T> {

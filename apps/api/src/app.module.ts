@@ -66,6 +66,15 @@ import { WorkflowModule } from './workflow/workflow.module';
             'req.body.password',
             'req.body.currentPassword',
             'req.body.newPassword',
+            // Dados bancários. Hoje nenhum log inclui corpo de request
+            // (`autoLogging: false`, e o RequestLoggerMiddleware só imprime
+            // método, rota, status e duração), então estas linhas não removem
+            // nada que esteja saindo. Existem para o dia em que alguém ligar o
+            // log de corpo para depurar: sem elas, número de conta e chave PIX
+            // iriam junto.
+            'req.body.accountNumber',
+            'req.body.pixKey',
+            'req.body.holderDocument',
           ],
           remove: true,
         },

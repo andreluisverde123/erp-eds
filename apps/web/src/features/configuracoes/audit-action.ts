@@ -9,6 +9,9 @@ export const AUDIT_ACTION_OPTIONS: { value: AuditAction; label: string }[] = [
   { value: 'CREATE', label: 'Criação' },
   { value: 'UPDATE', label: 'Atualização' },
   { value: 'DELETE', label: 'Exclusão' },
+  // Só o punhado de leituras que EXPÕEM dado protegido — hoje, revelar dados
+  // bancários completos. Consulta comum não vira auditoria.
+  { value: 'READ', label: 'Consulta protegida' },
 ];
 
 const ACTION_LABEL: Record<AuditAction, string> = Object.fromEntries(
@@ -19,6 +22,7 @@ const ACTION_BADGE_VARIANT: Record<AuditAction, BadgeVariant> = {
   CREATE: 'success',
   UPDATE: 'info',
   DELETE: 'destructive',
+  READ: 'warning',
 };
 
 export function getAuditActionLabel(action: AuditAction): string {

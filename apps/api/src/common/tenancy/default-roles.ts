@@ -141,6 +141,28 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     action: 'view',
     description: 'Ver relatórios e indicadores executivos de todos os módulos.',
   },
+  /// Dados bancários têm TRÊS permissões, e não as duas de sempre, porque aqui
+  /// consultar e ver não são a mesma coisa: a listagem devolve `****1234`, e
+  /// ler o número inteiro é um ato à parte, com auditoria própria.
+  {
+    code: 'dados_bancarios.view',
+    module: 'dados_bancarios',
+    action: 'view',
+    description: 'Ver os dados bancários mascarados de usuários e colaboradores.',
+  },
+  {
+    code: 'dados_bancarios.manage',
+    module: 'dados_bancarios',
+    action: 'manage',
+    description: 'Cadastrar, editar e desativar dados bancários.',
+  },
+  {
+    code: 'dados_bancarios.reveal',
+    module: 'dados_bancarios',
+    action: 'reveal',
+    description:
+      'Ver o número de conta e a chave PIX completos. Cada consulta fica registrada na auditoria.',
+  },
 ];
 
 /// Presente em todo papel: home, busca global, telas de Processos e os
@@ -200,6 +222,12 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'financeiro.manage',
       // A nota fiscal é lançada a partir de uma ordem de compra.
       'compras.view',
+      // As três permissões de `dados_bancarios` NÃO entram aqui, nem em papel
+      // nenhum além do Administrador. Não é esquecimento: quem, além de um
+      // admin, pode ver para onde o dinheiro de um colaborador vai é decisão
+      // do cliente, e ela ainda não foi tomada (ver docs/dados-bancarios.md).
+      // Enquanto isso, atribuí-las a um perfil é um clique em
+      // Configurações > Perfis — não exige mudar código.
     ],
   },
   {

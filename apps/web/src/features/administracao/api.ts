@@ -2,12 +2,17 @@ import { apiClient } from '@/lib/api-client';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
+  BankAccount,
+  BankAccountInput,
+  BankAccountListResult,
+  BankAccountOwnerType,
   PaginatedResult,
   RoleOption,
   SystemUser,
   SystemUserInput,
   SystemUserQuery,
   SystemUserWithTemporaryPassword,
+  RevealedBankAccount,
 } from './types';
 
 export function listSystemUsers(query: SystemUserQuery): Promise<PaginatedResult<SystemUser>> {
@@ -41,4 +46,39 @@ export function updateSystemUserStatus(id: string, isActive: boolean): Promise<S
 /// consome o cadastro, não mantém um paralelo.
 export function listRoleOptions(): Promise<PaginatedResult<RoleOption>> {
   return apiClient.get('/roles?limit=100');
+}
+
+// ---------------------------------------------------------------------------
+// Dados bancários
+// ---------------------------------------------------------------------------
+
+/// Sempre de um titular só: não existe "listar todas as contas da empresa" —
+/// uma tela dessas seria um dump de dado sensível.
+export function listBankAccounts(
+  ownerType: BankAccountOwnerType,
+  ownerId: string,
+): Promise<BankAccountListResult> {
+  return apiClient.get(`/admin/bank-accounts${toQueryString({ ownerType, ownerId })}`);
+}
+
+export function createBankAccount(input: BankAccountInput): Promise<BankAccount> {
+  return apiClient.post('/admin/bank-accounts', input);
+}
+
+/// O DONO não vai no corpo: mudar a conta de pessoa é cadastrar outra conta.
+export function updateBankAccount(
+  id: string,
+  input: Partial<Omit<BankAccountInput, 'ownerType' | 'ownerId'>>,
+): Promise<BankAccount> {
+  return apiClient.patch(`/admin/bank-accounts/${id}`, input);
+}
+
+export function updateBankAccountStatus(id: string, isActive: boolean): Promise<BankAccount> {
+  return apiClient.patch(`/admin/bank-accounts/${id}/status`, { isActive });
+}
+
+/// POST, e não GET, apesar de só ler: um GET com número de conta na resposta
+/// entra em histórico e cache de proxy. Cada chamada vira linha de auditoria.
+export function revealBankAccount(id: string): Promise<RevealedBankAccount> {
+  return apiClient.post(`/admin/bank-accounts/${id}/reveal`);
 }

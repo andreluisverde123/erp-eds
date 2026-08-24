@@ -9,4 +9,5 @@ export const AUDIT_LOG_MODULES: Record<string, string[]> = {
   rh: ['Employee', 'EmployeeAllocation', 'TimeEntry', 'ProductionEntry', 'Payslip'],
   terceiros: ['Contractor', 'ContractorContract', 'ContractDocument', 'ContractEmployee'],
   configuracoes: ['Company', 'User', 'Role'],
+  dados_bancarios: ['BankAccount'],
 };
