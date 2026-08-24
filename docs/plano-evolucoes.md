@@ -61,7 +61,7 @@ que destrava o segundo cliente** — as demais podem esperar.
 | 4.2  | **Progresso físico da obra**: hoje "evolução" é estimativa por cronograma (tempo decorrido). Progresso real depende de medição por etapa — mesmo eixo do 4.1.  | schema + Relatórios    | G       |
 | 4.3  | **Recebimento de mercadoria**: `PurchaseOrder` tem status RECEIVED no enum e nada o popula — falta a tela de conferência de entrega.                           | Compras                | M       |
 | 4.4  | **Cotações de fornecedor**: "Em Cotação" é só um rótulo; não há propostas comparáveis antes da aprovação.                                                      | Compras                | G       |
-| 4.5  | **Itens na Ordem de Compra**: a OC só tem `totalAmount` — os itens (com unidade) morrem na solicitação.                                                        | schema + Compras       | M       |
+| ~~4.5~~ | ~~**Itens na Ordem de Compra**~~ — **feito (23/08)**: `PurchaseOrderItem` com vínculo obrigatório à linha da solicitação, total da OC derivado dos itens e PDF do pedido. Ver `docs/ordem-de-compra.md`. | schema + Compras       | —       |
 | 4.6  | **Parcelamento de contas a pagar**: cada `AccountPayable` é uma parcela única; falta 2/3, 3/3 na validação da nota.                                            | Financeiro             | M       |
 | 4.7  | **Retenções contratuais** (5% até entrega, INSS/ISS) e **integração fiscal** de terceiros.                                                                     | Terceiros + Financeiro | G       |
 | 4.8  | **Renovação de contrato**: `ContractStatus` só tem ACTIVE/CANCELLED; vencido só ganha badge.                                                                   | Terceiros              | P       |

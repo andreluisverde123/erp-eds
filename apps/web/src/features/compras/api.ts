@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api-client';
+import { downloadFile } from '@/lib/download-file';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
@@ -80,6 +81,12 @@ export function listPurchaseOrders(
 
 export function createPurchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrder> {
   return apiClient.post('/purchase-orders', input);
+}
+
+/// Baixa o PDF da ordem. Usa o `downloadFile` que Relatórios já usa: o token
+/// vai em header, então um `<a href>` simples voltaria 401.
+export function downloadPurchaseOrderPdf(id: string, code: string): Promise<void> {
+  return downloadFile(`/purchase-orders/${id}/pdf`, `${code}.pdf`);
 }
 
 export function deletePurchaseOrder(id: string): Promise<void> {

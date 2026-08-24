@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import {
   Alert,
   AlertTitle,
@@ -12,7 +12,6 @@ import {
   FormLabel,
   FormMessage,
   Input,
-  NumberInput,
   Select,
   SelectContent,
   SelectItem,
@@ -27,12 +26,16 @@ import {
 import { ApiError } from '@/lib/api-client';
 
 import { useCreatePurchaseOrder } from '../hooks/use-purchase-order-mutations';
+import { usePurchaseRequest } from '../hooks/use-purchase-request';
 import { useSuppliers } from '../hooks/use-suppliers';
 import {
+  itemsFromPurchaseRequest,
   PURCHASE_ORDER_FORM_DEFAULTS,
   purchaseOrderFormSchema,
+  selectedItemsSubtotal,
   type PurchaseOrderFormValues,
 } from '../purchase-order-form-schema';
+import { PurchaseOrderItemsPicker } from './purchase-order-items-picker';
 
 interface GeneratePurchaseOrderDrawerProps {
   open: boolean;
@@ -49,10 +52,12 @@ export function GeneratePurchaseOrderDrawer({
 }: GeneratePurchaseOrderDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-md">
+      <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-2xl">
         <div className="border-b border-border px-6 py-5">
           <SheetTitle>Gerar Ordem de Compra</SheetTitle>
-          <SheetDescription>Escolha o fornecedor e informe o valor negociado.</SheetDescription>
+          <SheetDescription>
+            Os itens vêm da solicitação. Ajuste o que foi negociado e escolha o fornecedor.
+          </SheetDescription>
         </div>
 
         <GeneratePurchaseOrderBody
@@ -77,6 +82,7 @@ function GeneratePurchaseOrderBody({
 }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { data: suppliersData } = useSuppliers({ limit: 100 });
+  const { data: request, isLoading: loadingRequest } = usePurchaseRequest(purchaseRequestId);
   const createMutation = useCreatePurchaseOrder();
 
   const form = useForm<PurchaseOrderFormValues>({
@@ -84,15 +90,38 @@ function GeneratePurchaseOrderBody({
     defaultValues: PURCHASE_ORDER_FORM_DEFAULTS,
   });
 
+  // A carga automática dos itens: assim que a solicitação chega, as linhas
+  // dela viram as linhas do formulário, já preenchidas. É o que dispensa a
+  // redigitação — o comprador desmarca e ajusta, não redigita.
+  const { reset } = form;
+  useEffect(() => {
+    if (!request) return;
+    reset((atual) => ({ ...atual, items: itemsFromPurchaseRequest(request.items) }));
+  }, [request, reset]);
+
+  // `useWatch` e não `form.watch()`: o React Compiler não consegue memoizar a
+  // função devolvida pelo `watch` e pula a otimização do componente inteiro
+  // (o lint recusa o aviso). Mesmo padrão da grade de itens da solicitação.
+  const items = useWatch({ control: form.control, name: 'items' });
+  const subtotal = selectedItemsSubtotal(items ?? []);
+
   async function onSubmit(values: PurchaseOrderFormValues) {
     setSubmitError(null);
     try {
       await createMutation.mutateAsync({
         purchaseRequestId,
         supplierId: values.supplierId,
-        totalAmount: Number(values.totalAmount),
         issueDate: values.issueDate,
         expectedDeliveryDate: values.expectedDeliveryDate || undefined,
+        // Só as linhas marcadas, e só o que o backend aceita: descrição e
+        // unidade ele copia da origem, o total ele calcula.
+        items: values.items
+          .filter((item) => item.selected)
+          .map((item) => ({
+            purchaseRequestItemId: item.purchaseRequestItemId,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+          })),
       });
       onCreated();
     } catch (error) {
@@ -145,19 +174,28 @@ function GeneratePurchaseOrderBody({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="totalAmount"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Valor Total (R$)</FormLabel>
-                  <FormControl>
-                    <NumberInput placeholder="0,00" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+            <div className="flex flex-col gap-2">
+              <FormLabel>Itens da solicitação</FormLabel>
+              {loadingRequest ? (
+                <p className="text-sm text-muted-foreground">Carregando itens...</p>
+              ) : (
+                <PurchaseOrderItemsPicker control={form.control} errors={form.formState.errors} />
               )}
-            />
+              {form.formState.errors.items?.message && (
+                <p className="text-sm text-destructive">{form.formState.errors.items.message}</p>
+              )}
+              <div className="flex items-baseline justify-between rounded-md bg-muted/50 px-3 py-2">
+                <span className="text-sm font-medium text-foreground">
+                  Total da ordem de compra
+                </span>
+                <span className="text-lg font-semibold tabular-nums text-foreground">
+                  {subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Calculado automaticamente a partir dos itens acima.
+              </p>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

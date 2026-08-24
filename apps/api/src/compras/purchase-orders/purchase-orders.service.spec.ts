@@ -1,0 +1,880 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+
+import { Prisma } from '../../../generated/prisma/client';
+import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
+import { PrismaService } from '../../prisma/prisma.service';
+import { PurchaseOrdersController } from './purchase-orders.controller';
+import { PurchaseOrderItemInputDto } from './dto/purchase-order-item-input.dto';
+import {
+  calculateItemTotal,
+  PurchaseOrdersService,
+  sumItemTotals,
+} from './purchase-orders.service';
+
+const EMPRESA_A = '11111111-1111-1111-1111-111111111111';
+const EMPRESA_B = '22222222-2222-2222-2222-222222222222';
+const SOLICITACAO = '33333333-3333-3333-3333-333333333333';
+const FORNECEDOR = '44444444-4444-4444-4444-444444444444';
+
+/// Itens de solicitação de duas empresas diferentes, para o dublê poder
+/// reproduzir o filtro que atravessa a relação até o `companyId` — é a única
+/// forma de o teste de isolamento provar alguma coisa.
+const ITENS_SOLICITACAO = [
+  {
+    id: 'item-cimento',
+    description: '50 sacos de cimento CP-II',
+    unit: 'SC',
+    purchaseRequestId: SOLICITACAO,
+    companyId: EMPRESA_A,
+  },
+  {
+    id: 'item-areia',
+    description: 'Areia média lavada',
+    unit: 'M3',
+    purchaseRequestId: SOLICITACAO,
+    companyId: EMPRESA_A,
+  },
+  {
+    id: 'item-de-outra-empresa',
+    description: 'Item da empresa B',
+    unit: 'UN',
+    purchaseRequestId: 'solicitacao-da-empresa-b',
+    companyId: EMPRESA_B,
+  },
+  {
+    id: 'item-de-outra-solicitacao',
+    description: 'Item de outra solicitação da MESMA empresa',
+    unit: 'UN',
+    purchaseRequestId: 'outra-solicitacao-da-empresa-a',
+    companyId: EMPRESA_A,
+  },
+];
+
+function makeService(
+  overrides: {
+    requestStatus?: string;
+    requestCompanyId?: string;
+    supplierExists?: boolean;
+    financeiro?: {
+      invoices: Record<string, unknown>[];
+      inboundInvoices: Record<string, unknown>[];
+    };
+  } = {},
+) {
+  const {
+    requestStatus = 'APPROVED',
+    requestCompanyId = EMPRESA_A,
+    supplierExists = true,
+    financeiro = { invoices: [], inboundInvoices: [] },
+  } = overrides;
+
+  const criados: { data: Record<string, unknown> }[] = [];
+  const itensCriadosNoUpdate: Record<string, unknown>[] = [];
+  const deleteManyCalls: unknown[] = [];
+
+  const tx = {
+    purchaseOrder: { update: jest.fn(async () => ({ id: 'oc-1' })) },
+    purchaseOrderItem: {
+      deleteMany: jest.fn(async (args: unknown) => {
+        deleteManyCalls.push(args);
+        return { count: 2 };
+      }),
+      createMany: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => {
+        itensCriadosNoUpdate.push(...data);
+        return { count: data.length };
+      }),
+    },
+  };
+
+  const prisma = {
+    purchaseRequest: {
+      findFirst: jest.fn(async ({ where }: { where: { companyId: string } }) =>
+        where.companyId === requestCompanyId
+          ? {
+              id: SOLICITACAO,
+              status: requestStatus,
+              constructionSiteId: 'obra-1',
+              costCenterId: 'cc-1',
+            }
+          : null,
+      ),
+    },
+    supplier: {
+      findFirst: jest.fn(async () => (supplierExists ? { id: FORNECEDOR } : null)),
+    },
+    purchaseRequestItem: {
+      // Reproduz o filtro real: id ∈ lista E a solicitação-mãe é ESTA, da
+      // empresa certa. Um dublê que ignorasse o escopo faria o teste de
+      // isolamento passar sem que o código filtrasse nada.
+      findMany: jest.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            id: { in: string[] };
+            purchaseRequest: { id: string; companyId: string };
+          };
+        }) =>
+          ITENS_SOLICITACAO.filter(
+            (item) =>
+              where.id.in.includes(item.id) &&
+              item.purchaseRequestId === where.purchaseRequest.id &&
+              item.companyId === where.purchaseRequest.companyId,
+          ).map(({ id, description, unit }) => ({ id, description, unit })),
+      ),
+    },
+    purchaseOrder: {
+      count: jest.fn(async () => 0),
+      create: jest.fn(async (args: { data: Record<string, unknown> }) => {
+        criados.push(args);
+        return { id: 'oc-1' };
+      }),
+      findFirst: jest.fn(async ({ where }: { where: { companyId: string } }) =>
+        where.companyId === EMPRESA_A
+          ? {
+              id: 'oc-1',
+              code: 'OC-0001',
+              companyId: EMPRESA_A,
+              purchaseRequestId: SOLICITACAO,
+              status: 'OPEN',
+              items: [],
+            }
+          : null,
+      ),
+      update: jest.fn(async () => ({ id: 'oc-1' })),
+    },
+    /// Alimentam a situação financeira DERIVADA que o `findOne` anexa (ver
+    /// `withFinancialStatus`). Vazias por padrão: uma ordem recém-criada não
+    /// tem nota nem parcela, que é justamente o estado `WITHOUT_INVOICE`.
+    /// Os testes que exercitam os estágios sobrescrevem via `financeiro`.
+    invoice: { findMany: jest.fn(async () => financeiro.invoices) },
+    inboundInvoice: { findMany: jest.fn(async () => financeiro.inboundInvoices) },
+    $transaction: jest.fn(async (arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
+  } as unknown as PrismaService;
+
+  return {
+    service: new PurchaseOrdersService(prisma),
+    prisma,
+    criados,
+    itensCriadosNoUpdate,
+    deleteManyCalls,
+    tx,
+  };
+}
+
+const BASE = {
+  purchaseRequestId: SOLICITACAO,
+  supplierId: FORNECEDOR,
+  issueDate: '2026-08-23',
+};
+
+/// O `totalAmount` gravado na criação — derivado, não enviado.
+function totalGravado(criados: { data: Record<string, unknown> }[]): string {
+  return String(criados[0]!.data.totalAmount);
+}
+
+/// Os itens gravados na criação, já resolvidos pelo service.
+function itensCriados(criados: { data: Record<string, unknown> }[]) {
+  const nested = criados[0]!.data.items as { create: Record<string, unknown>[] };
+  return nested.create;
+}
+
+describe('PurchaseOrdersService — itens da ordem de compra', () => {
+  describe('1. Criar uma OC com um item', () => {
+    it('cria a ordem com a linha pedida', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
+      });
+
+      const itens = itensCriados(criados);
+      expect(itens).toHaveLength(1);
+      expect(itens[0]).toMatchObject({
+        purchaseRequestItemId: 'item-cimento',
+        description: '50 sacos de cimento CP-II',
+        unit: 'SC',
+        quantity: 50,
+        unitPrice: 32.9,
+      });
+    });
+  });
+
+  describe('2. Criar uma OC com múltiplos itens', () => {
+    it('cria todas as linhas, cada uma com a sua origem', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [
+          { purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 },
+          { purchaseRequestItemId: 'item-areia', quantity: 12, unitPrice: 95 },
+        ],
+      });
+
+      const itens = itensCriados(criados);
+      expect(itens).toHaveLength(2);
+      expect(itens.map((item) => item.purchaseRequestItemId)).toEqual([
+        'item-cimento',
+        'item-areia',
+      ]);
+      expect(itens.map((item) => item.description)).toEqual([
+        '50 sacos de cimento CP-II',
+        'Areia média lavada',
+      ]);
+    });
+
+    it('recusa a MESMA linha da solicitação duas vezes na mesma ordem', async () => {
+      const { service } = makeService();
+
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [
+            { purchaseRequestItemId: 'item-cimento', quantity: 30, unitPrice: 32.9 },
+            { purchaseRequestItemId: 'item-cimento', quantity: 20, unitPrice: 32.9 },
+          ],
+        }),
+      ).rejects.toThrow(/mais de uma vez/);
+    });
+  });
+
+  describe('3. Item da OC vinculado ao item correto da Solicitação', () => {
+    it('o vínculo é por ITEM, não pelo id da solicitação', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-areia', quantity: 12, unitPrice: 95 }],
+      });
+
+      const [item] = itensCriados(criados);
+      // A linha aponta para a linha de origem — não para SOLICITACAO.
+      expect(item!.purchaseRequestItemId).toBe('item-areia');
+      expect(item!.purchaseRequestItemId).not.toBe(SOLICITACAO);
+    });
+
+    it('descrição e unidade são COPIADAS da origem, não aceitas do cliente', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [
+          {
+            purchaseRequestItemId: 'item-cimento',
+            quantity: 50,
+            unitPrice: 32.9,
+            // Um cliente malicioso mandando descrição própria não muda nada:
+            // o DTO nem tem o campo, e o service lê da origem.
+            ...({ description: 'OUTRA COISA', unit: 'XX' } as object),
+          },
+        ],
+      });
+
+      const [item] = itensCriados(criados);
+      expect(item!.description).toBe('50 sacos de cimento CP-II');
+      expect(item!.unit).toBe('SC');
+    });
+  });
+
+  describe('4, 5 e 6. Quantidade, unidade e valor unitário', () => {
+    it('a quantidade COMPRADA pode ser menor que a solicitada (compra parcial)', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 80, unitPrice: 10 }],
+      });
+
+      // Solicitados 100, comprados 80 — o modelo aceita, sem impor igualdade.
+      expect(itensCriados(criados)[0]!.quantity).toBe(80);
+    });
+
+    it('a quantidade comprada também pode ser MAIOR (arredondamento de embalagem)', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 120, unitPrice: 10 }],
+      });
+
+      expect(itensCriados(criados)[0]!.quantity).toBe(120);
+    });
+
+    it('a unidade vem da solicitação e acompanha a linha', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [
+          { purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 },
+          { purchaseRequestItemId: 'item-areia', quantity: 1, unitPrice: 1 },
+        ],
+      });
+
+      expect(itensCriados(criados).map((item) => item.unit)).toEqual(['SC', 'M3']);
+    });
+
+    it('o valor unitário negociado é o que vale, mesmo divergindo da cotação', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 27.5 }],
+      });
+
+      expect(itensCriados(criados)[0]!.unitPrice).toBe(27.5);
+    });
+
+    it('aceita valor unitário zero (brinde/bonificação)', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 5, unitPrice: 0 }],
+      });
+
+      expect(String(itensCriados(criados)[0]!.totalPrice)).toBe('0');
+    });
+  });
+
+  describe('7. Valor total calculado', () => {
+    it('totalPrice é quantidade × valor unitário, calculado pelo backend', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
+      });
+
+      expect(String(itensCriados(criados)[0]!.totalPrice)).toBe('1645');
+    });
+
+    it('um totalPrice enviado pelo cliente é ignorado — nunca diverge do cálculo', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [
+          {
+            purchaseRequestItemId: 'item-cimento',
+            quantity: 10,
+            unitPrice: 5,
+            ...({ totalPrice: 999999 } as object),
+          },
+        ],
+      });
+
+      expect(String(itensCriados(criados)[0]!.totalPrice)).toBe('50');
+    });
+
+    describe('calculateItemTotal', () => {
+      it.each([
+        [50, 32.9, '1645'],
+        // Ponto flutuante puro devolveria 0.30000000000000004.
+        [3, 0.1, '0.3'],
+        // 3 casas de quantidade × 2 de preço = 5 casas; arredonda para 2.
+        [2.5, 12.345, '30.86'],
+        [1, 1.005, '1.01'],
+        [0.333, 3, '1'],
+        [1000000, 999.99, '999990000'],
+      ])('%s × %s = %s', (quantidade, preco, esperado) => {
+        expect(calculateItemTotal(quantidade, preco).toString()).toBe(esperado);
+      });
+
+      it('devolve Decimal, não number — o valor vai direto para uma coluna de dinheiro', () => {
+        expect(calculateItemTotal(2, 3)).toBeInstanceOf(Prisma.Decimal);
+      });
+    });
+  });
+
+  describe('8 e 12. Isolamento multi-tenant', () => {
+    it('recusa item de solicitação de OUTRA empresa', async () => {
+      const { service } = makeService();
+
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-de-outra-empresa', quantity: 1, unitPrice: 10 }],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('recusa item de outra solicitação da MESMA empresa', async () => {
+      const { service } = makeService();
+
+      // Isolamento não é só entre empresas: a linha tem de ser da solicitação
+      // que originou esta ordem, senão a rastreabilidade seria uma mentira.
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [
+            { purchaseRequestItemId: 'item-de-outra-solicitacao', quantity: 1, unitPrice: 10 },
+          ],
+        }),
+      ).rejects.toThrow(/não encontrado nesta solicitação/);
+    });
+
+    it('a mensagem de erro não revela se o item existe em outro tenant', async () => {
+      const { service } = makeService();
+
+      const deOutraEmpresa = service
+        .create(EMPRESA_A, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-de-outra-empresa', quantity: 1, unitPrice: 1 }],
+        })
+        .catch((error: Error) => error.message);
+
+      const inexistente = service
+        .create(EMPRESA_A, {
+          ...BASE,
+          items: [
+            {
+              purchaseRequestItemId: '99999999-9999-9999-9999-999999999999',
+              quantity: 1,
+              unitPrice: 1,
+            },
+          ],
+        })
+        .catch((error: Error) => error.message);
+
+      const [a, b] = await Promise.all([deOutraEmpresa, inexistente]);
+
+      // Fora o id ecoado, as duas mensagens têm de ser idênticas: um texto
+      // diferente para "existe noutro tenant" seria um oráculo de existência.
+      const semIds = (mensagem: string) => mensagem.split(':')[0];
+      expect(semIds(a!)).toBe(semIds(b!));
+      // Só o PREFIXO: depois dos dois-pontos vem o id que o cliente mandou,
+      // e o nome do fixture ali dentro não diz nada sobre o código.
+      expect(semIds(a!)).not.toMatch(/empresa|tenant|pertence a/i);
+    });
+
+    it('a solicitação de outra empresa não é sequer alcançável', async () => {
+      const { service } = makeService();
+
+      await expect(
+        service.create(EMPRESA_B, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
+        }),
+      ).rejects.toThrow(/Solicitação informada não existe/);
+    });
+
+    it('toda consulta de item carrega o escopo da empresa e da solicitação', async () => {
+      const { service, prisma } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
+      });
+
+      const where = (prisma.purchaseRequestItem.findMany as jest.Mock).mock.calls[0]![0].where;
+      expect(where.purchaseRequest).toEqual({
+        id: SOLICITACAO,
+        companyId: EMPRESA_A,
+        deletedAt: null,
+      });
+    });
+  });
+
+  describe('9. Item inexistente', () => {
+    it('recusa a ordem inteira quando um item não existe', async () => {
+      const { service, prisma } = makeService();
+
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [
+            { purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 },
+            { purchaseRequestItemId: 'nao-existe', quantity: 1, unitPrice: 1 },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      // Nada foi criado: a validação roda ANTES da ordem, para não deixar uma
+      // ordem órfã sem linhas.
+      expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('10. Edição sem duplicar itens', () => {
+    it('reenviar a lista SUBSTITUI, não acrescenta', async () => {
+      const { service, tx, itensCriadosNoUpdate } = makeService();
+
+      await service.update(EMPRESA_A, 'oc-1', {
+        items: [
+          { purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 },
+          { purchaseRequestItemId: 'item-areia', quantity: 12, unitPrice: 95 },
+        ],
+      });
+
+      // Apaga as antigas antes de gravar as novas — sem isto, editar duas
+      // vezes deixaria a ordem com as linhas em dobro.
+      expect(tx.purchaseOrderItem.deleteMany).toHaveBeenCalledWith({
+        where: { purchaseOrderId: 'oc-1' },
+      });
+      expect(itensCriadosNoUpdate).toHaveLength(2);
+    });
+
+    it('editar duas vezes com a mesma lista deixa a mesma quantidade de linhas', async () => {
+      const { service, itensCriadosNoUpdate, tx } = makeService();
+      const payload = {
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
+      };
+
+      await service.update(EMPRESA_A, 'oc-1', payload);
+      await service.update(EMPRESA_A, 'oc-1', payload);
+
+      expect(tx.purchaseOrderItem.deleteMany).toHaveBeenCalledTimes(2);
+      // Duas edições, uma linha cada — nunca acumulando.
+      expect(itensCriadosNoUpdate).toHaveLength(2);
+    });
+
+    it('editar SEM enviar itens não toca nas linhas existentes', async () => {
+      const { service, tx } = makeService();
+
+      await service.update(EMPRESA_A, 'oc-1', { issueDate: '2026-09-01' });
+
+      expect(tx.purchaseOrderItem.deleteMany).not.toHaveBeenCalled();
+      expect(tx.purchaseOrderItem.createMany).not.toHaveBeenCalled();
+    });
+
+    it('itens inválidos na edição recusam antes de apagar os antigos', async () => {
+      const { service, tx } = makeService();
+
+      await expect(
+        service.update(EMPRESA_A, 'oc-1', {
+          items: [{ purchaseRequestItemId: 'item-de-outra-empresa', quantity: 1, unitPrice: 1 }],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      // O ponto: uma lista inválida não pode deixar a ordem SEM itens.
+      expect(tx.purchaseOrderItem.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('a ordem de outra empresa não é editável', async () => {
+      const { service } = makeService();
+
+      await expect(
+        service.update(EMPRESA_B, 'oc-1', { issueDate: '2026-09-01' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('total da ordem calculado automaticamente', () => {
+    it('soma os totais dos itens (10×100 + 5×200 = 2.000)', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [
+          { purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 100 },
+          { purchaseRequestItemId: 'item-areia', quantity: 5, unitPrice: 200 },
+        ],
+      });
+
+      expect(totalGravado(criados)).toBe('2000');
+    });
+
+    it('ordem de um item só: o total é o total do item', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
+      });
+
+      expect(totalGravado(criados)).toBe('1645');
+    });
+
+    it('um totalAmount enviado pelo cliente é ignorado', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 2, unitPrice: 10 }],
+        // O campo saiu do DTO; mesmo que alguém o mande, não chega ao banco.
+        ...({ totalAmount: 999999 } as object),
+      });
+
+      expect(totalGravado(criados)).toBe('20');
+    });
+
+    it('mudar a QUANTIDADE de um item recalcula o total da ordem', async () => {
+      const { service, tx } = makeService();
+
+      await service.update(EMPRESA_A, 'oc-1', {
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 80, unitPrice: 10 }],
+      });
+
+      const data = (tx.purchaseOrder.update as jest.Mock).mock.calls[0]![0].data;
+      expect(String(data.totalAmount)).toBe('800');
+    });
+
+    it('mudar o VALOR UNITÁRIO recalcula o total da ordem', async () => {
+      const { service, tx } = makeService();
+
+      await service.update(EMPRESA_A, 'oc-1', {
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 27.5 }],
+      });
+
+      const data = (tx.purchaseOrder.update as jest.Mock).mock.calls[0]![0].data;
+      expect(String(data.totalAmount)).toBe('275');
+    });
+
+    it('REMOVER um item recalcula o total (a lista nova é a verdade)', async () => {
+      const { service, tx } = makeService();
+
+      // Antes: cimento + areia. Agora só cimento — o total cai junto.
+      await service.update(EMPRESA_A, 'oc-1', {
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 100 }],
+      });
+
+      const data = (tx.purchaseOrder.update as jest.Mock).mock.calls[0]![0].data;
+      expect(String(data.totalAmount)).toBe('1000');
+    });
+
+    it('editar SEM enviar itens não recalcula — ordem antiga não é zerada', async () => {
+      const { service, tx } = makeService();
+
+      await service.update(EMPRESA_A, 'oc-1', { issueDate: '2026-09-01' });
+
+      const data = (tx.purchaseOrder.update as jest.Mock).mock.calls[0]![0].data;
+      // As 4 ordens já emitidas em staging não têm itens; recalcular ali
+      // trocaria o valor real delas por zero.
+      expect(data.totalAmount).toBeUndefined();
+    });
+
+    describe('sumItemTotals', () => {
+      it('soma vazia é zero', () => {
+        expect(sumItemTotals([]).toString()).toBe('0');
+      });
+
+      it('soma os totais JÁ arredondados, para bater com a coluna impressa', () => {
+        // 3 × 0,105 = 0,315 → 0,32 cada. A soma das linhas visíveis é 0,96;
+        // somar os produtos brutos daria 0,945 → 0,95, que não fecha com o
+        // que o usuário lê.
+        const itens = [1, 2, 3].map(() => ({ totalPrice: calculateItemTotal(3, 0.105) }));
+        expect(sumItemTotals(itens).toString()).toBe('0.96');
+      });
+
+      it('não acumula erro de ponto flutuante em muitas linhas', () => {
+        const itens = Array.from({ length: 100 }, () => ({
+          totalPrice: calculateItemTotal(1, 0.1),
+        }));
+        expect(sumItemTotals(itens).toString()).toBe('10');
+      });
+
+      it('devolve Decimal', () => {
+        expect(sumItemTotals([{ totalPrice: calculateItemTotal(1, 1) }])).toBeInstanceOf(
+          Prisma.Decimal,
+        );
+      });
+    });
+  });
+
+  describe('validações de quantidade e valor', () => {
+    it.each([
+      ['quantidade negativa', { quantity: -5, unitPrice: 10 }],
+      ['quantidade zero', { quantity: 0, unitPrice: 10 }],
+      ['valor unitário negativo', { quantity: 1, unitPrice: -1 }],
+    ])('o DTO recusa %s', async (_caso, valores) => {
+      // A barreira é o DTO (class-validator), não o service — este teste
+      // documenta o contrato e falha se alguém afrouxar os decorators.
+      const dto = plainToInstance(PurchaseOrderItemInputDto, {
+        purchaseRequestItemId: '11111111-1111-4111-8111-111111111111',
+        ...valores,
+      });
+
+      await expect(validate(dto)).resolves.not.toHaveLength(0);
+    });
+
+    it('aceita quantidade fracionária e valor unitário zero', async () => {
+      const dto = plainToInstance(PurchaseOrderItemInputDto, {
+        purchaseRequestItemId: '11111111-1111-4111-8111-111111111111',
+        quantity: 1.5,
+        unitPrice: 0,
+      });
+
+      await expect(validate(dto)).resolves.toHaveLength(0);
+    });
+  });
+
+  describe('regras existentes preservadas', () => {
+    it('continua exigindo solicitação APROVADA', async () => {
+      const { service } = makeService({ requestStatus: 'PENDING' });
+
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
+        }),
+      ).rejects.toThrow(/solicitação aprovada/);
+    });
+
+    it('continua exigindo fornecedor existente', async () => {
+      const { service } = makeService({ supplierExists: false });
+
+      await expect(
+        service.create(EMPRESA_A, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
+        }),
+      ).rejects.toThrow(/Fornecedor informado não existe/);
+    });
+  });
+  // ---------------------------------------------------------------------------
+  // Integração Engenharia -> Financeiro
+  // ---------------------------------------------------------------------------
+
+  describe('6. A ordem exibe a situação financeira', () => {
+    const NOTA_CONCILIADA = {
+      id: 'nfe-1',
+      purchaseOrderId: 'oc-1',
+      number: '000456',
+      series: '1',
+      status: 'RECONCILED',
+      reconciledAt: new Date('2026-08-24T10:00:00Z'),
+    };
+
+    const notaDoFinanceiro = (parcelas: { status: string }[]) => ({
+      id: 'inv-1',
+      purchaseOrderId: 'oc-1',
+      number: '000456',
+      series: '1',
+      status: 'VALIDATED',
+      accountsPayable: parcelas,
+    });
+
+    it('ordem sem nota nenhuma: estágio "sem NF"', async () => {
+      const { service } = makeService();
+
+      const ordem = await service.findOne(EMPRESA_A, 'oc-1');
+
+      expect(ordem.financialStatus.stage).toBe('WITHOUT_INVOICE');
+    });
+
+    it('ordem com nota conciliada e parcela em aberto', async () => {
+      const { service } = makeService({
+        financeiro: {
+          invoices: [notaDoFinanceiro([{ status: 'OPEN' }])],
+          inboundInvoices: [NOTA_CONCILIADA],
+        },
+      });
+
+      const ordem = await service.findOne(EMPRESA_A, 'oc-1');
+
+      expect(ordem.financialStatus.stage).toBe('PAYABLE_CREATED');
+      expect(ordem.financialStatus.isReconciled).toBe(true);
+      expect(ordem.financialStatus.inboundInvoices[0]!.reconciled).toBe(true);
+    });
+
+    it('ordem paga', async () => {
+      const { service } = makeService({
+        financeiro: {
+          invoices: [notaDoFinanceiro([{ status: 'PAID' }])],
+          inboundInvoices: [NOTA_CONCILIADA],
+        },
+      });
+
+      const ordem = await service.findOne(EMPRESA_A, 'oc-1');
+
+      expect(ordem.financialStatus.stage).toBe('PAID');
+      expect(ordem.financialStatus.isFullyPaid).toBe(true);
+    });
+
+    it('a listagem traz a situação de todas as ordens em DUAS consultas, não duas por linha', async () => {
+      const { service, prisma } = makeService({
+        financeiro: {
+          invoices: [notaDoFinanceiro([{ status: 'OPEN' }])],
+          inboundInvoices: [NOTA_CONCILIADA],
+        },
+      });
+      (prisma.purchaseOrder.findMany as jest.Mock) = jest.fn(async () => [
+        { id: 'oc-1' },
+        { id: 'oc-2' },
+        { id: 'oc-3' },
+      ]);
+
+      const { data } = await service.findAll(EMPRESA_A, { page: 1, limit: 10 });
+
+      expect(data).toHaveLength(3);
+      expect(prisma.invoice.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.inboundInvoice.findMany).toHaveBeenCalledTimes(1);
+      // Só a ordem que tem nota recebe o estágio avançado.
+      expect(data[0]!.financialStatus.stage).toBe('PAYABLE_CREATED');
+      expect(data[1]!.financialStatus.stage).toBe('WITHOUT_INVOICE');
+    });
+
+    it('a situação é DERIVADA — nada é gravado na ordem', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 100 }],
+      });
+
+      const gravado = Object.keys(criados[0]!.data);
+      expect(gravado).not.toContain('financialStatus');
+      expect(gravado).not.toContain('stage');
+      expect(gravado).not.toContain('paidAt');
+    });
+  });
+
+  describe('10. Isolamento entre empresas na consulta financeira', () => {
+    it('as consultas de nota e parcela carregam o companyId de quem perguntou', async () => {
+      const { service, prisma } = makeService();
+
+      await service.findOne(EMPRESA_A, 'oc-1');
+
+      expect((prisma.invoice.findMany as jest.Mock).mock.calls[0]![0].where).toMatchObject({
+        companyId: EMPRESA_A,
+      });
+      expect((prisma.inboundInvoice.findMany as jest.Mock).mock.calls[0]![0].where).toMatchObject({
+        companyId: EMPRESA_A,
+      });
+    });
+
+    it('ordem de outra empresa não é encontrada — e nem chega a consultar o financeiro', async () => {
+      const { service, prisma } = makeService();
+
+      await expect(service.findOne(EMPRESA_B, 'oc-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.invoice.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('9. A Engenharia vê o estado financeiro, não o altera', () => {
+    const permissaoDe = (metodo: keyof PurchaseOrdersController) =>
+      Reflect.getMetadata(PERMISSIONS_KEY, PurchaseOrdersController.prototype[metodo]) as
+        string[] | undefined;
+
+    it('consultar a ordem — e com ela a situação financeira — exige só `compras.view`', () => {
+      expect(permissaoDe('findOne')).toEqual(['compras.view']);
+      expect(permissaoDe('findAll')).toEqual(['compras.view']);
+    });
+
+    it('nenhuma rota de Compras passou a exigir permissão do Financeiro', () => {
+      const usadas = (['findAll', 'findOne', 'create', 'update', 'remove'] as const).flatMap(
+        (metodo) => permissaoDe(metodo) ?? [],
+      );
+
+      expect(usadas.every((permissao) => permissao.startsWith('compras.'))).toBe(true);
+    });
+
+    it('e nenhuma rota de Compras escreve no financeiro', () => {
+      // A situação financeira é leitura derivada. Alterar conta a pagar, dar
+      // baixa ou mudar vencimento continua só no módulo Financeiro, atrás de
+      // `financeiro.manage` — ver `account-payables.service.spec.ts`.
+      const servico = PurchaseOrdersService.prototype as unknown as Record<string, unknown>;
+      expect(servico.payAccountPayable).toBeUndefined();
+      expect(servico.updateAccountPayable).toBeUndefined();
+    });
+  });
+});
