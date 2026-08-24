@@ -22,6 +22,7 @@ import { GeneratePurchaseOrderDrawer } from '@/features/compras/components/gener
 import { QuotePurchaseRequestDrawer } from '@/features/compras/components/quote-purchase-request-drawer';
 import { PurchaseRequestItemsTable } from '@/features/compras/components/purchase-request-items-table';
 import { PurchaseRequestStatusBadge } from '@/features/compras/components/purchase-request-status-badge';
+import { PurchaseOrderFinancialBadge } from '@/features/compras/components/purchase-order-financial-status';
 import { PurchaseOrderStatusBadge } from '@/features/compras/components/purchase-order-status-badge';
 import { usePurchaseRequest } from '@/features/compras/hooks/use-purchase-request';
 import {
@@ -287,6 +288,11 @@ export function SolicitacaoDetailPage() {
                       {formatCurrency(Number(order.totalAmount))}
                     </span>
                     <PurchaseOrderStatusBadge status={order.status} />
+                    {/* Onde a compra parou no financeiro. Vem junto da mesma
+                        consulta que já listava as ordens — quem pediu o
+                        material passa a ver se o fornecedor foi pago sem
+                        precisar de acesso ao módulo Financeiro. */}
+                    <PurchaseOrderFinancialBadge status={order.financialStatus} />
                   </div>
                 </div>
               ))}

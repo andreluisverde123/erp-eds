@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Search } from 'lucide-react';
+import { useSearchParams } from 'react-router';
 import {
   ErrorState,
   Input,
@@ -24,15 +25,35 @@ import type { PurchaseOrderStatus } from '@/features/compras/types';
 const PAGE_SIZE = 10;
 const ALL_STATUS = 'ALL';
 
+/// Parâmetro de URL que pré-preenche a busca.
+///
+/// Existe para a Ordem de Compra ser LINKÁVEL de fora — o painel de origem da
+/// Conta a Pagar aponta para cá com o código da ordem. A OC não tem tela
+/// própria: esta listagem é a tela dela, e filtrada pelo código ela mostra
+/// exatamente a ordem procurada, já com itens e situação financeira ao expandir.
+const SEARCH_PARAM = 'busca';
+
 export function OrdensDeCompraPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get(SEARCH_PARAM) ?? '');
   const [status, setStatus] = useState<PurchaseOrderStatus | typeof ALL_STATUS>(ALL_STATUS);
   const debouncedSearch = useDebouncedValue(search);
 
   function handleSearchChange(value: string) {
     setSearch(value);
     setPage(1);
+    // Mantém a URL contando a verdade: quem chegou por um link e depois
+    // apagou o filtro não deve voltar ao filtro antigo ao recarregar.
+    setSearchParams(
+      (atual) => {
+        const proximo = new URLSearchParams(atual);
+        if (value) proximo.set(SEARCH_PARAM, value);
+        else proximo.delete(SEARCH_PARAM);
+        return proximo;
+      },
+      { replace: true },
+    );
   }
 
   function handleStatusChange(value: PurchaseOrderStatus | typeof ALL_STATUS) {
