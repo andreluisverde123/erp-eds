@@ -14,13 +14,14 @@ const includeArgs = Prisma.validator<Prisma.PaymentDefaultArgs>()({
     accountPayable: {
       select: {
         id: true,
-        invoice: {
-          select: {
-            id: true,
-            number: true,
-            supplier: { select: { id: true, legalName: true, tradeName: true } },
-          },
-        },
+        // Fornecedor direto da conta: agora existem contas sem nota, e mesmo
+        // as que têm carregam o vínculo na própria linha.
+        supplier: { select: { id: true, legalName: true, tradeName: true } },
+        // O que identifica a conta na listagem de pagamentos: número da nota
+        // quando ela veio de uma, descrição quando é lançamento avulso.
+        description: true,
+        documentNumber: true,
+        invoice: { select: { id: true, number: true, series: true } },
       },
     },
   },

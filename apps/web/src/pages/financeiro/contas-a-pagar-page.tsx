@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Button,
   ErrorState,
   Pagination,
   PaginationNext,
@@ -7,6 +8,9 @@ import {
   TableSkeleton,
 } from '@repo/ui';
 
+import { Plus } from 'lucide-react';
+
+import { useAuth } from '@/features/auth/context';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useSuppliers } from '@/features/compras/hooks/use-suppliers';
 
@@ -17,6 +21,7 @@ import {
 } from '@/features/financeiro/components/account-payables-filters';
 import { AccountPayablesSummaryCards } from '@/features/financeiro/components/account-payables-summary-cards';
 import { AccountPayablesTable } from '@/features/financeiro/components/account-payables-table';
+import { AccountPayableFormDrawer } from '@/features/financeiro/components/account-payable-form-drawer';
 import { PaymentFormDrawer } from '@/features/financeiro/components/payment-form-drawer';
 import { useAccountPayables } from '@/features/financeiro/hooks/use-account-payables';
 import { useAccountPayableSummary } from '@/features/financeiro/hooks/use-account-payable-summary';
@@ -61,6 +66,13 @@ export function ContasAPagarPage() {
   });
 
   const [payingAccount, setPayingAccount] = useState<AccountPayable | null>(null);
+  const [creatingAccount, setCreatingAccount] = useState(false);
+
+  // Mesma permissão que já governa criar/editar no Financeiro. Nenhuma regra
+  // de RBAC nova foi criada para o lançamento avulso — o botão só aparece
+  // para quem a API já deixaria lançar, e a API valida de novo de todo jeito.
+  const { user } = useAuth();
+  const canManage = user?.permissions.includes('financeiro.manage') ?? false;
 
   const meta = data?.meta;
   const rangeStart = meta ? (meta.page - 1) * meta.limit + 1 : 0;
@@ -68,11 +80,19 @@ export function ContasAPagarPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Contas a Pagar</h1>
-        <p className="text-sm text-muted-foreground">
-          Parcelas geradas a partir de notas fiscais validadas.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Contas a Pagar</h1>
+          <p className="text-sm text-muted-foreground">
+            Parcelas geradas a partir de notas fiscais e lançamentos avulsos.
+          </p>
+        </div>
+        {canManage && (
+          <Button onClick={() => setCreatingAccount(true)}>
+            <Plus />
+            Nova Conta a Pagar
+          </Button>
+        )}
       </div>
 
       {summary && <AccountPayablesSummaryCards summary={summary} />}
@@ -122,6 +142,8 @@ export function ContasAPagarPage() {
           )}
         </>
       )}
+
+      <AccountPayableFormDrawer open={creatingAccount} onOpenChange={setCreatingAccount} />
 
       <PaymentFormDrawer
         open={Boolean(payingAccount)}

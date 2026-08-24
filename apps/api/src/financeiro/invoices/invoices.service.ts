@@ -171,7 +171,14 @@ export class InvoicesService {
         await tx.accountPayable.create({
           data: {
             companyId,
+            origin: 'INVOICE',
             invoiceId: id,
+            // Fornecedor e atribuição de custo passam a viver na própria
+            // parcela — antes só existiam por travessia até a nota, o que
+            // deixou de funcionar quando surgiram contas sem nota.
+            supplierId: existing.supplierId,
+            costCenterId: existing.costCenterId,
+            constructionSiteId: existing.constructionSiteId,
             amount: existing.totalAmount,
             dueDate: addDays(existing.issueDate, DEFAULT_DUE_DAYS),
           },

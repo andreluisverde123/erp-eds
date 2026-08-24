@@ -215,13 +215,16 @@ export class IndicatorsService {
       where: { companyId, deletedAt: null },
       select: {
         amount: true,
-        invoice: { select: { constructionSite: { select: { name: true } } } },
+        // A obra sai da própria conta. Ia por `invoice.constructionSite`, e
+        // com contas sem nota isso deixaria a despesa avulsa fora do gráfico
+        // — a conta é justamente o lugar onde a obra agora está.
+        constructionSite: { select: { name: true } },
       },
     });
 
     const totals = new Map<string, number>();
     for (const account of accounts) {
-      const siteName = account.invoice.constructionSite?.name ?? 'Sem obra vinculada';
+      const siteName = account.constructionSite?.name ?? 'Sem obra vinculada';
       totals.set(siteName, (totals.get(siteName) ?? 0) + Number(account.amount));
     }
 

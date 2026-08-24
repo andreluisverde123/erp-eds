@@ -12,6 +12,7 @@ import {
 } from '@repo/ui';
 
 import { PaymentStatusBadge } from './payment-status-badge';
+import { accountPayableLabel } from '../types';
 import type { Payment } from '../types';
 
 function formatCurrency(value: number): string {
@@ -49,11 +50,11 @@ export const PaymentsTable = memo(function PaymentsTable({ payments }: { payment
         {payments.map((payment) => (
           <TableRow key={payment.id}>
             <TableCell className="font-medium text-foreground">
-              {payment.accountPayable.invoice.number}
+              {accountPayableLabel(payment.accountPayable)}
             </TableCell>
             <TableCell className="text-muted-foreground">
-              {payment.accountPayable.invoice.supplier.tradeName ??
-                payment.accountPayable.invoice.supplier.legalName}
+              {payment.accountPayable.supplier.tradeName ??
+                payment.accountPayable.supplier.legalName}
             </TableCell>
             <TableCell className="text-muted-foreground">{payment.method ?? '—'}</TableCell>
             <TableCell className="text-right text-muted-foreground">

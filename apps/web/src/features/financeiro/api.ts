@@ -3,6 +3,7 @@ import { toQueryString } from '@/lib/query-string';
 
 import type {
   AccountPayable,
+  AccountPayableInput,
   AccountPayableDetail,
   AccountPayableQuery,
   AccountPayableSummary,
@@ -44,6 +45,12 @@ export function getAccountPayable(id: string): Promise<AccountPayableDetail> {
 
 export function getAccountPayableSummary(): Promise<AccountPayableSummary> {
   return apiClient.get('/account-payables/summary');
+}
+
+/// Lançamento avulso: o mesmo endpoint que já criava conta a partir de nota.
+/// Sem `invoiceId` no corpo, o backend trata como origem MANUAL.
+export function createAccountPayable(input: AccountPayableInput): Promise<AccountPayable> {
+  return apiClient.post('/account-payables', input);
 }
 
 export function listPayments(query: PaymentQuery): Promise<PaginatedResult<Payment>> {

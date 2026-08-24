@@ -1,10 +1,11 @@
 import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID } from 'class-validator';
 
-import { AccountPayableStatus } from '../../../../generated/prisma/client';
+import { AccountPayableOrigin, AccountPayableStatus } from '../../../../generated/prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class QueryAccountPayableDto extends PaginationQueryDto {
-  /// Busca livre em número da nota e nome do fornecedor.
+  /// Busca livre: descrição e número do documento do lançamento avulso,
+  /// número da nota e nome do fornecedor.
   @IsOptional()
   @IsString()
   search?: string;
@@ -16,6 +17,11 @@ export class QueryAccountPayableDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID(undefined, { message: 'Fornecedor inválido.' })
   supplierId?: string;
+
+  /// Separa o que nasceu de nota do que o Financeiro lançou à mão.
+  @IsOptional()
+  @IsEnum(AccountPayableOrigin, { message: 'Origem inválida.' })
+  origin?: AccountPayableOrigin;
 
   @IsOptional()
   @IsISO8601(undefined, { message: 'Data inicial inválida.' })

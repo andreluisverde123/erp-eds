@@ -268,12 +268,10 @@ export class ReportsService {
 
   private financeiroIncludeArgs = Prisma.validator<Prisma.AccountPayableDefaultArgs>()({
     include: {
-      invoice: {
-        select: {
-          number: true,
-          supplier: { select: { id: true, legalName: true, tradeName: true } },
-        },
-      },
+      /// Direto da conta: contas avulsas não têm nota, e as que têm passaram
+      /// a carregar o fornecedor na própria linha.
+      supplier: { select: { id: true, legalName: true, tradeName: true } },
+      invoice: { select: { number: true } },
     },
   });
 
@@ -292,19 +290,24 @@ export class ReportsService {
               lte: query.dateTo ? new Date(query.dateTo) : undefined,
             }
           : undefined,
-      invoice: {
-        supplierId: query.supplierId,
-        ...(query.search
-          ? {
-              OR: [
-                { number: { contains: query.search, mode: 'insensitive' as const } },
-                {
-                  supplier: { legalName: { contains: query.search, mode: 'insensitive' as const } },
-                },
-              ],
-            }
-          : {}),
-      },
+      // Filtros DIRETOS na conta.
+      //
+      // Iam por `invoice: { ... }`. Num relacionamento anulável, um filtro de
+      // relação exige que a relação exista — então, depois que a conta passou
+      // a poder não ter nota, aquela cláusula excluiria silenciosamente toda
+      // despesa avulsa do relatório financeiro, mesmo sem filtro nenhum
+      // aplicado. O `supplierId` da própria conta não tem esse problema.
+      supplierId: query.supplierId,
+      ...(query.search
+        ? {
+            OR: [
+              { description: { contains: query.search, mode: 'insensitive' as const } },
+              { documentNumber: { contains: query.search, mode: 'insensitive' as const } },
+              { invoice: { number: { contains: query.search, mode: 'insensitive' as const } } },
+              { supplier: { legalName: { contains: query.search, mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}),
     };
   }
 
@@ -362,8 +365,10 @@ export class ReportsService {
     ];
 
     const rows = data.map((account) => ({
-      supplier: account.invoice.supplier.tradeName ?? account.invoice.supplier.legalName,
-      document: account.invoice.number,
+      supplier: account.supplier.tradeName ?? account.supplier.legalName,
+      // Conta de nota se identifica pelo número dela; conta avulsa, pela
+      // descrição (e pelo documento, quando houver um).
+      document: account.invoice?.number ?? account.description ?? '—',
       amount: formatCurrency(account.amount),
       dueDate: formatDate(account.dueDate),
       status: ACCOUNT_STATUS_LABEL[account.status] ?? account.status,

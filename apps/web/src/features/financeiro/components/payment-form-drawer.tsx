@@ -34,6 +34,7 @@ import {
   type PaymentFormValues,
 } from '../payment-form-schema';
 import { PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS } from '../payment-status';
+import { accountPayableLabel } from '../types';
 import type { AccountPayable } from '../types';
 
 interface PaymentFormDrawerProps {
@@ -139,8 +140,8 @@ function PaymentFormBody({
                     <SelectContent>
                       {(accountPayable ? [accountPayable] : payableOptions).map((account) => (
                         <SelectItem key={account.id} value={account.id}>
-                          {account.invoice.number} —{' '}
-                          {account.invoice.supplier.tradeName ?? account.invoice.supplier.legalName}
+                          {accountPayableLabel(account)} —{' '}
+                          {account.supplier.tradeName ?? account.supplier.legalName}
                         </SelectItem>
                       ))}
                     </SelectContent>
