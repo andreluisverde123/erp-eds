@@ -13,16 +13,17 @@ import {
   SelectTrigger,
   SelectValue,
   Separator,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
 } from '@repo/ui';
 
-import { formatAmount, formatDate, formatQuantity } from '../format';
-import type { CostCenterOption, OpenPurchaseOrder, PurchaseOrderSuggestion } from '../types';
+import { formatAmount, formatDate } from '../format';
+import type {
+  CompatibilityReport,
+  CostCenterOption,
+  OpenPurchaseOrder,
+  PurchaseOrderSuggestion,
+} from '../types';
+import { CompatibilityChecks } from './compatibility-checks';
+import { ItemComparisonTable } from './item-comparison-table';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -51,6 +52,9 @@ interface PurchaseOrderPanelProps {
   onCostCenterChange: (id: string) => void;
   isLoading: boolean;
   invoiceAmount: string;
+  /// Comparação da ordem escolhida À MÃO — as sugeridas já trazem a delas.
+  /// Buscada sob demanda porque só faz sentido para a que foi selecionada.
+  manualCompatibility?: CompatibilityReport | null;
   readOnly?: boolean;
 }
 
@@ -66,6 +70,7 @@ export function PurchaseOrderPanel({
   onCostCenterChange,
   isLoading,
   invoiceAmount,
+  manualCompatibility = null,
   readOnly = false,
 }: PurchaseOrderPanelProps) {
   const selected = suggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
@@ -83,6 +88,10 @@ export function PurchaseOrderPanel({
   const outras = openOrders.filter((order) => !sugeridasIds.has(order.id));
 
   const centro = costCenters.find((c) => c.id === costCenterId) ?? null;
+
+  // A sugerida já vem com a comparação pronta do servidor; a escolhida à mão
+  // busca a dela sob demanda. Os dois caminhos desembocam no mesmo relatório.
+  const compatibility = selected?.compatibility ?? manualCompatibility;
 
   return (
     <Card>
@@ -293,40 +302,20 @@ export function PurchaseOrderPanel({
               </div>
             </div>
 
-            {selected && (
+            {compatibility && (
               <>
                 <Separator />
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">Itens comprados</span>
-                  {selected.items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      A requisição de origem não tem itens detalhados.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Qtd.</TableHead>
-                          <TableHead>Unit. estimado</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selected.items.map((item, index) => (
-                          <TableRow key={`${item.description}-${index}`}>
-                            <TableCell className="text-foreground">{item.description}</TableCell>
-                            <TableCell className="tabular-nums text-muted-foreground">
-                              {formatQuantity(item.quantity)} {item.unit}
-                            </TableCell>
-                            <TableCell className="tabular-nums text-muted-foreground">
-                              {formatAmount(item.estimatedUnitPrice)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
+                <div className="flex flex-col gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">Conferência</span>
+                  <CompatibilityChecks checks={compatibility.checks} />
                 </div>
+
+                {compatibility.itemsComparable && (
+                  <>
+                    <Separator />
+                    <ItemComparisonTable items={compatibility.items} />
+                  </>
+                )}
               </>
             )}
           </>

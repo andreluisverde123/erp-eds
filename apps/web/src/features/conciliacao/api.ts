@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/api-client';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
+  CompatibilityReport,
   CostCenterOption,
   InboundInvoice,
   InboundInvoiceDetail,
@@ -26,6 +27,16 @@ export function getInboundInvoice(id: string): Promise<InboundInvoiceDetail> {
 /// Ordens de compra compatíveis, já ordenadas da mais provável para a menos.
 export function getPurchaseOrderSuggestions(id: string): Promise<PurchaseOrderSuggestion[]> {
   return apiClient.get(`/inbound-invoices/${id}/suggestions`);
+}
+
+/// Comparação com uma ordem escolhida à mão — a que não veio nas sugestões.
+/// Sugerir e comparar são coisas diferentes: o sistema só sugere ordem do
+/// mesmo emitente, mas o usuário pode escolher qualquer uma.
+export function compareWithOrder(
+  id: string,
+  purchaseOrderId: string,
+): Promise<CompatibilityReport> {
+  return apiClient.get(`/inbound-invoices/${id}/compare/${purchaseOrderId}`);
 }
 
 /// Todas as ordens em aberto, sem filtro de fornecedor — para quando o

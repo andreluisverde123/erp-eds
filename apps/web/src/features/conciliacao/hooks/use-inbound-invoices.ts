@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import {
+  compareWithOrder,
   getInboundInvoice,
   getPurchaseOrderSuggestions,
   listCostCenters,
@@ -33,6 +34,23 @@ export function usePurchaseOrderSuggestions(id: string | undefined, enabled: boo
     queryKey: ['inbound-invoices', 'suggestions', id],
     queryFn: () => getPurchaseOrderSuggestions(id as string),
     enabled: Boolean(id) && enabled,
+  });
+}
+
+/// Comparação com uma ordem escolhida À MÃO.
+///
+/// Só dispara quando a ordem selecionada NÃO está entre as sugestões — as
+/// sugeridas já trazem a comparação delas, e refazer a conta seria a mesma
+/// requisição duas vezes.
+export function useManualOrderComparison(
+  invoiceId: string | undefined,
+  purchaseOrderId: string | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['inbound-invoices', 'compare', invoiceId, purchaseOrderId],
+    queryFn: () => compareWithOrder(invoiceId!, purchaseOrderId!),
+    enabled: Boolean(invoiceId) && Boolean(purchaseOrderId) && enabled,
   });
 }
 

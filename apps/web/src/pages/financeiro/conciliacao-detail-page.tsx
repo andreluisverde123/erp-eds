@@ -26,6 +26,7 @@ import {
   useCostCenters,
   useInboundInvoice,
   useOpenPurchaseOrders,
+  useManualOrderComparison,
   usePurchaseOrderSuggestions,
 } from '@/features/conciliacao/hooks/use-inbound-invoices';
 import { formatAmount, formatDate } from '@/features/conciliacao/format';
@@ -95,6 +96,15 @@ export function ConciliacaoDetailPage() {
     if (primary) form.setValue('purchaseOrderId', primary.id);
   }, [suggestions, selectedId, form]);
 
+  // A ordem selecionada está entre as sugestões? Se não, é escolha manual e
+  // a comparação dela precisa ser buscada à parte.
+  const selecionadaEhSugerida = (suggestions ?? []).some((sugestao) => sugestao.id === selectedId);
+  const { data: manualComparison } = useManualOrderComparison(
+    id,
+    selectedId || null,
+    isPending && mode === 'order' && Boolean(selectedId) && !selecionadaEhSugerida,
+  );
+
   if (!id) {
     return <Navigate to={LIST_PATH} replace />;
   }
@@ -133,7 +143,10 @@ export function ConciliacaoDetailPage() {
             supplier: invoice.purchaseOrder.supplier,
             costCenter: invoice.purchaseOrder.costCenter,
             constructionSite: invoice.purchaseOrder.constructionSite,
-            items: invoice.purchaseOrder.purchaseRequest.items,
+            items: invoice.purchaseOrder.items,
+            // Sem `compatibility`: numa nota já conciliada o vínculo está
+            // fechado e não há conferência a refazer. O painel mostra os
+            // dados da ordem sem o bloco de comparação.
             score: 1,
             amountDifference: '0',
             daysApart: 0,
@@ -221,6 +234,7 @@ export function ConciliacaoDetailPage() {
               onCostCenterChange={setCostCenterId}
               isLoading={isLoadingSuggestions}
               invoiceAmount={invoice.totalAmount}
+              manualCompatibility={manualComparison ?? null}
               readOnly={!isPending}
             />
           </div>

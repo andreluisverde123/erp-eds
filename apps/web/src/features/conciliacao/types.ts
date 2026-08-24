@@ -96,13 +96,24 @@ export interface LinkedPurchaseOrder {
   supplier: { id: string; legalName: string; tradeName: string | null };
   costCenter: { id: string; code: string; name: string } | null;
   constructionSite: { id: string; code: string; name: string } | null;
-  purchaseRequest: {
-    items: {
-      description: string;
+  /// Itens da ORDEM, com a origem de cada linha — é o que completa a cadeia
+  /// nota → ordem → item → item da solicitação → obra.
+  items: {
+    description: string;
+    quantity: string;
+    unit: string;
+    unitPrice: string;
+    totalPrice: string;
+    purchaseRequestItem: {
+      id: string;
       quantity: string;
       unit: string;
-      estimatedUnitPrice: string | null;
-    }[];
+      purchaseRequest: { id: string; code: string };
+    };
+  }[];
+  purchaseRequest: {
+    id: string;
+    code: string;
   };
 }
 
@@ -116,6 +127,47 @@ export interface InboundInvoiceDetail extends Omit<InboundInvoice, 'purchaseOrde
 /// Ordem de compra candidata. `score` (0 a 1) combina proximidade de valor e
 /// de data; `isPrimary` só vem marcado quando a melhor candidata é claramente
 /// melhor que a segunda — em empate técnico nenhuma é sugerida.
+/// Resultado de cada verificação. `UNKNOWN` NÃO é falha: é ausência de
+/// informação (a nota só trouxe o resumo, a ordem não tem itens, a NF-e não
+/// carrega obra). Tratar como divergência seria acusar o que não se sabe.
+export type CheckResult = 'MATCH' | 'DIVERGENT' | 'UNKNOWN';
+
+export interface CompatibilityCheck {
+  key: 'supplier' | 'amount' | 'items' | 'site' | 'date';
+  label: string;
+  result: CheckResult;
+  detail: string;
+}
+
+export type ItemComparisonStatus = 'MATCH' | 'DIVERGENT' | 'ONLY_IN_INVOICE' | 'ONLY_IN_ORDER';
+
+export interface ComparableItem {
+  description: string;
+  unit: string | null;
+  quantity: string;
+  unitPrice: string;
+  totalPrice: string;
+}
+
+export interface ItemComparison {
+  status: ItemComparisonStatus;
+  invoice: ComparableItem | null;
+  order: ComparableItem | null;
+  differences: ('quantity' | 'unit' | 'unitPrice' | 'totalPrice')[];
+  similarity: number;
+}
+
+/// A conferência lado a lado, calculada no servidor com regras determinísticas
+/// — nenhuma inferência, nenhum modelo. Ver `compatibility.util.ts` na API.
+export interface CompatibilityReport {
+  checks: CompatibilityCheck[];
+  items: ItemComparison[];
+  matchedItems: number;
+  divergentItems: number;
+  hasDivergence: boolean;
+  itemsComparable: boolean;
+}
+
 export interface PurchaseOrderSuggestion {
   id: string;
   code: string;
@@ -126,12 +178,17 @@ export interface PurchaseOrderSuggestion {
   supplier: { id: string; legalName: string; tradeName: string | null };
   costCenter: { id: string; code: string; name: string } | null;
   constructionSite: { id: string; code: string; name: string } | null;
+  /// Itens da ORDEM — o que foi comprado, com preço negociado.
   items: {
     description: string;
     quantity: string;
     unit: string;
-    estimatedUnitPrice: string | null;
+    unitPrice: string;
+    totalPrice: string;
   }[];
+  /// Ausente numa nota JÁ conciliada: ali não há comparação a fazer, o
+  /// vínculo está fechado. Só as candidatas de uma nota pendente trazem.
+  compatibility?: CompatibilityReport;
   score: number;
   amountDifference: string;
   daysApart: number;

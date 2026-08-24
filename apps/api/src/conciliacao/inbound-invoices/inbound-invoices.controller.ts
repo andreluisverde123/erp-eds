@@ -45,6 +45,18 @@ export class InboundInvoicesController {
   }
 
   /// Ordens de compra em aberto para escolha manual, quando não há sugestão.
+  /// Comparação lado a lado com UMA ordem escolhida, inclusive uma que não
+  /// veio nas sugestões. Leitura pura — `financeiro.view`, herdado da classe,
+  /// exatamente como as sugestões. Nenhuma permissão nova.
+  @Get(':id/compare/:purchaseOrderId')
+  compare(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('purchaseOrderId', ParseUUIDPipe) purchaseOrderId: string,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inboundInvoices.compareWithOrder(companyId, id, purchaseOrderId);
+  }
+
   @Get('options/purchase-orders')
   openOrders(
     @Query('search') search: string | undefined,

@@ -9,11 +9,18 @@ import {
 import { Prisma, type InboundInvoiceStatus } from '../../../generated/prisma/client';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
+import { onlyDigits } from '../../common/utils/document.util';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
 import { QueryInboundInvoiceDto } from './dto/query-inbound-invoice.dto';
 import { ReconcileInboundInvoiceDto } from './dto/reconcile-inbound-invoice.dto';
+import {
+  buildCompatibilityReport,
+  type ComparableItem,
+  type CompatibilityReport,
+  type ItemComparison,
+} from './compatibility.util';
 import { buildInstallments, scoreCandidate, type SuggestionScore } from './reconciliation.util';
 
 const NOT_FOUND_MESSAGE = 'Nota fiscal não encontrada.';
@@ -56,18 +63,28 @@ const detailArgs = Prisma.validator<Prisma.InboundInvoiceDefaultArgs>()({
         supplier: { select: { id: true, legalName: true, tradeName: true } },
         costCenter: { select: { id: true, code: true, name: true } },
         constructionSite: { select: { id: true, code: true, name: true } },
-        purchaseRequest: {
+        /// Os itens da ORDEM, com a origem de cada linha. É o que completa a
+        /// cadeia que a conciliação promete: nota -> ordem -> item -> item da
+        /// solicitação -> obra, tudo por relacionamento, sem duplicar dado.
+        items: {
           select: {
-            items: {
+            description: true,
+            quantity: true,
+            unit: true,
+            unitPrice: true,
+            totalPrice: true,
+            purchaseRequestItem: {
               select: {
-                description: true,
+                id: true,
                 quantity: true,
                 unit: true,
-                estimatedUnitPrice: true,
+                purchaseRequest: { select: { id: true, code: true } },
               },
             },
           },
+          orderBy: { createdAt: 'asc' },
         },
+        purchaseRequest: { select: { id: true, code: true } },
       },
     },
   },
@@ -87,18 +104,22 @@ export interface PurchaseOrderSuggestion {
   /// parciais sem estourar o valor aprovado.
   reconciledAmount: Prisma.Decimal;
   openAmount: Prisma.Decimal;
-  supplier: { id: string; legalName: string; tradeName: string | null };
+  supplier: { id: string; legalName: string; tradeName: string | null; document: string };
   costCenter: { id: string; code: string; name: string } | null;
   constructionSite: { id: string; code: string; name: string } | null;
-  /// Itens vêm da requisição que originou a ordem: é lá que a descrição do
-  /// que foi pedido vive. `estimatedUnitPrice` é estimativa da requisição, não
-  /// preço fechado — a tela rotula como tal para não parecer valor de nota.
+  /// Itens da ORDEM — o que foi efetivamente comprado, com quantidade e preço
+  /// negociados. Antes vinham da solicitação (o que foi PEDIDO, com preço
+  /// estimado), porque a ordem não tinha itens próprios.
   items: {
     description: string;
     quantity: Prisma.Decimal;
     unit: string;
-    estimatedUnitPrice: Prisma.Decimal | null;
+    unitPrice: Prisma.Decimal;
+    totalPrice: Prisma.Decimal;
   }[];
+  /// A conferência lado a lado já resolvida no servidor: fornecedor, valor,
+  /// itens, obra e data. Ver `compatibility.util.ts`.
+  compatibility: CompatibilityReport;
   score: number;
   amountDifference: Prisma.Decimal;
   daysApart: number;
@@ -272,20 +293,25 @@ export class InboundInvoicesService {
         status: { not: 'CANCELLED' },
       },
       include: {
-        supplier: { select: { id: true, legalName: true, tradeName: true } },
+        supplier: { select: { id: true, legalName: true, tradeName: true, document: true } },
         costCenter: { select: { id: true, code: true, name: true } },
         constructionSite: { select: { id: true, code: true, name: true } },
-        purchaseRequest: {
+        /// Os itens da ORDEM, não os da solicitação.
+        ///
+        /// Antes de a ordem ter itens próprios, o único detalhamento
+        /// disponível era o da solicitação — que é o que foi PEDIDO, com
+        /// preço estimado. Agora existe o que foi efetivamente COMPRADO, com
+        /// quantidade e preço negociados, que é o lado certo para conferir
+        /// contra a nota do fornecedor.
+        items: {
           select: {
-            items: {
-              select: {
-                description: true,
-                quantity: true,
-                unit: true,
-                estimatedUnitPrice: true,
-              },
-            },
+            description: true,
+            quantity: true,
+            unit: true,
+            unitPrice: true,
+            totalPrice: true,
           },
+          orderBy: { createdAt: 'asc' },
         },
       },
       orderBy: { issueDate: 'desc' },
@@ -299,18 +325,36 @@ export class InboundInvoicesService {
       orders.map((order) => order.id),
     );
 
+    const invoiceSide = this.toInvoiceSide(invoice);
+
     const candidates = orders
       .map((order) => {
         const reconciledAmount = reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0);
         const openAmount = order.totalAmount.minus(reconciledAmount);
+
+        // A compatibilidade é calculada UMA vez por candidata e reaproveitada
+        // no score e na resposta — o casamento de itens é a parte cara, e
+        // recalculá-lo na tela ao selecionar seria a mesma conta duas vezes.
+        const compatibility = buildCompatibilityReport(invoiceSide, {
+          supplierId: order.supplierId,
+          supplierDocument: order.supplier.document,
+          openAmount,
+          issueDate: order.issueDate,
+          constructionSite: order.constructionSite,
+          items: order.items.map(toComparableItem),
+        });
+
         const score = scoreCandidate(invoice.totalAmount, invoice.issueDate, {
           id: order.id,
           totalAmount: order.totalAmount,
           issueDate: order.issueDate,
           reconciledAmount,
+          itemMatchRatio: compatibility.itemsComparable
+            ? compatibility.matchedItems / compatibility.items.length
+            : null,
         });
 
-        return { order, reconciledAmount, openAmount, score };
+        return { order, reconciledAmount, openAmount, score, compatibility };
       })
       // Saldo zerado (ou negativo) = ordem já totalmente conciliada.
       .filter((candidate) => candidate.openAmount.greaterThan(0))
@@ -318,7 +362,7 @@ export class InboundInvoicesService {
 
     const primaryId = markPrimary(candidates.map((c) => ({ id: c.order.id, score: c.score })));
 
-    return candidates.map(({ order, reconciledAmount, openAmount, score }) => ({
+    return candidates.map(({ order, reconciledAmount, openAmount, score, compatibility }) => ({
       id: order.id,
       code: order.code,
       issueDate: order.issueDate,
@@ -328,7 +372,8 @@ export class InboundInvoicesService {
       supplier: order.supplier,
       costCenter: order.costCenter,
       constructionSite: order.constructionSite,
-      items: order.purchaseRequest.items,
+      items: order.items,
+      compatibility,
       score: score.score,
       amountDifference: score.amountDifference,
       daysApart: score.daysApart,
@@ -337,6 +382,69 @@ export class InboundInvoicesService {
     }));
   }
 
+  /// Traduz a nota recebida para o formato que a camada de comparação usa.
+  /// Existe para a comparação não conhecer o Prisma nem o schema.
+  private toInvoiceSide(invoice: InboundInvoiceDetail) {
+    return {
+      supplierId: invoice.supplierId,
+      supplierDocument: invoice.supplierDocument,
+      totalAmount: invoice.totalAmount,
+      issueDate: invoice.issueDate,
+      hasFullDocument: invoice.hasFullDocument,
+      items: invoice.items.map(toComparableItem),
+    };
+  }
+
+  /// Relatório de compatibilidade de UMA ordem escolhida — inclusive uma que
+  /// não veio nas sugestões (escolha manual, fornecedor diferente).
+  ///
+  /// A tela precisa disto porque sugerir e comparar são coisas diferentes: o
+  /// sistema só sugere ordem do mesmo emitente, mas o usuário pode escolher
+  /// qualquer uma, e nesse caso a comparação é ainda mais necessária.
+  async compareWithOrder(
+    companyId: string,
+    id: string,
+    purchaseOrderId: string,
+  ): Promise<CompatibilityReport> {
+    const invoice = await this.findOne(companyId, id);
+
+    // Escopo da empresa na própria consulta: uma ordem de outro tenant não é
+    // encontrada, e a comparação nem chega a acontecer.
+    const order = await this.prisma.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, companyId, deletedAt: null },
+      include: {
+        supplier: { select: { id: true, document: true } },
+        constructionSite: { select: { code: true, name: true } },
+        items: {
+          select: {
+            description: true,
+            quantity: true,
+            unit: true,
+            unitPrice: true,
+            totalPrice: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Ordem de compra não encontrada.');
+    }
+
+    const reconciled =
+      (await this.reconciledAmountByOrder(companyId, [order.id])).get(order.id) ??
+      new Prisma.Decimal(0);
+
+    return buildCompatibilityReport(this.toInvoiceSide(invoice), {
+      supplierId: order.supplierId,
+      supplierDocument: order.supplier.document,
+      openAmount: order.totalAmount.minus(reconciled),
+      issueDate: order.issueDate,
+      constructionSite: order.constructionSite,
+      items: order.items.map(toComparableItem),
+    });
+  }
 
   /// Ordens de compra em aberto para ESCOLHA MANUAL, sem filtro de fornecedor.
   ///
@@ -371,14 +479,18 @@ export class InboundInvoicesService {
       orders.map((order) => order.id),
     );
 
-    return orders
-      .map((order) => ({
-        ...order,
-        reconciledAmount: reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0),
-        openAmount: order.totalAmount.minus(reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0)),
-      }))
-      // Ordem sem saldo não pode receber nota — não faz sentido oferecê-la.
-      .filter((order) => order.openAmount.greaterThan(0));
+    return (
+      orders
+        .map((order) => ({
+          ...order,
+          reconciledAmount: reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0),
+          openAmount: order.totalAmount.minus(
+            reconciledByOrder.get(order.id) ?? new Prisma.Decimal(0),
+          ),
+        }))
+        // Ordem sem saldo não pode receber nota — não faz sentido oferecê-la.
+        .filter((order) => order.openAmount.greaterThan(0))
+    );
   }
 
   /// Centros de custo para o lançamento SEM ordem de compra. É a informação
@@ -437,8 +549,21 @@ export class InboundInvoicesService {
             code: true,
             supplierId: true,
             totalAmount: true,
+            issueDate: true,
             constructionSiteId: true,
             costCenterId: true,
+            supplier: { select: { document: true } },
+            constructionSite: { select: { code: true, name: true } },
+            items: {
+              select: {
+                description: true,
+                quantity: true,
+                unit: true,
+                unitPrice: true,
+                totalPrice: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
           },
         })
       : null;
@@ -450,6 +575,9 @@ export class InboundInvoicesService {
     let costCenterId: string;
     let constructionSiteId: string | null;
     let isDivergent = false;
+    /// O que estava divergente na hora de conciliar, em texto, para a
+    /// auditoria. Vazio quando não há ordem (não há contra o que conferir).
+    let divergenceSummary: string[] = [];
 
     if (order) {
       // Fornecedor da nota e da ordem têm de ser o mesmo. Sem esta checagem, a
@@ -474,6 +602,29 @@ export class InboundInvoicesService {
       // Divergência não bloqueia para sempre — exige aceite. A tela mostra a
       // diferença destacada antes de deixar confirmar; a API é quem garante que
       // ninguém pule esse passo chamando o endpoint direto.
+      // O relatório completo (valor, itens, obra, data) é montado aqui para
+      // ficar REGISTRADO na auditoria — não para bloquear. A regra de bloqueio
+      // continua sendo só a de valor, que é a que já existia: transformar
+      // divergência de item em impedimento seria criar regra nova, e o pedido
+      // é justamente que o usuário autorizado decida.
+      const compatibility = buildCompatibilityReport(this.toInvoiceSide(invoice), {
+        supplierId: order.supplierId,
+        supplierDocument: order.supplier.document,
+        openAmount,
+        issueDate: order.issueDate,
+        constructionSite: order.constructionSite,
+        items: order.items.map(toComparableItem),
+      });
+
+      divergenceSummary = [
+        ...compatibility.checks
+          .filter((check) => check.result === 'DIVERGENT')
+          .map((check) => `${check.label}: ${check.detail}`),
+        ...compatibility.items
+          .filter((item) => item.status !== 'MATCH')
+          .map((item) => describeItemDivergence(item)),
+      ];
+
       isDivergent = !invoice.totalAmount.equals(openAmount);
       if (isDivergent && !dto.acceptDivergence) {
         throw new BadRequestException(
@@ -554,7 +705,15 @@ export class InboundInvoicesService {
       await tx.accountPayable.createMany({
         data: installments.map((installment) => ({
           companyId,
+          // A conta nasce de nota — é o caminho que sempre existiu. O
+          // lançamento avulso do Financeiro é o outro (`MANUAL`).
+          origin: 'INVOICE' as const,
           invoiceId: created.id,
+          // Copiados da nota que acabou de ser criada, para a parcela ter o
+          // fornecedor e a atribuição de custo na própria linha.
+          supplierId,
+          costCenterId,
+          constructionSiteId,
           amount: installment.amount,
           dueDate: installment.dueDate,
         })),
@@ -588,10 +747,22 @@ export class InboundInvoicesService {
       ipAddress,
       changes: {
         action: 'reconcile',
+        // Explícito, e não deduzido da ausência de `purchaseOrderId`: quem ler
+        // a auditoria daqui a um ano precisa ver que a nota foi MARCADA como
+        // sem ordem, não descobrir isso por um campo nulo.
+        withoutPurchaseOrder: order === null,
         purchaseOrderId: order?.id ?? null,
         purchaseOrderCode: order?.code ?? null,
         costCenterId,
+        constructionSiteId,
+        supplierId,
         status: finalStatus,
+        amountAccepted: invoice.totalAmount.toFixed(2),
+        // O que estava divergente NO MOMENTO da conciliação, e o aceite
+        // explícito de quem confirmou. Sem isto, a divergência ficava só no
+        // status e ninguém sabia depois em quê ela consistia.
+        divergences: divergenceSummary,
+        divergenceAccepted: divergenceSummary.length > 0 ? Boolean(dto.acceptDivergence) : false,
         paymentMethod: dto.paymentMethod,
         paymentTerms: dto.paymentTerms,
         installments: installments.length,
@@ -666,14 +837,53 @@ export class InboundInvoicesService {
 
     return new Map(
       rows
-        .filter((row): row is typeof row & { purchaseOrderId: string } => row.purchaseOrderId !== null)
+        .filter(
+          (row): row is typeof row & { purchaseOrderId: string } => row.purchaseOrderId !== null,
+        )
         .map((row) => [row.purchaseOrderId, row._sum.totalAmount ?? new Prisma.Decimal(0)]),
     );
   }
 }
 
-function onlyDigits(value: string): string {
-  return value.replace(/\D/g, '');
+/// Uma linha (da nota ou da ordem) no formato comum de comparação.
+///
+/// `InboundInvoiceItem` e `PurchaseOrderItem` guardam o mesmo conceito com
+/// precisões diferentes (a nota tem 4 casas no preço; a ordem, 2). Converter
+/// os dois para o mesmo formato aqui evita que a comparação precise saber de
+/// qual lado cada linha veio.
+function toComparableItem(item: {
+  description: string;
+  unit: string | null;
+  quantity: Prisma.Decimal;
+  unitPrice: Prisma.Decimal;
+  totalPrice: Prisma.Decimal;
+}): ComparableItem {
+  return {
+    description: item.description,
+    unit: item.unit,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    totalPrice: item.totalPrice,
+  };
+}
+
+/// Uma divergência de item em uma linha, para a auditoria e para o log.
+function describeItemDivergence(item: ItemComparison): string {
+  if (item.status === 'ONLY_IN_INVOICE') {
+    return `Item só na nota: ${item.invoice!.description}`;
+  }
+  if (item.status === 'ONLY_IN_ORDER') {
+    return `Item só na ordem: ${item.order!.description}`;
+  }
+
+  const campos: Record<string, string> = {
+    quantity: 'quantidade',
+    unit: 'unidade',
+    unitPrice: 'valor unitário',
+    totalPrice: 'valor total',
+  };
+  const quais = item.differences.map((campo) => campos[campo] ?? campo).join(', ');
+  return `${item.order!.description}: ${quais} diferem`;
 }
 
 function format(value: Prisma.Decimal): string {

@@ -18,6 +18,12 @@ export interface SuggestionCandidate {
   totalAmount: Prisma.Decimal;
   issueDate: Date;
   reconciledAmount: Prisma.Decimal;
+  /// Quanto dos itens da ordem casou com os da nota (0 a 1), ou `null` quando
+  /// não há o que comparar — ordem sem itens (emitida antes de existirem) ou
+  /// nota que só chegou como resumo. `null` NÃO é zero: é ausência de
+  /// informação, e pesar isso como discordância rebaixaria injustamente toda
+  /// ordem antiga.
+  itemMatchRatio?: number | null;
 }
 
 export interface SuggestionScore {
@@ -53,7 +59,18 @@ export function scoreCandidate(
 
   // Valor pesa mais que data: uma nota com o valor exato de um pedido de dois
   // meses atrás é um casamento melhor que uma de valor solto emitida ontem.
-  const score = amountScore * 0.7 + dateScore * 0.3;
+  //
+  // Os ITENS entram como terceiro eixo desde que a ordem de compra passou a
+  // ter itens próprios. Quando há o que comparar, eles valem mais que a data:
+  // duas ordens do mesmo fornecedor com valores parecidos só se distinguem
+  // pelo que foi pedido em cada uma. Quando NÃO há (ordem antiga, ou nota que
+  // só trouxe o resumo), o peso volta para o par valor/data original — assim
+  // nenhuma ordem é rebaixada por falta de um dado que ela não tinha como ter.
+  const itemMatchRatio = candidate.itemMatchRatio ?? null;
+  const score =
+    itemMatchRatio === null
+      ? amountScore * 0.7 + dateScore * 0.3
+      : amountScore * 0.5 + itemMatchRatio * 0.3 + dateScore * 0.2;
 
   return {
     score,
