@@ -30,6 +30,15 @@ enum ConstructionStatus {
   CANCELLED
 }
 
+/// Como o fornecedor entrou no cadastro. `NFE` marca os que o importador
+/// fiscal criou sozinho a partir do emitente de uma nota — o usuário nunca
+/// digitou aqueles dados, e a tela precisa dizer isso antes que alguém trate
+/// um cadastro de uma linha só como se tivesse sido conferido por alguém.
+enum SupplierOrigin {
+  MANUAL
+  NFE
+}
+
 /// Fluxo linear: DRAFT -> PENDING -> QUOTING -> APPROVED, com CANCELLED
 /// acessível de qualquer estado não-terminal. Sem aprovação em níveis nem
 /// cotação múltipla nesta etapa — QUOTING é só um rótulo de estágio.
@@ -62,6 +71,24 @@ enum AccountPayableStatus {
   PARTIAL
   PAID
   CANCELLED
+}
+
+/// De onde a conta a pagar nasceu.
+///
+/// DUAS opções, e não três, apesar de o negócio falar em "NF", "OC" e
+/// "manual": no modelo atual existem exatamente DOIS caminhos de criação —
+/// a partir de uma `Invoice` (seja ela lançada à mão ou criada pela
+/// conciliação) ou direto pelo Financeiro. Um terceiro valor seria ambíguo,
+/// porque uma conta vinda de nota conciliada QUE TEM ordem de compra seria
+/// "NF" e "OC" ao mesmo tempo.
+///
+/// O detalhe continua respondível sem inventar valor: `invoice.purchaseOrderId`
+/// diz se houve ordem, e `invoice.inboundInvoices` diz se houve conciliação.
+enum AccountPayableOrigin {
+  /// Nasceu de uma nota fiscal — o caminho que já existia.
+  INVOICE
+  /// Lançada direto pelo Financeiro, sem solicitação, ordem ou nota.
+  MANUAL
 }
 
 /// Status do registro de pagamento em si (distinto do status da parcela que
@@ -105,11 +132,37 @@ enum ContractStatus {
   CANCELLED
 }
 
+/// Natureza da conta bancária. Os três tipos que um banco brasileiro abre para
+/// pessoa física — conta de pagamento é a das fintechs (Nubank, PicPay, Mercado
+/// Pago), que não é corrente nem poupança e precisa ser informada como tal nos
+/// arquivos de remessa.
+enum BankAccountType {
+  CHECKING
+  SAVINGS
+  PAYMENT
+}
+
+/// Tipos de chave PIX aceitos pelo Banco Central. `RANDOM` é a chave
+/// aleatória (EVP), um UUID gerado pelo próprio banco.
+enum PixKeyType {
+  CPF
+  CNPJ
+  EMAIL
+  PHONE
+  RANDOM
+}
+
 /// Tipo de ação registrada no log de auditoria.
+///
+/// `READ` não é registrado para consulta comum — seria ruído em cima de toda
+/// listagem do sistema. Ele existe para o punhado de leituras que EXPÕEM dado
+/// protegido e por isso precisam de rastro: hoje, revelar os dados bancários
+/// completos de alguém (ver `BankAccountsService.reveal`).
 enum AuditAction {
   CREATE
   UPDATE
   DELETE
+  READ
 }
 
 enum SettingsTheme {
@@ -193,6 +246,7 @@ model Company {
   contractorContracts     ContractorContract[]
   invoices                Invoice[]
   accountsPayable         AccountPayable[]
+  bankAccounts            BankAccount[]
   attachments             Attachment[]
   auditLogs               AuditLog[]
   workflowComments        WorkflowComment[]
@@ -252,6 +306,7 @@ model User {
   reconciledInboundInvoices InboundInvoice[]
   fiscalCertificates        FiscalCertificate[]
   fiscalSyncRuns            FiscalSyncRun[]
+  bankAccounts              BankAccount[]
 
   @@index([companyId])
   /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
@@ -386,6 +441,7 @@ model ConstructionSite {
   purchaseOrders      PurchaseOrder[]
   contractorContracts ContractorContract[]
   invoices            Invoice[]
+  accountsPayable     AccountPayable[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -419,6 +475,7 @@ model CostCenter {
   productionEntries   ProductionEntry[]
   employeeAllocations EmployeeAllocation[]
   invoices            Invoice[]
+  accountsPayable     AccountPayable[]
 
   @@unique([companyId, code])
   @@index([constructionSiteId])
@@ -435,25 +492,54 @@ model CostCenter {
 
 /// Fornecedor de materiais/serviços.
 model Supplier {
-  id          String    @id @default(uuid()) @db.Uuid
-  companyId   String    @db.Uuid
+  id          String  @id @default(uuid()) @db.Uuid
+  companyId   String  @db.Uuid
   legalName   String
   tradeName   String?
-  document    String // CNPJ ou CPF
+  /// CNPJ ou CPF, SEMPRE só dígitos. A normalização acontece na entrada
+  /// (`onlyDigits`, ver `common/utils/document.util.ts`) porque a unique
+  /// abaixo é sobre o texto: sem ela, "12.345.678/0001-90" e
+  /// "12345678000190" seriam dois fornecedores, e o emitente da NF-e — que
+  /// chega sempre só com dígitos — nunca casaria com o cadastro.
+  /// Exceção: o soft delete manga este campo (ver `mangleDeletedCode`), e o
+  /// valor mangado deixa de ser só dígitos de propósito.
+  document    String
   contactName String?
   email       String?
   phone       String?
-  address     String?
-  city        String?
-  state       String?   @db.VarChar(2)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+
+  /// Inscrição estadual (`emit/IE` da NF-e). Opcional: emitente do Simples
+  /// e produtor rural podem vir isento ou sem o campo.
+  stateRegistration String?
+
+  /// Endereço destrinchado nos mesmos campos que a NF-e usa (`enderEmit`),
+  /// em vez de uma linha só: é assim que o dado chega, e remontá-lo numa
+  /// string perderia a divisão na primeira vez que alguém precisasse do CEP
+  /// ou do bairro isolado. `address` é o logradouro (`xLgr`).
+  address           String?
+  addressNumber     String?
+  addressComplement String?
+  neighborhood      String?
+  city              String?
+  state             String? @db.VarChar(2)
+  zipCode           String? @db.VarChar(8)
+
+  /// De onde veio o cadastro. Ver `SupplierOrigin`.
+  origin          SupplierOrigin @default(MANUAL)
+  /// A chave de acesso da nota que originou o cadastro automático. É o que
+  /// torna a origem verificável: dá para abrir a nota e conferir de onde
+  /// cada campo saiu. Nulo em cadastro manual.
+  originAccessKey String?        @db.VarChar(44)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   company         Company          @relation(fields: [companyId], references: [id])
   purchaseOrders  PurchaseOrder[]
   invoices        Invoice[]
   inboundInvoices InboundInvoice[]
+  accountsPayable AccountPayable[]
 
   @@unique([companyId, document])
   @@index([companyId])
@@ -516,7 +602,11 @@ model PurchaseRequestItem {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  purchaseRequest    PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  /// Uma linha da solicitação pode virar VÁRIAS linhas de ordem — é assim que
+  /// a compra parcelada entre fornecedores/entregas aparece no modelo (a
+  /// SOL-0005 do staging já gerou duas ordens). Ver `PurchaseOrderItem`.
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@index([purchaseRequestId])
 }
@@ -548,6 +638,7 @@ model PurchaseOrder {
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
   costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
 
+  items           PurchaseOrderItem[]
   invoices        Invoice[]
   inboundInvoices InboundInvoice[]
 
@@ -559,6 +650,69 @@ model PurchaseOrder {
   /// que viram ILIKE). Sem eles o Postgres varre a tabela inteira a cada
   /// digitação no campo de busca — o custo só aparece quando a base cresce.
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseOrder_code_trgm_idx")
+}
+
+/// Item de linha de uma ordem de compra — o que foi REALMENTE pedido ao
+/// fornecedor, linha a linha.
+///
+/// Antes disto a ordem tinha só `totalAmount`: um número digitado à mão, sem
+/// nada que dissesse o que ele comprou. A cadeia de rastreabilidade morria na
+/// solicitação, e uma solicitação que virava duas ordens não tinha como
+/// informar qual parte coube a cada uma.
+///
+/// `purchaseRequestItemId` é OBRIGATÓRIO: é ele — e não o `purchaseRequestId`
+/// da ordem — que amarra a linha comprada à linha pedida. O vínculo por
+/// documento diria "esta ordem veio daquela solicitação"; só o vínculo por
+/// item diz "estes 50 sacos de cimento são aqueles 50 sacos de cimento".
+/// Comprar algo que ninguém pediu não tem caminho neste modelo, e isso é
+/// deliberado nesta etapa (ver `docs/plano-evolucoes.md`).
+model PurchaseOrderItem {
+  id                    String @id @default(uuid()) @db.Uuid
+  purchaseOrderId       String @db.Uuid
+  purchaseRequestItemId String @db.Uuid
+
+  /// COPIADOS da linha de origem no momento da criação, não lidos por
+  /// travessia. A ordem é um documento que foi enviado a um fornecedor: o que
+  /// ela diz precisa continuar valendo mesmo que a solicitação seja editada
+  /// depois. Mesmo motivo pelo qual `InboundInvoice` guarda o emitente como
+  /// veio no XML em vez de apontar só para o cadastro.
+  description String
+  unit        String
+
+  /// A quantidade COMPRADA, que não é necessariamente a solicitada. Pedir 100
+  /// e comprar 80 (o resto em outra ordem, ou nunca) é compra parcial, e o
+  /// modelo precisa aceitá-la — o controle de saldo da solicitação é etapa
+  /// posterior, mas o dado que ele vai precisar nasce aqui.
+  quantity   Decimal @db.Decimal(12, 3)
+  /// Preço NEGOCIADO com o fornecedor. Nasce sugerido pela cotação
+  /// (`PurchaseRequestItem.estimatedUnitPrice`) e pode divergir dela — a
+  /// cotação é estimativa, esta é a compra.
+  unitPrice  Decimal @db.Decimal(14, 2)
+  /// SEMPRE `quantity × unitPrice`, calculado pelo backend e nunca aceito do
+  /// cliente. Materializado (em vez de calculado na leitura) porque é o que
+  /// os relatórios somam; se fosse derivado na consulta, cada soma pagaria a
+  /// multiplicação de novo e o arredondamento poderia divergir entre telas.
+  totalPrice Decimal @db.Decimal(14, 2)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrder       PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  /// `Restrict`: apagar de verdade uma linha de solicitação que já virou
+  /// compra deixaria a ordem sem origem — exatamente a perda que este model
+  /// existe para impedir. Na prática nunca dispara (a solicitação usa
+  /// exclusão lógica, e só é editável em DRAFT, antes de existir ordem), é a
+  /// rede para quem apagar por fora.
+  purchaseRequestItem PurchaseRequestItem @relation(fields: [purchaseRequestItemId], references: [id], onDelete: Restrict)
+
+  /// A mesma linha da solicitação não entra duas vezes na MESMA ordem — seria
+  /// duplicata, não compra parcial. Entre ordens diferentes ela pode repetir,
+  /// e é isso que permite dividir um pedido em várias compras.
+  @@unique([purchaseOrderId, purchaseRequestItemId])
+  @@index([purchaseOrderId])
+  @@index([purchaseRequestItemId])
 }
 
 // =============================================================================
@@ -585,6 +739,7 @@ model Employee {
   timeEntries       TimeEntry[]
   productionEntries ProductionEntry[]
   payslips          Payslip[]
+  bankAccounts      BankAccount[]
 
   @@unique([companyId, cpf])
   @@index([companyId])
@@ -715,8 +870,9 @@ model Contractor {
   updatedAt       DateTime         @updatedAt
   deletedAt       DateTime?
 
-  company   Company              @relation(fields: [companyId], references: [id])
-  contracts ContractorContract[]
+  company      Company              @relation(fields: [companyId], references: [id])
+  contracts    ContractorContract[]
+  bankAccounts BankAccount[]
 
   @@unique([companyId, document])
   @@index([companyId])
@@ -807,6 +963,115 @@ model ContractEmployee {
 }
 
 // =============================================================================
+// DADOS BANCÁRIOS
+// =============================================================================
+
+/// Conta bancária de quem RECEBE dinheiro da empresa.
+///
+/// ## Por que uma tabela própria, e não colunas em `User`
+///
+/// O ERP tem três entidades de pessoa e elas não são intercambiáveis:
+/// `User` é um login, `Employee` é o funcionário CLT que recebe holerite e
+/// `Contractor` é o terceirizado que recebe por contrato. Guardar a conta no
+/// `User` deixaria o pedreiro — que não tem login — sem onde receber, e daria
+/// um campo de conta ao contador externo, que nunca será pago por aqui.
+///
+/// ## Arco exclusivo
+///
+/// Exatamente UM dos três donos é preenchido, garantido por CHECK no banco
+/// (`num_nonnulls(...) = 1`, ver a migration) e não só por validação da
+/// aplicação: um bug de service não pode produzir uma conta órfã ou de dois
+/// donos. A alternativa (`ownerType` + `ownerId` polimórfico) abriria mão da
+/// integridade referencial — foi recusada por isso.
+///
+/// Hoje só a tela de Administração > Usuários escreve aqui. As colunas de
+/// `Employee` e `Contractor` já existem para que RH e Terceiros liguem as
+/// telas deles sem migration nova — nenhum fluxo de pagamento foi antecipado.
+///
+/// ## O que é cifrado e o que não é
+///
+/// Número da conta e chave PIX são cifrados com AES-256-GCM
+/// (`BANK_DATA_ENCRYPTION_KEY`, ver `common/crypto`). Banco, agência e tipo de
+/// conta ficam em texto: sozinhos não pagam ninguém, e é por eles que se
+/// procura uma conta na tela.
+///
+/// A forma MASCARADA é gravada em coluna própria em vez de derivada na
+/// leitura. Dois motivos: a listagem não precisa decifrar nada (a chave só é
+/// usada quando alguém revela de fato), e uma troca de chave — que torna o
+/// texto cifrado ilegível — não apaga a tela: o usuário continua vendo
+/// `****1234` e sabe qual conta é.
+model BankAccount {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  /// Arco exclusivo: um, e apenas um, destes três.
+  userId       String? @db.Uuid
+  employeeId   String? @db.Uuid
+  contractorId String? @db.Uuid
+
+  /// Código COMPE de 3 dígitos (001 Banco do Brasil, 341 Itaú, 260 Nu Pagamentos).
+  /// Não há tabela de bancos no projeto e nenhuma foi criada: manter uma lista
+  /// oficial atualizada é trabalho recorrente, e a conferência de verdade
+  /// acontece no banco na hora de pagar. O nome vem digitado junto, para a
+  /// tela não depender de um catálogo que não existe.
+  bankCode String @db.VarChar(3)
+  bankName String
+
+  /// Agência sem o dígito, que vem à parte porque nem todo banco tem um.
+  branch      String  @db.VarChar(6)
+  branchDigit String? @db.VarChar(1)
+
+  accountType BankAccountType
+
+  /// `iv:authTag:ciphertext` em hex — mesmo formato do cofre fiscal.
+  accountNumber       String
+  /// `****1234`. É o que a tela mostra por padrão.
+  accountNumberMasked String
+  /// Dígito verificador da conta. Fica em texto porque, sem o número, um
+  /// dígito sozinho não identifica nem revela conta nenhuma — e a máscara
+  /// precisa dele para o usuário reconhecer a própria conta.
+  accountDigit        String? @db.VarChar(1)
+
+  /// PIX é opcional e independente da conta tradicional: as duas formas
+  /// coexistem, e muita gente tem só uma delas.
+  pixKeyType   PixKeyType?
+  pixKey       String?
+  pixKeyMasked String?
+
+  /// Preenchidos SOMENTE quando o titular não é o dono da conta (pagamento
+  /// para a esposa, para a MEI do prestador). Nulos = o titular é o próprio
+  /// dono, e nome e documento são lidos do cadastro dele na hora de exibir —
+  /// não duplicados aqui.
+  ///
+  /// Exceção documentada: quando o dono é um `User`, não há CPF no cadastro
+  /// (o `User` do ERP guarda nome, e-mail, telefone e cargo — nunca documento).
+  /// Nesse caso o documento do titular fica mesmo em branco, e é o `Employee`
+  /// correspondente que carrega o CPF quando ele existir.
+  holderName     String?
+  /// Só dígitos, como todo documento do sistema (ver `document.util.ts`).
+  holderDocument String? @db.VarChar(14)
+
+  /// Desativar substitui excluir. Uma conta que já pagou alguém é histórico
+  /// financeiro: apagá-la deixaria pagamento sem destino rastreável. Não há
+  /// endpoint de exclusão — nem `deletedAt`, que seria uma segunda forma de
+  /// dizer a mesma coisa.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company     @relation(fields: [companyId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([employeeId])
+  @@index([contractorId])
+}
+
+// =============================================================================
 // FINANCEIRO
 // =============================================================================
 
@@ -864,16 +1129,58 @@ model Invoice {
 model AccountPayable {
   id        String               @id @default(uuid()) @db.Uuid
   companyId String               @db.Uuid
-  invoiceId String               @db.Uuid
+  /// OPCIONAL desde 2026-08-23. Era obrigatório porque toda conta nascia de
+  /// uma nota — verdade para compra com documento, falsa para a despesa que
+  /// o Financeiro lança direto (aluguel, taxa, reembolso). Exigir a nota ali
+  /// significava que a despesa simplesmente não podia entrar no sistema.
+  ///
+  /// Continua sendo o vínculo com o documento quando ele existe; quem diz
+  /// COMO a conta nasceu é `origin`, não a presença deste campo.
+  invoiceId String?              @db.Uuid
+  origin    AccountPayableOrigin
   dueDate   DateTime
   amount    Decimal              @db.Decimal(14, 2)
   status    AccountPayableStatus @default(OPEN)
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+
+  /// A QUEM se deve. Materializado na própria conta, e não lido pela nota,
+  /// porque agora existem contas sem nota — e porque toda consulta do módulo
+  /// (filtro, busca, listagem, relatório) precisa de UM caminho só para
+  /// chegar ao fornecedor. Nas contas vindas de nota é uma cópia de
+  /// `Invoice.supplierId`, que nunca muda depois de criada (não está em
+  /// nenhum DTO de edição), então as duas não têm como divergir.
+  supplierId String @db.Uuid
+
+  /// A QUE a despesa pertence. Mesma regra que a solicitação de compra e a
+  /// conciliação sem ordem já usam: o centro de custo é o destino informado,
+  /// e a obra é DERIVADA dele — fica nula quando o centro é administrativo.
+  /// Nulos nas contas criadas antes desta mudança; ver a nota de compatibilidade
+  /// em `docs/conta-a-pagar-avulsa.md`.
+  costCenterId       String? @db.Uuid
+  constructionSiteId String? @db.Uuid
+
+  /// O que a conta é, em uma linha. Obrigatório no lançamento manual (é a
+  /// única identificação que ele tem); nulo nas contas vindas de nota, que
+  /// se identificam pelo número dela.
+  description    String?
+  /// Número do documento que originou a despesa quando não é nota fiscal —
+  /// recibo, contrato, fatura de concessionária. Texto livre de propósito:
+  /// não é documento fiscal e não tem formato garantido.
+  documentNumber String?
+  issueDate      DateTime?
+  /// Forma de pagamento PRETENDIDA, informada no lançamento. Não confundir
+  /// com `Payment.method`, que registra como foi pago de fato.
+  paymentMethod  PaymentMethod?
+  notes          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  company Company @relation(fields: [companyId], references: [id])
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  company          Company           @relation(fields: [companyId], references: [id])
+  invoice          Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
+  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
 
   payments Payment[]
 
@@ -881,6 +1188,9 @@ model AccountPayable {
   @@index([dueDate])
   @@index([status])
   @@index([companyId])
+  @@index([supplierId])
+  @@index([costCenterId])
+  @@index([origin])
 }
 
 /// Pagamento efetuado contra uma parcela de contas a pagar. Relação 1:N com

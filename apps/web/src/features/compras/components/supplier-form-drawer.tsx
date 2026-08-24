@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import {
   Alert,
+  AlertDescription,
   AlertTitle,
   Button,
   Form,
@@ -112,6 +113,16 @@ function SupplierFormBody({
             {submitError && (
               <Alert variant="destructive" className="mb-4">
                 <AlertTitle>{submitError}</AlertTitle>
+              </Alert>
+            )}
+            {supplier?.origin === 'NFE' && (
+              <Alert className="mb-4 border-blue-500/30 bg-blue-500/5">
+                <AlertTitle>Fornecedor identificado automaticamente pela NF-e</AlertTitle>
+                <AlertDescription>
+                  Os dados vieram do emitente do documento fiscal. O que a nota não trouxe ficou em
+                  branco — complete o que precisar. A partir daqui o cadastro é seu: nenhuma nota
+                  futura vai sobrescrever o que você editar.
+                </AlertDescription>
               </Alert>
             )}
             <SupplierFormFields control={form.control} />

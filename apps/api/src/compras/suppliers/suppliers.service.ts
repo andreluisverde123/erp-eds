@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 
 import { Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
+import { onlyDigits } from '../../common/utils/document.util';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
 import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,7 +18,14 @@ export class SuppliersService {
 
   async create(companyId: string, dto: CreateSupplierDto) {
     try {
-      return await this.prisma.supplier.create({ data: { companyId, ...dto } });
+      return await this.prisma.supplier.create({
+        // `document` normalizado na entrada: a unique `(companyId, document)`
+        // é sobre o texto, e o mesmo CNPJ digitado com e sem máscara passaria
+        // por ela como dois fornecedores diferentes. Também é o que faz o
+        // cadastro manual casar com o emitente da NF-e, que chega só com
+        // dígitos. Ver `common/utils/document.util.ts`.
+        data: { companyId, ...dto, document: onlyDigits(dto.document) },
+      });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         throw new ConflictException(DUPLICATE_DOCUMENT_MESSAGE);
@@ -39,7 +47,10 @@ export class SuppliersService {
         ? [
             { legalName: { contains: search, mode: 'insensitive' } },
             { tradeName: { contains: search, mode: 'insensitive' } },
-            { document: { contains: search, mode: 'insensitive' } },
+            // Guardamos só dígitos; quem busca costuma digitar com máscara.
+            // Sem isto, procurar "12.345.678" deixaria de achar o fornecedor
+            // que a normalização gravou como "12345678000190".
+            { document: { contains: onlyDigits(search) || search, mode: 'insensitive' } },
           ]
         : undefined,
     };
@@ -71,7 +82,12 @@ export class SuppliersService {
     await this.findOne(companyId, id);
 
     try {
-      return await this.prisma.supplier.update({ where: { id, companyId }, data: dto });
+      return await this.prisma.supplier.update({
+        where: { id, companyId },
+        // Mesma normalização do cadastro — editar não pode reintroduzir a
+        // máscara que a criação removeu.
+        data: { ...dto, ...(dto.document ? { document: onlyDigits(dto.document) } : {}) },
+      });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         throw new ConflictException(DUPLICATE_DOCUMENT_MESSAGE);

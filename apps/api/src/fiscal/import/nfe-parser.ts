@@ -46,10 +46,23 @@ export interface ParsedInvoice {
   supplierName: string;
   supplierTradeName: string | null;
   supplierIe: string | null;
+  /// Endereço em UMA linha (logradouro, número, complemento, bairro) —
+  /// é o formato que `InboundInvoice.supplierAddress` guarda e que a tela de
+  /// conciliação exibe. Mantido junto dos campos separados abaixo, não no
+  /// lugar deles: são consumidores diferentes.
   supplierAddress: string | null;
+  /// Os mesmos dados de endereço SEPARADOS, como vêm em `enderEmit`. É o que
+  /// o cadastro de fornecedor recebe — remontar a linha e depois fatiá-la de
+  /// volta perderia o que o XML já entrega dividido.
+  supplierStreet: string | null;
+  supplierNumber: string | null;
+  supplierComplement: string | null;
+  supplierNeighborhood: string | null;
   supplierCity: string | null;
   supplierState: string | null;
   supplierZipCode: string | null;
+  supplierPhone: string | null;
+  supplierEmail: string | null;
   totalAmount: string;
   productsAmount: string | null;
   freightAmount: string | null;
@@ -145,9 +158,17 @@ function parseProcNFe(root: Record<string, unknown>): ParsedInvoice {
     supplierTradeName: str(emit.xFant),
     supplierIe: str(emit.IE),
     supplierAddress: montarEndereco(enderEmit),
+    supplierStreet: str(enderEmit.xLgr),
+    supplierNumber: str(enderEmit.nro),
+    supplierComplement: str(enderEmit.xCpl),
+    supplierNeighborhood: str(enderEmit.xBairro),
     supplierCity: str(enderEmit.xMun),
     supplierState: str(enderEmit.UF),
     supplierZipCode: digits(str(enderEmit.CEP)),
+    supplierPhone: digits(str(enderEmit.fone)),
+    // `email` é opcional no layout da NF-e e mora em `emit`, não em
+    // `enderEmit` — a maioria das notas simplesmente não o traz.
+    supplierEmail: str(emit.email),
     totalAmount: str(total.vNF) ?? '0',
     productsAmount: str(total.vProd),
     freightAmount: str(total.vFrete),
@@ -181,10 +202,18 @@ function parseResNFe(root: Record<string, unknown>): ParsedInvoice {
     supplierName: str(res.xNome) ?? 'Emitente não identificado',
     supplierTradeName: null,
     supplierIe: str(res.IE),
+    // O resumo traz APENAS razão social e IE do emitente. Endereço, telefone
+    // e e-mail só existem no procNFe.
     supplierAddress: null,
+    supplierStreet: null,
+    supplierNumber: null,
+    supplierComplement: null,
+    supplierNeighborhood: null,
     supplierCity: null,
     supplierState: null,
     supplierZipCode: null,
+    supplierPhone: null,
+    supplierEmail: null,
     totalAmount: str(res.vNF) ?? '0',
     productsAmount: null,
     freightAmount: null,

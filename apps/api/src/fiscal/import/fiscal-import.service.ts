@@ -8,6 +8,7 @@ import {
   type ParsedEvent,
   type ParsedInvoice,
 } from './nfe-parser';
+import { SupplierResolverService } from './supplier-resolver.service';
 
 /// Quantos documentos processar por rodada. A carga inicial tem milhares;
 /// fatiar mantém a transação curta e deixa a API responsiva enquanto isso.
@@ -32,7 +33,10 @@ export class FiscalImportService {
   private readonly logger = new Logger(FiscalImportService.name);
   private readonly emAndamento = new Set<string>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly supplierResolver: SupplierResolverService,
+  ) {}
 
   async processPending(companyId: string): Promise<ImportOutcome> {
     const inicio = Date.now();
@@ -201,15 +205,23 @@ export class FiscalImportService {
       }
     }
 
-    const supplier = await this.prisma.supplier.findFirst({
-      where: { companyId, document: nota.supplierDocument, deletedAt: null },
-      select: { id: true },
-    });
+    // Antes daqui a nota só OLHAVA o cadastro e desistia quando não achava o
+    // emitente — o vínculo ficava nulo e alguém tinha de cadastrar à mão antes
+    // de conciliar. Agora o emitente é resolvido: encontrado pelo CNPJ, ou
+    // cadastrado a partir do próprio XML. Ver `SupplierResolverService`.
+    //
+    // FORA da transação de propósito. O `catch` de P2002 que garante a
+    // idempotência sob concorrência precisa consultar o banco DEPOIS da
+    // violação, e um erro dentro de uma transação interativa a aborta — o
+    // retry não teria como rodar. O preço é um fornecedor que sobrevive a uma
+    // nota que falhou depois; ele é reaproveitado no reprocessamento, não
+    // duplicado, e o emitente existe de verdade (mandou nota para a empresa).
+    const supplierId = await this.supplierResolver.resolve(companyId, nota);
 
     const dados = {
       supplierName: nota.supplierName,
       supplierDocument: nota.supplierDocument,
-      supplierId: supplier?.id ?? null,
+      supplierId,
       number: nota.number,
       series: nota.series,
       issueDate: nota.issueDate,

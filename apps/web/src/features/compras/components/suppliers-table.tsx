@@ -17,6 +17,7 @@ import {
 } from '@repo/ui';
 
 import type { Supplier } from '../types';
+import { SupplierOriginBadge } from './supplier-origin-badge';
 
 interface SuppliersTableProps {
   suppliers: Supplier[];
@@ -56,8 +57,11 @@ export const SuppliersTable = memo(function SuppliersTable({
         {suppliers.map((supplier) => (
           <TableRow key={supplier.id}>
             <TableCell>
-              <div className="flex flex-col">
-                <span className="font-medium text-foreground">{supplier.legalName}</span>
+              <div className="flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">{supplier.legalName}</span>
+                  <SupplierOriginBadge supplier={supplier} />
+                </div>
                 {supplier.tradeName && (
                   <span className="text-xs text-muted-foreground">{supplier.tradeName}</span>
                 )}
