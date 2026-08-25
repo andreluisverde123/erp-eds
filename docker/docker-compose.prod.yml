@@ -105,11 +105,14 @@ services:
   # Limitações reais: a URL muda a cada restart do container e o túnel morre
   # junto com a máquina que o roda — serve para alguém testar, não para
   # produção.
+  #
+  # `--protocol http2` pelo mesmo motivo do `tunnel-named` abaixo: é a mesma
+  # rede, e o QUIC não se sustenta nela.
   tunnel:
     profiles: ['tunnel']
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://web:80
+    command: tunnel --no-autoupdate --protocol http2 --url http://web:80
     depends_on:
       - web
 
@@ -133,11 +136,19 @@ services:
   # Com este perfil, o `ports` do serviço `web` deixa de ser necessário: o
   # cloudflared alcança o nginx pela rede interna do compose. Mantê-lo publicado
   # no host é conveniência de depuração, não requisito.
+  #
+  # `--protocol http2` NÃO é detalhe de afinação: sem ele o cloudflared usa QUIC
+  # (UDP/7844), e nesta rede o UDP não se sustenta. Em 25/08 o túnel do staging
+  # passou o dia inteiro derrubando e refazendo conexões com
+  # `failed to dial to edge with quic: timeout: no recent network activity`,
+  # chegando a picos de 53 quedas por hora e operando com 1 das 4 conexões de
+  # borda. Sozinha, essa conexão põe o domínio fora do ar a cada retry — que
+  # cresce até 1m4s. O http2 usa TCP/7844 e paga por isso um pouco de latência.
   tunnel-named:
     profiles: ['tunnel-named']
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --protocol http2 run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?defina o token em Zero Trust > Networks > Tunnels}
     depends_on:
