@@ -109,14 +109,25 @@ WORKDIR /app/apps/api
 USER node
 EXPOSE 3000
 
-# Readiness (processo de pé + banco alcançável) — o mesmo endpoint que um
-# orquestrador usaria; sem curl na imagem, o fetch nativo do Node basta.
-# O start-period cobre também o cold start de um Postgres serverless com
-# scale-to-zero (Neon): a primeira conexão depois de um período ocioso leva
-# alguns segundos, e a readiness bate no banco. Com folga curta demais o
-# container é marcado unhealthy logo no primeiro deploy de baixa atividade.
+# Liveness (só o processo Node), NÃO readiness. Sem curl na imagem, o fetch
+# nativo do Node basta.
+#
+# A readiness consulta o Postgres, e era esse o problema: a cada 30s, 24h por
+# dia, ela mantinha acordado um banco serverless com scale-to-zero. O Neon só
+# hiberna após ~5 min ocioso, então o compute nunca desligava — 730h/mês contra
+# as ~192h do plano. Em 25/08 o projeto chegou a 91,2% da cota por causa disso.
+#
+# Trocar por liveness também alinha o healthcheck com a sua semântica: o Docker
+# usa esse resultado para marcar o container unhealthy e reiniciá-lo, e banco
+# fora do ar não é motivo para reiniciar o processo — é o que o comentário de
+# `health.controller.ts` já dizia. Readiness continua existindo para quem
+# decide roteamento de tráfego (load balancer, orquestrador), que é o lugar
+# onde "consigo falar com o banco?" é a pergunta certa.
+#
+# O start-period generoso continua fazendo sentido: cobre o boot do Node e a
+# aplicação das migrations no primeiro deploy.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/readiness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/liveness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # Use `--init` no `docker run` (ou `init: true` no compose) para o SIGTERM
 # chegar ao Node como PID 1 e o `enableShutdownHooks()` fechar o Prisma limpo.
