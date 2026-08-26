@@ -49,7 +49,21 @@ RUN npx turbo run build --filter=web
 # runner — nginx servindo o SPA estático.
 # ---------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS runner
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+# Em `templates/`, e não direto em `conf.d/`: o entrypoint da imagem oficial do
+# nginx passa todo `*.template` por envsubst antes de subir. É o que permite ao
+# mesmo arquivo servir o Docker Compose e o Railway, que têm DNS diferentes.
+COPY docker/nginx.conf /etc/nginx/templates/default.conf.template
+
+# O filtro é ESSENCIAL: sem ele o envsubst também comeria `$host`,
+# `$remote_addr`, `$proxy_add_x_forwarded_for` e companhia — variáveis do
+# próprio nginx, que viriam vazias e derrubariam o proxy. Com o filtro, só os
+# nomes com prefixo EDS_ são substituídos.
+ENV NGINX_ENVSUBST_FILTER="^EDS_"
+
+# Padrões do Docker Compose, para o ambiente atual continuar subindo sem
+# precisar declarar nada. O Railway sobrescreve os dois.
+ENV EDS_RESOLVER="127.0.0.11 valid=10s ipv6=off"
+ENV EDS_API_UPSTREAM="api:3000"
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
