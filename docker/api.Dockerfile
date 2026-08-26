@@ -102,8 +102,18 @@ COPY --from=build --chown=node:node /app/apps/api/generated ./apps/api/generated
 # Uploads (holerites, documentos de contrato, logo, anexos de workflow) são
 # gravados em `process.cwd()/uploads`. Em produção monte um volume aqui —
 # sem isso os arquivos somem a cada novo deploy do container.
+#
+# A pasta é criada, mas SEM a instrução `VOLUME`. Ela era redundante e passou a
+# ser um impedimento:
+#
+#   * redundante   o docker-compose.prod.yml já monta `eds_uploads` neste
+#                  caminho, explicitamente, que é o que dá persistência de fato
+#   * impedimento  o Railway recusa a imagem inteira com
+#                  "docker VOLUME is not supported, use Railway Volumes"
+#
+# Quem hospeda continua tendo de montar um volume aqui — a diferença é que a
+# declaração vive na plataforma, não na imagem.
 RUN mkdir -p /app/apps/api/uploads && chown -R node:node /app/apps/api/uploads
-VOLUME ["/app/apps/api/uploads"]
 
 WORKDIR /app/apps/api
 USER node
