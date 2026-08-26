@@ -11,11 +11,19 @@ import {
 
 import { PurchaseRequestItemInputDto } from './purchase-request-item-input.dto';
 
-/// Sem `constructionSiteId`: o destino da solicitação é o centro de custo, e a
-/// obra (quando existe) é derivada dele no service.
+/// A obra é o destino da solicitação e o centro de custo é complemento —
+/// inverso do que era antes, quando só o centro de custo vinha do formulário e
+/// a obra saía dele por derivação.
 export class CreatePurchaseRequestDto {
+  @IsUUID(undefined, { message: 'Obra inválida.' })
+  constructionSiteId!: string;
+
+  /// Opcional: quem abre a solicitação nem sempre sabe em qual centro de custo
+  /// a compra entra. Compras informa na emissão da Ordem, onde ele volta a ser
+  /// obrigatório. Quando vem preenchido, o service exige que pertença à obra.
+  @IsOptional()
   @IsUUID(undefined, { message: 'Centro de custo inválido.' })
-  costCenterId!: string;
+  costCenterId?: string;
 
   @IsOptional()
   @IsString()

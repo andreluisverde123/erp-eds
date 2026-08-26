@@ -39,11 +39,13 @@ export const purchaseRequestItemFormSchema = z
     }
   });
 
-/// Sem `constructionSiteId`: o centro de custo é o destino da solicitação
-/// (obra, escritório, fazenda...) e a obra, quando existe, é derivada dele
-/// pela API.
+/// A obra é o destino da solicitação e o primeiro campo do formulário; o
+/// centro de custo é complemento opcional, que Compras informa na emissão da
+/// Ordem quando o solicitante não souber. Inverso do que era antes, quando só
+/// o centro de custo vinha daqui e a obra saía dele por derivação.
 export const purchaseRequestFormSchema = z.object({
-  costCenterId: z.string().min(1, 'Selecione o centro de custo.'),
+  constructionSiteId: z.string().min(1, 'Selecione a obra.'),
+  costCenterId: z.string().optional(),
   notes: z.string().trim().optional(),
   items: z
     .array(purchaseRequestItemFormSchema)
@@ -62,10 +64,17 @@ export const EMPTY_ITEM_ROW: PurchaseRequestItemFormValues = {
 };
 
 export const PURCHASE_REQUEST_FORM_DEFAULTS: PurchaseRequestFormValues = {
+  constructionSiteId: '',
   costCenterId: '',
   notes: '',
   items: [{ ...EMPTY_ITEM_ROW }],
 };
+
+/// O Select do Radix não aceita item com `value=""` — ele reserva a string
+/// vazia para "nada selecionado". Como o centro de custo é opcional e precisa
+/// de uma opção explícita para limpar a escolha, ela carrega este sentinela,
+/// convertido de volta para "sem centro de custo" na saída do formulário.
+export const SEM_CENTRO_DE_CUSTO = '__sem__';
 
 /// A grade sempre mantém uma linha em branco no final pra continuar digitando
 /// (ver PurchaseRequestItemsGrid). Essa linha não conta como "item inválido"
@@ -84,7 +93,8 @@ export function isBlankItemRow(item: {
 
 export function requestToFormValues(request: PurchaseRequestDetail): PurchaseRequestFormValues {
   return {
-    costCenterId: request.costCenter.id,
+    constructionSiteId: request.constructionSite.id,
+    costCenterId: request.costCenter?.id ?? '',
     notes: request.notes ?? '',
     items: request.items.map((item) => ({
       description: item.description,
@@ -97,8 +107,17 @@ export function requestToFormValues(request: PurchaseRequestDetail): PurchaseReq
 }
 
 export function toPurchaseRequestInput(values: PurchaseRequestFormValues): PurchaseRequestInput {
+  // `null` e não `undefined`: na edição de um rascunho, omitir o campo diz à
+  // API "mantenha como está", e é justamente o contrário do que o usuário fez
+  // ao escolher "Sem centro de custo".
+  const costCenterId =
+    !values.costCenterId || values.costCenterId === SEM_CENTRO_DE_CUSTO
+      ? null
+      : values.costCenterId;
+
   return {
-    costCenterId: values.costCenterId,
+    constructionSiteId: values.constructionSiteId,
+    costCenterId,
     notes: values.notes ? values.notes : undefined,
     // A linha em branco final da grade nunca vai pra API.
     items: values.items

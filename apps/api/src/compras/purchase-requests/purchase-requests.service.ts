@@ -74,7 +74,7 @@ export class PurchaseRequestsService {
   ) {}
 
   async create(companyId: string, userId: string, dto: CreatePurchaseRequestDto) {
-    const constructionSiteId = await this.resolveConstructionSiteId(companyId, dto.costCenterId);
+    await this.assertObraECentroDeCusto(companyId, dto.constructionSiteId, dto.costCenterId);
 
     const code = await nextSequentialCode(
       () => this.prisma.purchaseRequest.count({ where: { companyId } }),
@@ -84,8 +84,8 @@ export class PurchaseRequestsService {
     const created = await this.prisma.purchaseRequest.create({
       data: {
         companyId,
-        constructionSiteId,
-        costCenterId: dto.costCenterId,
+        constructionSiteId: dto.constructionSiteId,
+        costCenterId: dto.costCenterId ?? null,
         requestedById: userId,
         code,
         notes: dto.notes,
@@ -167,18 +167,22 @@ export class PurchaseRequestsService {
       throw new ConflictException('Só é possível editar solicitações em rascunho.');
     }
 
-    // Trocar o centro de custo troca junto a obra derivada — inclusive para
-    // nulo, quando o novo destino não é uma obra.
-    const constructionSiteId = dto.costCenterId
-      ? await this.resolveConstructionSiteId(companyId, dto.costCenterId)
-      : undefined;
+    // O patch é parcial, mas a coerência entre obra e centro de custo é uma
+    // propriedade do PAR — validar só o que veio deixaria passar a edição que
+    // troca a obra e mantém um centro de custo que era da obra anterior. Por
+    // isso o estado final é montado antes, sobrepondo o patch ao que já existe.
+    const constructionSiteId = dto.constructionSiteId ?? existing.constructionSiteId;
+    const costCenterId =
+      dto.costCenterId === undefined ? existing.costCenterId : dto.costCenterId;
+
+    await this.assertObraECentroDeCusto(companyId, constructionSiteId, costCenterId);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.purchaseRequest.update({
         where: { id, companyId },
         data: {
           constructionSiteId,
-          costCenterId: dto.costCenterId,
+          costCenterId,
           notes: dto.notes,
         },
       });
@@ -303,14 +307,33 @@ export class PurchaseRequestsService {
     return request;
   }
 
-  /// O solicitante escolhe só o centro de custo — ele é o destino da compra.
-  /// A obra deixou de ser um campo do formulário e passou a ser deduzida daqui:
-  /// centro de custo de obra devolve a obra; Escritório, Fazenda e afins
-  /// devolvem `null`, e a solicitação simplesmente não tem obra vinculada.
-  private async resolveConstructionSiteId(
+  /// Valida o par obra + centro de custo que veio do formulário.
+  ///
+  /// Substituiu a antiga derivação (a obra saía do centro de custo). Agora os
+  /// dois vêm do cliente, e é justamente por isso que a checagem de coerência
+  /// precisa existir: nada no tipo impede alguém de enviar a obra A com um
+  /// centro de custo da obra B, e o banco aceitaria — as duas FKs são válidas
+  /// isoladamente. O erro só apareceria meses depois, num relatório que soma
+  /// custo na obra errada.
+  ///
+  /// Centro de custo sem obra nenhuma (Escritório, Fazenda) é recusado aqui
+  /// pelo mesmo motivo: ele não pertence à obra escolhida.
+  private async assertObraECentroDeCusto(
     companyId: string,
-    costCenterId: string,
-  ): Promise<string | null> {
+    constructionSiteId: string,
+    costCenterId?: string | null,
+  ): Promise<void> {
+    const site = await this.prisma.constructionSite.findFirst({
+      where: { id: constructionSiteId, companyId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!site) {
+      throw new BadRequestException('Obra informada não existe.');
+    }
+
+    if (!costCenterId) return;
+
     const costCenter = await this.prisma.costCenter.findFirst({
       where: { id: costCenterId, companyId, deletedAt: null },
       select: { constructionSiteId: true },
@@ -320,6 +343,8 @@ export class PurchaseRequestsService {
       throw new BadRequestException('Centro de custo informado não existe.');
     }
 
-    return costCenter.constructionSiteId;
+    if (costCenter.constructionSiteId !== constructionSiteId) {
+      throw new BadRequestException('O centro de custo não pertence à obra escolhida.');
+    }
   }
 }

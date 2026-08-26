@@ -27,6 +27,7 @@ import { ApiError } from '@/lib/api-client';
 
 import { useCreatePurchaseOrder } from '../hooks/use-purchase-order-mutations';
 import { usePurchaseRequest } from '../hooks/use-purchase-request';
+import { useCostCenters } from '@/features/engenharia/hooks/use-cost-centers';
 import { useSuppliers } from '../hooks/use-suppliers';
 import {
   itemsFromPurchaseRequest,
@@ -96,8 +97,23 @@ function GeneratePurchaseOrderBody({
   const { reset } = form;
   useEffect(() => {
     if (!request) return;
-    reset((atual) => ({ ...atual, items: itemsFromPurchaseRequest(request.items) }));
+    reset((atual) => ({
+      ...atual,
+      // Herda o centro de custo da solicitação quando ela tiver um. Quando não
+      // tiver, o campo fica vazio e obrigatório — é aqui que Compras informa a
+      // atribuição que o solicitante não soube dar.
+      costCenterId: request.costCenter?.id ?? '',
+      items: itemsFromPurchaseRequest(request.items),
+    }));
   }, [request, reset]);
+
+  // Restrita à obra da solicitação: a ordem herda a obra dela, e a API recusa
+  // um centro de custo que pertença a outra.
+  const { data: costCentersData } = useCostCenters({
+    limit: 100,
+    constructionSiteId: request?.constructionSite.id,
+    enabled: Boolean(request),
+  });
 
   // `useWatch` e não `form.watch()`: o React Compiler não consegue memoizar a
   // função devolvida pelo `watch` e pula a otimização do componente inteiro
@@ -111,6 +127,7 @@ function GeneratePurchaseOrderBody({
       await createMutation.mutateAsync({
         purchaseRequestId,
         supplierId: values.supplierId,
+        costCenterId: values.costCenterId,
         issueDate: values.issueDate,
         expectedDeliveryDate: values.expectedDeliveryDate || undefined,
         // Só as linhas marcadas, e só o que o backend aceita: descrição e
@@ -169,6 +186,37 @@ function GeneratePurchaseOrderBody({
                       ))}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="costCenterId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Centro de Custo</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione o centro de custo" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {costCentersData?.data.map((costCenter) => (
+                        <SelectItem key={costCenter.id} value={costCenter.id}>
+                          <span>{costCenter.name}</span>
+                          <span className="text-muted-foreground">{costCenter.code}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!request?.costCenter && (
+                    <p className="text-xs text-muted-foreground">
+                      A solicitação não definiu um centro de custo.
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}

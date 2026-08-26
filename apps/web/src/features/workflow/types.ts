@@ -41,7 +41,7 @@ export interface ComprasPipelineListRow {
   code: string;
   stage: ComprasStage;
   requestedBy: { id: string; name: string };
-  costCenter: { id: string; name: string };
+  constructionSite: { id: string; name: string };
   createdAt: string;
   updatedAt: string;
 }

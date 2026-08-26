@@ -82,11 +82,9 @@ export const PurchaseRequestsTable = memo(function PurchaseRequestsTable({
             </TableCell>
             <TableCell>
               <div className="flex flex-col">
-                <span className="text-foreground">{request.costCenter.name}</span>
-                {request.constructionSite && (
-                  <span className="text-xs text-muted-foreground">
-                    {request.constructionSite.name}
-                  </span>
+                <span className="text-foreground">{request.constructionSite.name}</span>
+                {request.costCenter && (
+                  <span className="text-xs text-muted-foreground">{request.costCenter.name}</span>
                 )}
               </div>
             </TableCell>

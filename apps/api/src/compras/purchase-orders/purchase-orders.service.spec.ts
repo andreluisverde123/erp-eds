@@ -104,6 +104,13 @@ function makeService(
     supplier: {
       findFirst: jest.fn(async () => (supplierExists ? { id: FORNECEDOR } : null)),
     },
+    // A ordem passou a validar o centro de custo contra a obra da solicitação,
+    // porque a solicitação pode chegar sem centro de custo definido. O dublê
+    // devolve um que pertence à mesma obra do `purchaseRequest` acima — é o
+    // caminho feliz que a maioria destes testes pressupõe.
+    costCenter: {
+      findFirst: jest.fn(async () => ({ constructionSiteId: 'obra-1' })),
+    },
     purchaseRequestItem: {
       // Reproduz o filtro real: id ∈ lista E a solicitação-mãe é ESTA, da
       // empresa certa. Um dublê que ignorasse o escopo faria o teste de

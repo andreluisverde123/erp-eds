@@ -121,6 +121,13 @@ export class PurchaseOrdersService {
       throw new BadRequestException('Fornecedor informado não existe.');
     }
 
+    const costCenterId = await this.resolveCostCenterId(
+      companyId,
+      request.constructionSiteId,
+      request.costCenterId,
+      dto.costCenterId,
+    );
+
     const code = await nextSequentialCode(
       () => this.prisma.purchaseOrder.count({ where: { companyId } }),
       'OC',
@@ -136,7 +143,7 @@ export class PurchaseOrdersService {
         purchaseRequestId: request.id,
         supplierId: dto.supplierId,
         constructionSiteId: request.constructionSiteId,
-        costCenterId: request.costCenterId,
+        costCenterId,
         code,
         // DERIVADO dos itens, nunca informado pelo cliente — o campo saiu do
         // DTO. Ver `sumItemTotals`.
@@ -429,5 +436,48 @@ export class PurchaseOrdersService {
       throw new NotFoundException('Ordem de compra não encontrada.');
     }
     return order;
+  }
+
+  /// Decide o centro de custo da ordem, que é obrigatório mesmo quando a
+  /// solicitação não tinha nenhum.
+  ///
+  /// A solicitação passou a exigir só a obra: quem pede material sabe para
+  /// onde vai, e não necessariamente em que conta entra. Compras fecha essa
+  /// lacuna aqui, na emissão — o mesmo lugar onde já resolve o preço que o
+  /// solicitante não informou.
+  ///
+  /// O informado na emissão tem precedência sobre o da solicitação: Compras
+  /// enxerga a nota do fornecedor e a natureza real da despesa, e pode
+  /// corrigir uma atribuição que o solicitante chutou.
+  private async resolveCostCenterId(
+    companyId: string,
+    constructionSiteId: string,
+    doPedido: string | null,
+    informado?: string,
+  ): Promise<string> {
+    const escolhido = informado ?? doPedido;
+
+    if (!escolhido) {
+      throw new BadRequestException(
+        'Informe o centro de custo: a solicitação de origem não tem um definido.',
+      );
+    }
+
+    const costCenter = await this.prisma.costCenter.findFirst({
+      where: { id: escolhido, companyId, deletedAt: null },
+      select: { constructionSiteId: true },
+    });
+
+    if (!costCenter) {
+      throw new BadRequestException('Centro de custo informado não existe.');
+    }
+
+    // Mesma coerência exigida na solicitação: a ordem herda a obra dela, então
+    // um centro de custo de outra obra somaria custo no lugar errado.
+    if (costCenter.constructionSiteId !== constructionSiteId) {
+      throw new BadRequestException('O centro de custo não pertence à obra da solicitação.');
+    }
+
+    return escolhido;
   }
 }

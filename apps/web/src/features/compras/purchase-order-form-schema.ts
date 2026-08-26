@@ -23,6 +23,10 @@ const purchaseOrderItemSchema = z.object({
 export const purchaseOrderFormSchema = z
   .object({
     supplierId: z.string().min(1, 'Selecione o fornecedor.'),
+    /// Obrigatório aqui, mesmo sendo opcional na solicitação: é nesta tela que
+    /// o dinheiro é comprometido, e a ordem não pode nascer sem atribuição de
+    /// custo. Vem pré-preenchido quando a solicitação já trouxe um.
+    costCenterId: z.string().min(1, 'Selecione o centro de custo.'),
     issueDate: z.string().min(1, 'Informe a data de emissão.'),
     expectedDeliveryDate: z.string().optional(),
     items: z.array(purchaseOrderItemSchema),
@@ -67,6 +71,7 @@ export type PurchaseOrderItemFormValues = z.infer<typeof purchaseOrderItemSchema
 
 export const PURCHASE_ORDER_FORM_DEFAULTS: PurchaseOrderFormValues = {
   supplierId: '',
+  costCenterId: '',
   issueDate: new Date().toISOString().slice(0, 10),
   expectedDeliveryDate: '',
   items: [],

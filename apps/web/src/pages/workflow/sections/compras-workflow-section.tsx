@@ -47,7 +47,7 @@ export function ComprasWorkflowSection() {
             <TableHeader>
               <TableRow>
                 <TableHead>Solicitação</TableHead>
-                <TableHead>Centro de custo</TableHead>
+                <TableHead>Obra</TableHead>
                 <TableHead>Solicitante</TableHead>
                 <TableHead>Etapa</TableHead>
               </TableRow>
@@ -60,7 +60,7 @@ export function ComprasWorkflowSection() {
                   onClick={() => setSelectedId(row.id)}
                 >
                   <TableCell className="font-medium text-foreground">{row.code}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.costCenter.name}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.constructionSite.name}</TableCell>
                   <TableCell className="text-muted-foreground">{row.requestedBy.name}</TableCell>
                   <TableCell>
                     <StageBadge

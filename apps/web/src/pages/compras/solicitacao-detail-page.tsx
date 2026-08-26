@@ -164,7 +164,7 @@ export function SolicitacaoDetailPage() {
             </h1>
             <PurchaseRequestStatusBadge status={request.status} />
           </div>
-          <p className="text-sm text-muted-foreground">{request.costCenter.name}</p>
+          <p className="text-sm text-muted-foreground">{request.constructionSite.name}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -240,14 +240,16 @@ export function SolicitacaoDetailPage() {
       <Card>
         <CardContent className="flex flex-col gap-5">
           <h2 className="text-base font-semibold text-foreground">Informações gerais</h2>
-          {/* O centro de custo é o destino da solicitação. A obra aparece só
-              como informação derivada dele — e some quando o destino não é
-              obra (Escritório, Fazenda). */}
+          {/* A obra é o destino da solicitação e vem primeiro. O centro de
+              custo é complemento e pode não ter sido informado — nesse caso o
+              rótulo continua visível dizendo quem vai preenchê-lo, em vez de
+              a linha sumir e deixar a dúvida. */}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <InfoRow label="Centro de custo" value={request.costCenter.name} />
-            {request.constructionSite && (
-              <InfoRow label="Obra" value={request.constructionSite.name} />
-            )}
+            <InfoRow label="Obra" value={request.constructionSite.name} />
+            <InfoRow
+              label="Centro de custo"
+              value={request.costCenter?.name ?? 'A definir na Ordem de Compra'}
+            />
             <InfoRow label="Solicitante" value={request.requestedBy.name} />
             <InfoRow label="Data" value={formatDate(request.createdAt)} />
           </div>

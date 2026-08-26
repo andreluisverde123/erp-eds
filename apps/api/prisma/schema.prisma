@@ -73,6 +73,25 @@ enum AccountPayableStatus {
   CANCELLED
 }
 
+/// Como o boleto entrou no sistema.
+enum BankSlipSource {
+  /// Arquivo enviado e lido pelo extrator.
+  PDF_UPLOAD
+  /// Linha digitável informada por uma pessoa — caminho de primeira classe,
+  /// não remendo: boleto escaneado e PDF de layout exótico caem aqui, e a
+  /// linha digitável sozinha já traz banco, valor e vencimento.
+  MANUAL_ENTRY
+}
+
+/// Situação do boleto dentro do fluxo de conferência.
+enum BankSlipStatus {
+  /// Lido, aguardando alguém confirmar a qual conta a pagar ele pertence.
+  PENDING
+  /// Vinculado a uma conta a pagar. Não significa pago — pagamento continua
+  /// sendo `Payment`, e nada aqui dá baixa em nada.
+  LINKED
+}
+
 /// De onde a conta a pagar nasceu.
 ///
 /// DUAS opções, e não três, apesar de o negócio falar em "NF", "OC" e
@@ -247,6 +266,7 @@ model Company {
   invoices                Invoice[]
   accountsPayable         AccountPayable[]
   bankAccounts            BankAccount[]
+  bankSlips               BankSlip[]
   attachments             Attachment[]
   auditLogs               AuditLog[]
   workflowComments        WorkflowComment[]
@@ -307,6 +327,8 @@ model User {
   fiscalCertificates        FiscalCertificate[]
   fiscalSyncRuns            FiscalSyncRun[]
   bankAccounts              BankAccount[]
+  uploadedBankSlips         BankSlip[]          @relation("BankSlipUploadedBy")
+  linkedBankSlips           BankSlip[]          @relation("BankSlipLinkedBy")
 
   @@index([companyId])
   /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
@@ -540,6 +562,7 @@ model Supplier {
   invoices        Invoice[]
   inboundInvoices InboundInvoice[]
   accountsPayable AccountPayable[]
+  bankSlips       BankSlip[]
 
   @@unique([companyId, document])
   @@index([companyId])
@@ -555,13 +578,20 @@ model Supplier {
 model PurchaseRequest {
   id                 String                @id @default(uuid()) @db.Uuid
   companyId          String                @db.Uuid
-  /// DERIVADO do centro de custo, nunca informado pelo solicitante: quem abre
-  /// a solicitação escolhe só o centro de custo, e o destino da compra pode
-  /// não ser uma obra (Escritório, Fazenda). Fica nulo nesses casos — por isso
-  /// é opcional. Continua materializado na linha (em vez de sempre navegar
-  /// pelo centro de custo) porque relatórios e indicadores agrupam por obra.
-  constructionSiteId String?               @db.Uuid
-  costCenterId       String                @db.Uuid
+  /// ESCOLHIDO pelo solicitante, e o primeiro campo do formulário. Antes era
+  /// derivado do centro de custo — quem pedia material escolhia uma conta
+  /// contábil e a obra saía dela por tabela. A inversão existe porque quem
+  /// abre a solicitação sabe para qual obra está pedindo, e frequentemente
+  /// não sabe (nem deveria precisar saber) em qual centro de custo aquilo
+  /// entra.
+  constructionSiteId String                @db.Uuid
+  /// OPCIONAL, e preenchido por quem souber: o solicitante, se conhecer o
+  /// centro de custo, ou Compras na emissão da Ordem — que é onde ele volta a
+  /// ser obrigatório. Mesma divisão de trabalho já aplicada ao preço, que o
+  /// solicitante não informa e a cotação define.
+  ///
+  /// Quando informado, precisa pertencer à obra escolhida; o service valida.
+  costCenterId       String?               @db.Uuid
   requestedById      String                @db.Uuid
   code               String
   status             PurchaseRequestStatus @default(DRAFT)
@@ -571,10 +601,10 @@ model PurchaseRequest {
   updatedAt          DateTime              @updatedAt
   deletedAt          DateTime?
 
-  company          Company           @relation(fields: [companyId], references: [id])
-  constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
-  costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
-  requestedBy      User              @relation(fields: [requestedById], references: [id])
+  company          Company          @relation(fields: [companyId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+  costCenter       CostCenter?      @relation(fields: [costCenterId], references: [id])
+  requestedBy      User             @relation(fields: [requestedById], references: [id])
 
   items          PurchaseRequestItem[]
   purchaseOrders PurchaseOrder[]
@@ -1182,7 +1212,8 @@ model AccountPayable {
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
 
-  payments Payment[]
+  payments  Payment[]
+  bankSlips BankSlip[]
 
   @@index([invoiceId])
   @@index([dueDate])
@@ -1197,6 +1228,97 @@ model AccountPayable {
 /// AccountPayable para suportar pagamentos parciais. Tem ciclo de vida
 /// próprio (`status`) e soft delete, como as demais entidades do módulo —
 /// só pagamentos com status PAID contam pro saldo quitado da parcela.
+/// Boleto recebido do fornecedor.
+///
+/// Documento COMPLEMENTAR: ele não cria despesa e não substitui a origem da
+/// conta a pagar. A conta continua nascendo de nota conciliada ou de
+/// lançamento avulso, com a cadeia até a obra intacta; o boleto só diz por
+/// qual papel aquela conta será paga.
+///
+/// ## Nada aqui paga nada
+///
+/// Vincular não é dar baixa. Pagamento continua sendo `Payment`, com as
+/// permissões e o fluxo que já existiam.
+///
+/// ## Os campos extraídos são IMUTÁVEIS
+///
+/// Nenhum deles aparece em DTO de edição. Não é convenção, é estrutura: o que
+/// foi lido do documento não pode ser "corrigido" silenciosamente para casar
+/// com uma conta a pagar. As correções que existem moram em colunas PRÓPRIAS
+/// (`supplierId` escolhido à mão quando o CNPJ não casou), então o valor
+/// original continua legível ao lado da decisão de quem conferiu.
+///
+/// ## Duplicidade
+///
+/// A linha digitável É a identidade do boleto — dois arquivos diferentes do
+/// mesmo título têm a mesma linha. Daí a unique por empresa. `fileHash` existe
+/// para uma mensagem melhor ("este mesmo arquivo já foi enviado"), não como
+/// chave: arquivo é o continente, a linha é o conteúdo.
+model BankSlip {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  source BankSlipSource
+  status BankSlipStatus @default(PENDING)
+
+  /// SHA-256 do arquivo enviado. Nulo na digitação manual, que não tem arquivo.
+  fileHash String? @db.VarChar(64)
+
+  // ── Lido do documento, nunca editável ──────────────────────────────────
+  /// 47 dígitos, sem máscara.
+  digitableLine String    @db.VarChar(47)
+  /// 44 dígitos, derivados da linha — guardado porque é o que um leitor de
+  /// código de barras devolve, e a busca por ele precisa ser direta.
+  barcode       String    @db.VarChar(44)
+  bankCode      String    @db.VarChar(3)
+  /// Nulo em boleto "sem valor" (quantia definida no pagamento). Distinto de
+  /// "valor não identificado", que não existe: ou a linha digitável foi lida,
+  /// e então o valor veio com ela, ou o boleto não entrou.
+  amount        Decimal?  @db.Decimal(14, 2)
+  /// Nulo quando o fator de vencimento é 0000 — boleto sem vencimento.
+  dueDate       DateTime?
+
+  /// Campos que só o texto do PDF traz, quando traz. Todos opcionais: a linha
+  /// digitável não carrega beneficiário, e é ela que sustenta o resto.
+  beneficiaryName     String?
+  /// Só dígitos, como todo documento do sistema.
+  beneficiaryDocument String?   @db.VarChar(14)
+  documentNumber      String?
+  ourNumber           String?
+  issueDate           DateTime?
+
+  // ── Decisões de quem conferiu ──────────────────────────────────────────
+  /// Fornecedor identificado pelo CNPJ do beneficiário ou escolhido à mão.
+  /// Nulo enquanto ninguém resolveu. NÃO é criado automaticamente: cadastrar
+  /// fornecedor a partir de um boleto criaria cadastro que ninguém conferiu.
+  supplierId             String? @db.Uuid
+  /// Ligado quando o fornecedor foi escolhido por uma pessoa, e não pelo CNPJ.
+  /// A distinção importa na auditoria: uma é leitura, a outra é decisão.
+  supplierChosenManually Boolean @default(false)
+
+  accountPayableId String?   @db.Uuid
+  linkedAt         DateTime?
+  linkedById       String?   @db.Uuid
+
+  uploadedById String   @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
+  accountPayable AccountPayable? @relation(fields: [accountPayableId], references: [id])
+  uploadedBy     User            @relation("BankSlipUploadedBy", fields: [uploadedById], references: [id])
+  linkedBy       User?           @relation("BankSlipLinkedBy", fields: [linkedById], references: [id])
+
+  /// A identidade do boleto, por empresa. É o que impede o mesmo título de
+  /// entrar duas vezes e virar pagamento em dobro.
+  @@unique([companyId, digitableLine])
+  @@index([companyId, status])
+  @@index([accountPayableId])
+  @@index([supplierId])
+  @@index([dueDate])
+}
+
 model Payment {
   id               String              @id @default(uuid()) @db.Uuid
   accountPayableId String              @db.Uuid

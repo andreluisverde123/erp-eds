@@ -72,7 +72,7 @@ function ComprasDetailBody({ requestId }: { requestId: string }) {
             variant={getComprasStageBadgeVariant(data.stage)}
           />
         </div>
-        <SheetDescription>{data.costCenter.name}</SheetDescription>
+        <SheetDescription>{data.constructionSite.name}</SheetDescription>
       </div>
 
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">

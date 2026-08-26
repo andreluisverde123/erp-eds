@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import {
   Alert,
   AlertTitle,
@@ -22,10 +22,12 @@ import {
 } from '@repo/ui';
 
 import { ApiError } from '@/lib/api-client';
+import { useConstructionSites } from '@/features/engenharia/hooks/use-construction-sites';
 import { useCostCenters } from '@/features/engenharia/hooks/use-cost-centers';
 
 import {
   purchaseRequestFormSchema,
+  SEM_CENTRO_DE_CUSTO,
   toPurchaseRequestInput,
   type PurchaseRequestFormValues,
 } from '../purchase-request-form-schema';
@@ -54,7 +56,20 @@ export function PurchaseRequestForm({
     defaultValues,
   });
 
-  const { data: costCentersData } = useCostCenters({ limit: 100 });
+  // `useWatch` e não `form.watch()`: o React Compiler não consegue memoizar a
+  // função devolvida pelo `watch` e pula a otimização do componente inteiro.
+  // Mesmo padrão do drawer da ordem e da grade de itens.
+  const constructionSiteId = useWatch({ control: form.control, name: 'constructionSiteId' });
+
+  const { data: constructionSitesData } = useConstructionSites({ limit: 100 });
+  // `enabled` segura a busca até haver obra: sem ela a lista viria com os
+  // centros de custo da empresa inteira, e escolher um de outra obra é
+  // exatamente o que a API recusa.
+  const { data: costCentersData } = useCostCenters({
+    limit: 100,
+    constructionSiteId,
+    enabled: Boolean(constructionSiteId),
+  });
 
   async function handleSubmit(values: PurchaseRequestFormValues) {
     setSubmitError(null);
@@ -84,32 +99,80 @@ export function PurchaseRequestForm({
         <Card>
           <CardContent className="flex flex-col gap-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Campo único de destino. A obra saiu do formulário: na operação
-                  ela e o centro de custo diziam a mesma coisa, e o centro de
-                  custo ainda cobre destinos que não são obra (Escritório,
-                  Fazenda). Quando o centro escolhido pertence a uma obra, a
-                  API faz esse vínculo sozinha. */}
+              {/* A obra vem primeiro e é obrigatória: quem abre a solicitação
+                  sabe para onde o material vai. O centro de custo é opcional e
+                  fica logo ao lado, dependente dela. */}
+              <FormField
+                control={form.control}
+                name="constructionSiteId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Obra</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Trocar de obra invalida o centro de custo escolhido:
+                        // ele pertencia à obra anterior, e a API recusaria o
+                        // par. Limpar aqui evita o erro chegar no envio.
+                        form.setValue('costCenterId', '');
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecione a obra" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {constructionSitesData?.data.map((site) => (
+                          <SelectItem key={site.id} value={site.id}>
+                            <span>{site.name}</span>
+                            <span className="text-muted-foreground">{site.code}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Opcional de propósito: o solicitante nem sempre sabe em qual
+                  conta a compra entra, e Compras informa na emissão da Ordem —
+                  onde o campo volta a ser obrigatório. */}
               <FormField
                 control={form.control}
                 name="costCenterId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Centro de Custo</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <FormLabel>
+                      Centro de Custo{' '}
+                      <span className="text-muted-foreground font-normal">(opcional)</span>
+                    </FormLabel>
+                    <Select
+                      value={field.value || undefined}
+                      onValueChange={(value) =>
+                        field.onChange(value === SEM_CENTRO_DE_CUSTO ? '' : value)
+                      }
+                      disabled={!constructionSiteId}
+                    >
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Selecione o centro de custo" />
+                          <SelectValue
+                            placeholder={
+                              constructionSiteId ? 'Sem centro de custo' : 'Escolha a obra primeiro'
+                            }
+                          />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+                        <SelectItem value={SEM_CENTRO_DE_CUSTO}>
+                          <span className="text-muted-foreground">Sem centro de custo</span>
+                        </SelectItem>
                         {costCentersData?.data.map((costCenter) => (
                           <SelectItem key={costCenter.id} value={costCenter.id}>
                             <span>{costCenter.name}</span>
-                            {costCenter.constructionSite && (
-                              <span className="text-muted-foreground">
-                                {costCenter.constructionSite.name}
-                              </span>
-                            )}
+                            <span className="text-muted-foreground">{costCenter.code}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>

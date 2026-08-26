@@ -14,9 +14,10 @@ const listSelect = {
   createdAt: true,
   updatedAt: true,
   requestedBy: { select: { id: true, name: true } },
-  // Destino da solicitação. Era a obra; virou o centro de custo quando a obra
-  // saiu do formulário e passou a poder ser nula.
-  costCenter: { select: { id: true, name: true } },
+  // Destino da solicitação — de volta a ser a obra, que voltou ao formulário
+  // como campo obrigatório. O centro de custo virou o opcional, e o pipeline
+  // precisa de uma coluna que nunca aparece vazia.
+  constructionSite: { select: { id: true, name: true } },
   purchaseOrders: {
     where: { deletedAt: null },
     select: {
@@ -32,7 +33,7 @@ export interface ComprasPipelineListRow {
   code: string;
   stage: ComprasStage;
   requestedBy: { id: string; name: string };
-  costCenter: { id: string; name: string };
+  constructionSite: { id: string; name: string };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,7 +65,7 @@ export class ComprasPipelineService {
       code: row.code,
       stage: deriveComprasStage(row, row.purchaseOrders),
       requestedBy: row.requestedBy,
-      costCenter: row.costCenter,
+      constructionSite: row.constructionSite,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }));
@@ -141,7 +142,7 @@ export class ComprasPipelineService {
       stage,
       status: request.status,
       requestedBy: request.requestedBy,
-      costCenter: request.costCenter,
+      constructionSite: request.constructionSite,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
       purchaseOrders: request.purchaseOrders,

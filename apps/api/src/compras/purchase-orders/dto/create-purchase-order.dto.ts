@@ -19,6 +19,17 @@ export class CreatePurchaseOrderDto {
   @IsUUID(undefined, { message: 'Fornecedor inválido.' })
   supplierId!: string;
 
+  /// O centro de custo da ordem, que Compras informa quando a solicitação veio
+  /// sem ele — o solicitante escolhe a obra e nem sempre sabe a conta.
+  ///
+  /// Opcional no DTO e obrigatório no resultado: o service usa este valor
+  /// quando vem, cai no da solicitação quando não vem, e recusa a emissão se
+  /// não houver nenhum dos dois. Em `PurchaseOrder` a coluna continua NOT NULL
+  /// — nenhuma ordem sai daqui sem atribuição de custo.
+  @IsOptional()
+  @IsUUID(undefined, { message: 'Centro de custo inválido.' })
+  costCenterId?: string;
+
   @IsISO8601(undefined, { message: 'Data de emissão inválida.' })
   issueDate!: string;
 

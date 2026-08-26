@@ -64,9 +64,10 @@ export class SearchService {
       }),
       this.prisma.purchaseRequest.findMany({
         where: { companyId, deletedAt: null, code: insensitive },
-        // O centro de custo é o destino da solicitação e sempre existe; a obra
-        // deixou de ser obrigatória, então não serve mais como subtítulo.
-        select: { id: true, code: true, costCenter: { select: { name: true } } },
+        // A obra voltou a ser o destino da solicitação e agora é obrigatória —
+        // o centro de custo é que passou a ser opcional, e um subtítulo que
+        // some em metade dos resultados não serve.
+        select: { id: true, code: true, constructionSite: { select: { name: true } } },
         take: RESULTS_PER_TYPE,
       }),
       this.prisma.employee.findMany({
@@ -122,7 +123,7 @@ export class SearchService {
       purchaseRequests: purchaseRequests.map((request) => ({
         id: request.id,
         title: request.code,
-        subtitle: request.costCenter.name,
+        subtitle: request.constructionSite.name,
         path: `/engenharia/solicitacoes/${request.id}`,
       })),
       employees: employees.map((employee) => ({

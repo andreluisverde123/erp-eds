@@ -91,10 +91,12 @@ export interface PurchaseRequestListItem {
   status: PurchaseRequestStatus;
   notes: string | null;
   createdAt: string;
-  /// Derivada do centro de custo pela API — nula quando o destino não é uma
-  /// obra (Escritório, Fazenda...). O formulário não pergunta mais a obra.
-  constructionSite: ConstructionSiteRef | null;
-  costCenter: CostCenterRef;
+  /// Escolhida no formulário e obrigatória — voltou a ser o destino da
+  /// solicitação.
+  constructionSite: ConstructionSiteRef;
+  /// Nulo quando o solicitante não soube informar. Compras preenche na emissão
+  /// da Ordem de Compra, onde ele volta a ser obrigatório.
+  costCenter: CostCenterRef | null;
   requestedBy: { id: string; name: string };
   estimatedTotal: number;
 }
@@ -113,7 +115,10 @@ export interface PurchaseRequestDetail extends PurchaseRequestListItem {
 }
 
 export interface PurchaseRequestInput {
-  costCenterId: string;
+  constructionSiteId: string;
+  /// `null` limpa a atribuição na edição de um rascunho; omitir manteria a
+  /// que já está gravada.
+  costCenterId: string | null;
   notes?: string;
   items: PurchaseRequestItemInput[];
 }
@@ -214,6 +219,9 @@ export interface PurchaseOrderItemInput {
 export interface PurchaseOrderInput {
   purchaseRequestId: string;
   supplierId: string;
+  /// A atribuição de custo da ordem. A solicitação pode ter vindo sem uma, e é
+  /// na emissão que ela deixa de ser opcional.
+  costCenterId: string;
   /// Sem `totalAmount`: o total da ordem é a soma dos itens, calculada pelo
   /// backend. A tela mostra a soma enquanto o usuário digita, mas o número
   /// que vale é o que volta do servidor.
