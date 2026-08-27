@@ -138,20 +138,26 @@ DRAFT ──▶ PENDING ──▶ QUOTING ──▶ APPROVED
   └──────────┴───────────┴────────────┴──▶ CANCELLED  (terminal)
 ```
 
-| #    | Regra                                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------------------- |
-| C-1  | O fluxo é linear e só anda para frente. Voltar status é recusado.                                                         |
-| C-2  | `CANCELLED` é alcançável de qualquer estado não-terminal, e é terminal: de lá não se sai.                                 |
-| C-3  | `QUOTING` é rótulo de estágio. Não há cotação múltipla com comparativo de fornecedores.                                   |
-| C-4  | A solicitação só é editável em `DRAFT`. Depois de enviada, o conteúdo está congelado.                                     |
-| C-5  | O solicitante (`compras.request`) faz sozinho duas transições, e só a partir do rascunho: enviar para Compras e cancelar. |
-| C-6  | Da `PENDING` em diante, quem conduz é `compras.manage`.                                                                   |
-| C-7  | Aprovar acima da alçada exige `compras.approve` (A-3).                                                                    |
-| C-8  | Total estimado = soma de (quantidade × preço unitário estimado) dos itens. Item sem preço entra como zero.                |
-| C-9  | Código `SOL-0001`, sequencial por empresa.                                                                                |
-| C-10 | A obra é opcional na solicitação; o centro de custo é o vínculo que importa.                                              |
+| #    | Regra                                                                                                                                                                                                                                                                                                                        |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-1  | O fluxo é linear e só anda para frente. Voltar status é recusado.                                                                                                                                                                                                                                                            |
+| C-2  | `CANCELLED` é alcançável de qualquer estado não-terminal, e é terminal: de lá não se sai.                                                                                                                                                                                                                                    |
+| C-3  | `QUOTING` é rótulo de estágio. Não há cotação múltipla com comparativo de fornecedores.                                                                                                                                                                                                                                      |
+| C-4  | A solicitação só é editável em `DRAFT`. Depois de enviada, o conteúdo está congelado.                                                                                                                                                                                                                                        |
+| C-5  | O solicitante (`compras.request`) faz sozinho duas transições, e só a partir do rascunho: enviar para Compras e cancelar.                                                                                                                                                                                                    |
+| C-6  | Da `PENDING` em diante, quem conduz é `compras.manage`.                                                                                                                                                                                                                                                                      |
+| C-7  | Aprovar acima da alçada exige `compras.approve` (A-3).                                                                                                                                                                                                                                                                       |
+| C-8  | Total da solicitação = subtotal dos itens **disponíveis** − descontos de item − desconto geral (C-18). Item sem preço entra como zero; item não disponível fica FORA da soma.                                                                                                                                                |
+| C-9  | Código `SOL-0001`, sequencial por empresa.                                                                                                                                                                                                                                                                                   |
+| C-10 | A obra é opcional na solicitação; o centro de custo é o vínculo que importa.                                                                                                                                                                                                                                                 |
+| C-16 | **Cotação parcial.** O fornecedor pode não ter todos os itens. Cada item da cotação tem disponibilidade explícita (`unavailable`), e o item não disponível fica sem preço, com observação opcional (`unavailabilityNote`). Preço nulo é "ainda não cotado" e preço zero é brinde — nenhum dos dois significa "não tem".      |
+| C-17 | Uma cotação precisa ter **ao menos um item disponível com preço**. Não há regra de aprovação nova: com esse mínimo, a solicitação segue o fluxo C-1..C-7 normalmente. Marcar item como não disponível não o remove da solicitação — a mesma linha pode ser cotada de novo ou comprada de outro fornecedor.                   |
+| C-18 | **Desconto na cotação, em dois níveis.** Por item, sobre `quantidade × preço unitário`; geral, sobre o subtotal **já líquido** dos descontos de item. A ordem é fixa: bruto da linha → desconto do item → soma → desconto geral → total. Aplicar o desconto geral sobre o bruto contaria o mesmo abatimento duas vezes.      |
+| C-19 | Cada desconto guarda COMO foi informado (`AMOUNT` em reais ou `PERCENT`) e quanto. Nada de desconto em item não disponível ou sem preço, nem desconto negativo, acima de 100% ou maior que a base sobre a qual incide — recusado no backend, com a base conferida como ela FICARÁ depois do patch. O total nunca é negativo. |
+| C-20 | Nenhum total é gravado em `PurchaseRequest`: o resumo financeiro é derivado a cada leitura por `compras/purchase-requests/quote-totals.ts` — a mesma função que a API, o PDF e a tela usam. A alçada de aprovação (C-7) usa o TOTAL FINAL, depois dos dois descontos.                                                        |
 
-Definido em `compras/purchase-requests/purchase-requests.service.ts`.
+Definido em `compras/purchase-requests/purchase-requests.service.ts`; a conta dos
+totais, em `compras/purchase-requests/quote-totals.ts`.
 
 ### 5.2 Ordem de compra
 
@@ -271,15 +277,15 @@ Definido em `terceiros/contracts/contract-status.util.ts`.
 Ausências deliberadas. Estão aqui para que ninguém as implemente por engano
 achando que é lacuna.
 
-| Ausência                                | Por quê                                                 |
-| --------------------------------------- | ------------------------------------------------------- |
-| Auto-cadastro de empresa                | Uma empresa só. Acesso é concedido por administrador.   |
-| Planos, cobrança, limite de uso         | Sistema proprietário, não vendido.                      |
-| Administração entre empresas            | Não há segunda empresa a administrar.                   |
-| Marca configurável por cliente          | A marca é a da EDS, fixa.                               |
-| Aprovação em vários níveis              | Alçada de um nível atende o fluxo atual.                |
-| Cotação com comparativo de fornecedores | `QUOTING` é rótulo de estágio; a cotação acontece fora. |
-| Folha de pagamento calculada            | O cálculo é externo; o sistema guarda o holerite.       |
+| Ausência                                | Por quê                                                                                                                                                                                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auto-cadastro de empresa                | Uma empresa só. Acesso é concedido por administrador.                                                                                                                                                                         |
+| Planos, cobrança, limite de uso         | Sistema proprietário, não vendido.                                                                                                                                                                                            |
+| Administração entre empresas            | Não há segunda empresa a administrar.                                                                                                                                                                                         |
+| Marca configurável por cliente          | A marca é a da EDS, fixa.                                                                                                                                                                                                     |
+| Aprovação em vários níveis              | Alçada de um nível atende o fluxo atual.                                                                                                                                                                                      |
+| Cotação com comparativo de fornecedores | `QUOTING` é rótulo de estágio e a cotação de cada fornecedor acontece fora. O sistema guarda UM resultado por solicitação — inclusive o que o fornecedor não tinha (C-16). Comparar A × B lado a lado exigiria entidade nova. |
+| Folha de pagamento calculada            | O cálculo é externo; o sistema guarda o holerite.                                                                                                                                                                             |
 
 ---
 

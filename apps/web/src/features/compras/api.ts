@@ -83,6 +83,12 @@ export function createPurchaseOrder(input: PurchaseOrderInput): Promise<Purchase
   return apiClient.post('/purchase-orders', input);
 }
 
+/// Baixa o PDF da solicitação. Mesmo caminho do PDF da ordem — ver a nota
+/// abaixo sobre `downloadFile`.
+export function downloadPurchaseRequestPdf(id: string, code: string): Promise<void> {
+  return downloadFile(`/purchase-requests/${id}/pdf`, `${code}.pdf`);
+}
+
 /// Baixa o PDF da ordem. Usa o `downloadFile` que Relatórios já usa: o token
 /// vai em header, então um `<a href>` simples voltaria 401.
 export function downloadPurchaseOrderPdf(id: string, code: string): Promise<void> {

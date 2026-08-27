@@ -15,6 +15,10 @@ const purchaseOrderItemSchema = z.object({
   description: z.string(),
   unit: z.string(),
   requestedQuantity: z.string(),
+  /// A cotação disse que o fornecedor dela não tinha este item. Também só
+  /// EXIBE: não bloqueia nada, porque a ordem pode ser para OUTRO fornecedor
+  /// — que é justamente como o item volta a ser comprado.
+  unavailableInQuote: z.boolean(),
   selected: z.boolean(),
   quantity: z.string(),
   unitPrice: z.string(),
@@ -88,6 +92,7 @@ export function itemsFromPurchaseRequest(
     unit: string;
     quantity: string;
     estimatedUnitPrice: string | null;
+    unavailable: boolean;
   }[],
 ): PurchaseOrderItemFormValues[] {
   return items.map((item) => ({
@@ -95,9 +100,16 @@ export function itemsFromPurchaseRequest(
     description: item.description,
     unit: item.unit,
     requestedQuantity: item.quantity,
+    unavailableInQuote: item.unavailable,
     // Todas marcadas por padrão: comprar a solicitação inteira é o caso
     // comum; desmarcar é o que faz a compra parcial.
-    selected: true,
+    //
+    // Exceto o que a cotação não achou — esse nasce DESMARCADO, porque não
+    // tem preço e não foi negociado. Nasce desmarcado, não bloqueado: se
+    // esta ordem for para outro fornecedor, o comprador remarca e digita o
+    // valor. É assim que a torneira que o fornecedor A não tinha vira compra
+    // do fornecedor B.
+    selected: !item.unavailable,
     quantity: String(Number(item.quantity)),
     // Sem cotação o campo nasce vazio, para o comprador informar o negociado
     // em vez de partir de um zero que parece preço.

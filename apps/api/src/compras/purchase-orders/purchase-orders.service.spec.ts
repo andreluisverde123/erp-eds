@@ -884,4 +884,26 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       expect(servico.updateAccountPayable).toBeUndefined();
     });
   });
+
+  describe('10. Item que a cotação marcou como não disponível', () => {
+    /// A cotação pode dizer que UM fornecedor não tem o item. A ordem é
+    /// emitida a UM fornecedor — e pode ser outro. Barrar a linha aqui
+    /// impediria exatamente o caso que o cliente descreveu: o fornecedor A
+    /// não tem a torneira, o B tem por R$ 450.
+    ///
+    /// Quem sinaliza o estado é a tela (a linha nasce desmarcada, com o aviso
+    /// da cotação); a decisão continua sendo do comprador.
+    it('continua podendo virar linha de ordem — a compra é de outro fornecedor', async () => {
+      const { service, criados } = makeService();
+
+      await service.create(EMPRESA_A, {
+        ...BASE,
+        costCenterId: 'cc-1',
+        items: [{ purchaseRequestItemId: 'item-areia', quantity: 5, unitPrice: 90 }],
+      });
+
+      expect(itensCriados(criados)).toHaveLength(1);
+      expect(totalGravado(criados)).toBe('450');
+    });
+  });
 });

@@ -84,6 +84,13 @@ export function PurchaseOrderItemsPicker({
                       compra parcial
                     </span>
                   )}
+                  {/* Explica por que a linha veio desmarcada e sem preço, em
+                      vez de deixar o comprador achar que esqueceram dela. */}
+                  {item.unavailableInQuote && (
+                    <span className="block text-xs text-muted-foreground">
+                      não disponível na cotação — marque se este fornecedor tiver
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-2 align-top">
                   <Controller

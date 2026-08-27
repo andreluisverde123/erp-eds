@@ -50,6 +50,15 @@ enum PurchaseRequestStatus {
   CANCELLED
 }
 
+/// Como um desconto foi INFORMADO. O valor em reais é sempre derivado da
+/// base a que o desconto se aplica — guardar o tipo preserva a intenção de
+/// quem digitou: "10%" continua valendo 10% se o preço mudar, enquanto
+/// "R$ 100" continua sendo cem reais.
+enum DiscountType {
+  AMOUNT
+  PERCENT
+}
+
 enum PurchaseOrderStatus {
   OPEN
   ISSUED
@@ -597,6 +606,18 @@ model PurchaseRequest {
   status             PurchaseRequestStatus @default(DRAFT)
   notes              String?
   neededBy           DateTime?
+  /// DESCONTO GERAL da cotação, aplicado sobre o subtotal JÁ LÍQUIDO dos
+  /// descontos de item — nunca sobre o bruto, senão o mesmo abatimento
+  /// entraria duas vezes. Ver `quote-totals.ts`.
+  ///
+  /// `0` é a ausência de desconto, e é o padrão: nenhuma solicitação existente
+  /// muda de valor por causa desta coluna.
+  ///
+  /// O total NÃO é gravado. Ele é derivado de itens + descontos a cada
+  /// leitura, como sempre foi — o que está aqui é a ENTRADA do cálculo, não o
+  /// resultado dele.
+  discountType       DiscountType          @default(AMOUNT)
+  discountValue      Decimal               @default(0) @db.Decimal(14, 2)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   deletedAt          DateTime?
@@ -629,6 +650,35 @@ model PurchaseRequestItem {
   unit               String
   estimatedUnitPrice Decimal? @db.Decimal(14, 2)
   notes              String?
+  /// DISPONIBILIDADE NA COTAÇÃO. `false` (o padrão) cobre dois casos que o
+  /// preço distingue sozinho: item ainda não cotado (`estimatedUnitPrice`
+  /// nulo) e item cotado (com preço). `true` é o terceiro estado, o que não
+  /// existia: Compras procurou e o fornecedor NÃO TEM.
+  ///
+  /// Precisa ser explícito porque preço nulo já significa "ninguém cotou
+  /// ainda", e preço zero significa brinde/bonificação (ver
+  /// `purchase-order-form-schema.ts`). Nenhum dos dois pode ser reaproveitado
+  /// para dizer "não tem" sem tornar o dado ambíguo.
+  ///
+  /// Item indisponível NÃO entra no total estimado e NÃO some da solicitação:
+  /// a linha continua íntegra e pode virar item de ordem de compra de outro
+  /// fornecedor depois (ver `PurchaseOrderItem`).
+  unavailable        Boolean  @default(false)
+  /// Por que o fornecedor não tem ("sem estoque", "fora de linha"). Opcional,
+  /// e só faz sentido com `unavailable = true` — o service limpa quando o
+  /// item volta a disponível.
+  ///
+  /// Separado de `notes` de propósito: `notes` é a observação de QUEM PEDIU e
+  /// aparece como tal na tela; sobrescrevê-la com um recado de Compras
+  /// apagaria o que o solicitante escreveu.
+  unavailabilityNote String?
+  /// DESCONTO DESTA LINHA, aplicado sobre `quantidade × preço unitário`.
+  ///
+  /// Só existe em item disponível e cotado: sem preço não há base sobre a
+  /// qual descontar, e item que o fornecedor não tem está fora da conta
+  /// inteira (regra C-16). O service limpa o desconto nos dois casos.
+  discountType       DiscountType @default(AMOUNT)
+  discountValue      Decimal      @default(0) @db.Decimal(14, 2)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

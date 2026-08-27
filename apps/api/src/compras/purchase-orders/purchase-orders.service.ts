@@ -7,8 +7,9 @@ import { nextSequentialCode } from '../../common/utils/sequential-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { buildFinancialStatus, type PurchaseOrderFinancialStatus } from './financial-status.util';
+import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
+import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
 import { buildPurchaseOrderDocument } from './pdf/purchase-order-document';
-import { renderPurchaseOrderPdf, type RenderedPdf } from './pdf/purchase-order-pdf';
 import { PurchaseOrderItemInputDto } from './dto/purchase-order-item-input.dto';
 import { QueryPurchaseOrderDto } from './dto/query-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
@@ -400,23 +401,10 @@ export class PurchaseOrdersService {
     // distância de qualquer refatoração futura.
     const company = await this.prisma.company.findFirstOrThrow({
       where: { id: companyId },
-      select: {
-        legalName: true,
-        tradeName: true,
-        cnpj: true,
-        stateRegistration: true,
-        email: true,
-        phone: true,
-        addressLine: true,
-        addressNumber: true,
-        addressComplement: true,
-        city: true,
-        state: true,
-        zipCode: true,
-      },
+      select: COMPANY_HEADER_SELECT,
     });
 
-    const rendered = await renderPurchaseOrderPdf(buildPurchaseOrderDocument(order, company));
+    const rendered = await renderDocumentPdf(buildPurchaseOrderDocument(order, company));
     return { ...rendered, code: order.code };
   }
 

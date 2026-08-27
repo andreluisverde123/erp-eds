@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,7 +11,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
@@ -34,6 +37,28 @@ export class PurchaseRequestsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('companyId') companyId: string) {
     return this.purchaseRequestsService.findOne(companyId, id);
+  }
+
+  /// PDF da solicitação.
+  ///
+  /// Mesma permissão do `findOne` (`compras.view`), de propósito: quem pode
+  /// VER a solicitação pode imprimi-la, e quem não pode ver recebe o mesmo 403
+  /// de sempre. Nenhuma regra de RBAC nova foi criada para o documento —
+  /// mesma decisão já tomada no PDF da ordem de compra.
+  @Get(':id/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async pdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, code } = await this.purchaseRequestsService.generatePdf(companyId, id);
+
+    // `inline`: quem gera confere na tela antes de imprimir ou encaminhar. O
+    // navegador continua permitindo salvar.
+    res.setHeader('Content-Disposition', `inline; filename="${code}.pdf"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   /// Abrir e editar solicitação é `compras.request`, não `compras.manage`:

@@ -1,12 +1,17 @@
 import PDFDocument from 'pdfkit';
 
-import type { DocumentField, DocumentRow, PurchaseOrderDocument } from './purchase-order-document';
+import type {
+  DocumentBlock,
+  DocumentColumn,
+  DocumentRow,
+  PrintableDocument,
+} from './printable-document';
 
-/// Desenho do PDF da Ordem de Compra.
+/// Desenho de um documento imprimível.
 ///
-/// Só posicionamento: todo o conteúdo já chega formatado de
-/// `buildPurchaseOrderDocument`. A regra que este arquivo precisa acertar é
-/// uma só — nada pode ser cortado.
+/// Só posicionamento: todo o conteúdo já chega formatado do builder do
+/// documento (`buildPurchaseOrderDocument`, `buildPurchaseRequestDocument`).
+/// A regra que este arquivo precisa acertar é uma só — nada pode ser cortado.
 
 const MARGIN = 40;
 const FONT = 'Helvetica';
@@ -15,18 +20,6 @@ const FONT_BOLD = 'Helvetica-Bold';
 const GRAY = '#666666';
 const LINE = '#cccccc';
 const BLACK = '#000000';
-
-/// Larguras da tabela de itens, em proporção da largura útil. Somam 1.
-/// Descrição fica com quase metade porque é a única coluna que quebra em
-/// várias linhas; as demais têm tamanho previsível.
-const COLUMNS = [
-  { key: 'description', label: 'Descrição', width: 0.4, align: 'left' },
-  { key: 'quantity', label: 'Qtd.', width: 0.09, align: 'right' },
-  { key: 'unit', label: 'Un.', width: 0.07, align: 'left' },
-  { key: 'unitPrice', label: 'Valor Unit.', width: 0.14, align: 'right' },
-  { key: 'totalPrice', label: 'Valor Total', width: 0.15, align: 'right' },
-  { key: 'origin', label: 'Origem', width: 0.15, align: 'left' },
-] as const;
 
 const CELL_PADDING = 4;
 const ROW_FONT_SIZE = 9;
@@ -47,12 +40,13 @@ export type MeasureText = (text: string, width: number) => number;
 export function measureRowHeight(
   measure: MeasureText,
   row: DocumentRow,
+  columns: readonly DocumentColumn[],
   widths: number[],
 ): number {
   return Math.max(
     MIN_ROW_HEIGHT,
-    ...COLUMNS.map(
-      (column, index) => measure(row[column.key], widths[index]! - CELL_PADDING * 2) + 6,
+    ...columns.map(
+      (column, index) => measure(row[column.key] ?? '', widths[index]! - CELL_PADDING * 2) + 6,
     ),
   );
 }
@@ -60,14 +54,12 @@ export function measureRowHeight(
 export interface RenderedPdf {
   buffer: Buffer;
   /// Quantas páginas o documento tem. Existe para o teste conseguir afirmar
-  /// que uma ordem com muitos itens realmente paginou, em vez de confiar que
-  /// "deve ter paginado".
+  /// que um documento com muitos itens realmente paginou, em vez de confiar
+  /// que "deve ter paginado".
   pageCount: number;
 }
 
-export async function renderPurchaseOrderPdf(
-  document: PurchaseOrderDocument,
-): Promise<RenderedPdf> {
+export async function renderDocumentPdf(document: PrintableDocument): Promise<RenderedPdf> {
   // `bufferPages` mantém as páginas na memória até o fim, que é o que permite
   // escrever "Página 1 de 4" — o total só se conhece depois da última linha.
   const doc = new PDFDocument({ size: 'A4', margin: MARGIN, bufferPages: true });
@@ -88,7 +80,7 @@ export async function renderPurchaseOrderPdf(
   drawItemsTable(doc, document, left, usableWidth, bottomLimit);
   drawTotal(doc, document, left, usableWidth, bottomLimit);
   drawNotes(doc, document, left, usableWidth, bottomLimit);
-  drawTraceability(doc, document, left, usableWidth, bottomLimit);
+  drawFooterBlock(doc, document, left, usableWidth, bottomLimit);
 
   const range = doc.bufferedPageRange();
   drawFooters(doc, range, left, usableWidth);
@@ -101,7 +93,23 @@ export async function renderPurchaseOrderPdf(
 
 type Doc = InstanceType<typeof PDFDocument>;
 
-function drawCompanyHeader(doc: Doc, document: PurchaseOrderDocument, left: number, width: number) {
+const TITLE_SIZES = [15, 14, 13, 12, 11];
+
+/// O maior corpo em que o título cabe numa linha só. Devolve o menor da lista
+/// quando nenhum couber — um título gigante quebra, mas nunca some.
+///
+/// Quem chama define o corpo definitivo logo em seguida, então não há estado
+/// de fonte a restaurar aqui.
+function fitTitleSize(doc: Doc, title: string, width: number): number {
+  return (
+    TITLE_SIZES.find((size) => {
+      doc.fontSize(size);
+      return doc.widthOfString(title) <= width;
+    }) ?? TITLE_SIZES[TITLE_SIZES.length - 1]!
+  );
+}
+
+function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, width: number) {
   const titleWidth = width * 0.38;
   const infoWidth = width - titleWidth - 12;
   const top = doc.y;
@@ -117,11 +125,17 @@ function drawCompanyHeader(doc: Doc, document: PurchaseOrderDocument, left: numb
   const afterCompany = doc.y;
 
   // Título e número alinhados à direita, na altura do topo do cabeçalho.
+  //
+  // O corpo do título ENCOLHE para caber em uma linha. "ORDEM DE COMPRA" cabe
+  // a 15pt; "SOLICITAÇÃO DE COMPRA" não, e quebrava em "SOLICITAÇÃO DE /
+  // COMPRA" — legível, mas feio o bastante para parecer defeito. Encolher é
+  // preferível a alargar a coluna, que empurraria os dados da empresa.
   doc
     .font(FONT_BOLD)
-    .fontSize(15)
     .fillColor(BLACK)
-    .text(document.title, left + width - titleWidth, top, { width: titleWidth, align: 'right' });
+    .fontSize(fitTitleSize(doc, document.title, titleWidth));
+  doc.text(document.title, left + width - titleWidth, top, { width: titleWidth, align: 'right' });
+
   doc
     .font(FONT_BOLD)
     .fontSize(13)
@@ -135,25 +149,19 @@ function drawCompanyHeader(doc: Doc, document: PurchaseOrderDocument, left: numb
   doc.y = y + 10;
 }
 
-function drawInfoBlocks(doc: Doc, document: PurchaseOrderDocument, left: number, width: number) {
+function drawInfoBlocks(doc: Doc, document: PrintableDocument, left: number, width: number) {
+  if (document.blocks.length === 0) return;
+
   const columnWidth = (width - 16) / 2;
   const top = doc.y;
 
-  const rightStart = drawFieldBlock(doc, 'ORDEM DE COMPRA', document.orderFields, left, top, columnWidth);
-  const supplierFields: DocumentField[] = [
-    { label: 'Razão social', value: document.supplierName },
-    ...document.supplierFields,
-  ];
-  const leftEnd = drawFieldBlock(
-    doc,
-    'FORNECEDOR',
-    supplierFields,
-    left + columnWidth + 16,
-    top,
-    columnWidth,
-  );
+  const ends = document.blocks
+    .slice(0, 2)
+    .map((block, index) =>
+      drawFieldBlock(doc, block, left + index * (columnWidth + 16), top, columnWidth),
+    );
 
-  doc.y = Math.max(rightStart, leftEnd) + 10;
+  doc.y = Math.max(...ends) + 10;
   horizontalRule(doc, left, doc.y, width);
   doc.y += 10;
 }
@@ -163,16 +171,15 @@ function drawInfoBlocks(doc: Doc, document: PurchaseOrderDocument, left: number,
 /// dois ficou mais alto.
 function drawFieldBlock(
   doc: Doc,
-  title: string,
-  fields: DocumentField[],
+  block: DocumentBlock,
   x: number,
   y: number,
   width: number,
 ): number {
-  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(title, x, y, { width });
+  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(block.title, x, y, { width });
   let cursor = doc.y + 2;
 
-  for (const item of fields) {
+  for (const item of block.fields) {
     doc.font(FONT).fontSize(8).fillColor(GRAY).text(`${item.label}`, x, cursor, { width });
     doc.font(FONT).fontSize(9).fillColor(BLACK).text(item.value, x, doc.y, { width });
     cursor = doc.y + 3;
@@ -181,16 +188,22 @@ function drawFieldBlock(
   return cursor;
 }
 
-function columnWidths(usableWidth: number): number[] {
-  return COLUMNS.map((column) => column.width * usableWidth);
+function columnWidths(columns: readonly DocumentColumn[], usableWidth: number): number[] {
+  return columns.map((column) => column.width * usableWidth);
 }
 
-function drawTableHeader(doc: Doc, left: number, y: number, usableWidth: number): number {
-  const widths = columnWidths(usableWidth);
+function drawTableHeader(
+  doc: Doc,
+  columns: readonly DocumentColumn[],
+  left: number,
+  y: number,
+  usableWidth: number,
+): number {
+  const widths = columnWidths(columns, usableWidth);
   doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY);
 
   let x = left;
-  COLUMNS.forEach((column, index) => {
+  columns.forEach((column, index) => {
     doc.text(column.label, x + CELL_PADDING, y, {
       width: widths[index]! - CELL_PADDING * 2,
       align: column.align,
@@ -205,21 +218,24 @@ function drawTableHeader(doc: Doc, left: number, y: number, usableWidth: number)
 
 function drawItemsTable(
   doc: Doc,
-  document: PurchaseOrderDocument,
+  document: PrintableDocument,
   left: number,
   usableWidth: number,
   bottomLimit: number,
 ) {
   if (document.rows.length === 0) {
-    doc.font(FONT).fontSize(9).fillColor(GRAY).text('Esta ordem não tem itens detalhados.', left, doc.y, {
-      width: usableWidth,
-    });
+    doc
+      .font(FONT)
+      .fontSize(9)
+      .fillColor(GRAY)
+      .text(document.emptyRowsMessage, left, doc.y, { width: usableWidth });
     doc.y += 8;
     return;
   }
 
-  const widths = columnWidths(usableWidth);
-  let y = drawTableHeader(doc, left, doc.y, usableWidth);
+  const { columns } = document;
+  const widths = columnWidths(columns, usableWidth);
+  let y = drawTableHeader(doc, columns, left, doc.y, usableWidth);
 
   for (const row of document.rows) {
     doc.font(FONT).fontSize(ROW_FONT_SIZE);
@@ -229,6 +245,7 @@ function drawItemsTable(
     const rowHeight = measureRowHeight(
       (text, width) => doc.heightOfString(text, { width }),
       row,
+      columns,
       widths,
     );
 
@@ -236,13 +253,13 @@ function drawItemsTable(
       doc.addPage();
       // O cabeçalho da tabela se repete: uma página de continuação sem ele
       // seria uma lista de números sem significado.
-      y = drawTableHeader(doc, left, MARGIN, usableWidth);
+      y = drawTableHeader(doc, columns, left, MARGIN, usableWidth);
       doc.font(FONT).fontSize(ROW_FONT_SIZE);
     }
 
     let x = left;
-    COLUMNS.forEach((column, index) => {
-      doc.fillColor(column.key === 'origin' ? GRAY : BLACK).text(row[column.key], x + CELL_PADDING, y, {
+    columns.forEach((column, index) => {
+      doc.fillColor(column.muted ? GRAY : BLACK).text(row[column.key] ?? '', x + CELL_PADDING, y, {
         width: widths[index]! - CELL_PADDING * 2,
         align: column.align,
       });
@@ -250,7 +267,11 @@ function drawItemsTable(
     });
 
     y += rowHeight;
-    doc.strokeColor('#eeeeee').moveTo(left, y - 3).lineTo(left + usableWidth, y - 3).stroke();
+    doc
+      .strokeColor('#eeeeee')
+      .moveTo(left, y - 3)
+      .lineTo(left + usableWidth, y - 3)
+      .stroke();
   }
 
   doc.y = y;
@@ -258,45 +279,80 @@ function drawItemsTable(
 
 function drawTotal(
   doc: Doc,
-  document: PurchaseOrderDocument,
+  document: PrintableDocument,
   left: number,
   usableWidth: number,
   bottomLimit: number,
 ) {
-  // O total NUNCA fica órfão no topo de uma página nem espremido no rodapé:
-  // se não couber inteiro, vai para a próxima.
-  ensureSpace(doc, 44, bottomLimit);
+  if (!document.total) return;
 
-  const y = doc.y + 4;
+  const lines = document.total.lines ?? [];
+
+  // O bloco do total NUNCA fica órfão no topo de uma página nem espremido no
+  // rodapé: se não couber INTEIRO — etapas da conta incluídas —, vai para a
+  // próxima. Quebrar entre "subtotal" e "total" seria pior que uma folha a
+  // mais.
+  ensureSpace(doc, 44 + lines.length * 13, bottomLimit);
+
+  let y = doc.y + 4;
   horizontalRule(doc, left, y, usableWidth);
+  y += 8;
+
+  // As etapas ficam alinhadas à direita, na mesma coluna do total, para a
+  // conta ser lida de cima para baixo numa coluna só.
+  for (const line of lines) {
+    doc
+      .font(FONT)
+      .fontSize(9)
+      .fillColor(GRAY)
+      .text(line.label, left + usableWidth * 0.45, y, {
+        width: usableWidth * 0.3,
+        align: 'right',
+      });
+    doc
+      .font(FONT)
+      .fontSize(9)
+      .fillColor(BLACK)
+      .text(line.value, left + usableWidth * 0.75, y, {
+        width: usableWidth * 0.25,
+        align: 'right',
+      });
+    y += 13;
+  }
+
+  if (lines.length > 0) {
+    horizontalRule(doc, left + usableWidth * 0.45, y + 1, usableWidth * 0.55);
+    y += 6;
+  }
 
   doc
     .font(FONT_BOLD)
     .fontSize(11)
     .fillColor(BLACK)
-    .text('TOTAL DA ORDEM DE COMPRA', left, y + 8, { width: usableWidth * 0.6 });
+    .text(document.total.label, left, y, { width: usableWidth * 0.6 });
   doc
     .font(FONT_BOLD)
     .fontSize(13)
-    .text(document.total, left + usableWidth * 0.6, y + 6, {
+    .text(document.total.value, left + usableWidth * 0.6, y - 2, {
       width: usableWidth * 0.4,
       align: 'right',
     });
 
-  doc.y = y + 30;
-  doc
-    .font(FONT)
-    .fontSize(7)
-    .fillColor(GRAY)
-    .text('Total calculado automaticamente a partir dos itens desta ordem.', left, doc.y, {
-      width: usableWidth,
-    });
+  doc.y = y + 22;
+
+  if (document.total.caption) {
+    doc
+      .font(FONT)
+      .fontSize(7)
+      .fillColor(GRAY)
+      .text(document.total.caption, left, doc.y, { width: usableWidth });
+  }
   doc.y += 6;
 }
 
 function drawNotes(
   doc: Doc,
-  document: PurchaseOrderDocument,
+  document: PrintableDocument,
   left: number,
   usableWidth: number,
   bottomLimit: number,
@@ -304,38 +360,42 @@ function drawNotes(
   if (!document.notes) return;
 
   doc.font(FONT).fontSize(9);
-  const height = doc.heightOfString(document.notes, { width: usableWidth }) + 24;
+  const height = doc.heightOfString(document.notes.text, { width: usableWidth }) + 24;
   ensureSpace(doc, height, bottomLimit);
 
   horizontalRule(doc, left, doc.y, usableWidth);
   doc.y += 8;
-  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text('OBSERVAÇÕES', left, doc.y, {
+  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(document.notes.title, left, doc.y, {
     width: usableWidth,
   });
-  doc.font(FONT).fontSize(9).fillColor(BLACK).text(document.notes, left, doc.y + 2, {
-    width: usableWidth,
-  });
+  doc
+    .font(FONT)
+    .fontSize(9)
+    .fillColor(BLACK)
+    .text(document.notes.text, left, doc.y + 2, {
+      width: usableWidth,
+    });
   doc.y += 6;
 }
 
-function drawTraceability(
+function drawFooterBlock(
   doc: Doc,
-  document: PurchaseOrderDocument,
+  document: PrintableDocument,
   left: number,
   usableWidth: number,
   bottomLimit: number,
 ) {
-  if (document.traceabilityFields.length === 0) return;
+  if (!document.footer || document.footer.fields.length === 0) return;
 
-  ensureSpace(doc, 20 + document.traceabilityFields.length * 12, bottomLimit);
+  ensureSpace(doc, 20 + document.footer.fields.length * 12, bottomLimit);
 
   horizontalRule(doc, left, doc.y, usableWidth);
   doc.y += 8;
-  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text('ORIGEM DA COMPRA', left, doc.y, {
+  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(document.footer.title, left, doc.y, {
     width: usableWidth,
   });
   doc.font(FONT).fontSize(9).fillColor(BLACK);
-  for (const item of document.traceabilityFields) {
+  for (const item of document.footer.fields) {
     doc.text(`${item.label}: ${item.value}`, left, doc.y + 1, { width: usableWidth });
   }
 }
@@ -349,7 +409,12 @@ function ensureSpace(doc: Doc, needed: number, bottomLimit: number) {
 }
 
 function horizontalRule(doc: Doc, x: number, y: number, width: number) {
-  doc.strokeColor(LINE).lineWidth(0.5).moveTo(x, y).lineTo(x + width, y).stroke();
+  doc
+    .strokeColor(LINE)
+    .lineWidth(0.5)
+    .moveTo(x, y)
+    .lineTo(x + width, y)
+    .stroke();
 }
 
 function drawFooters(
@@ -364,11 +429,9 @@ function drawFooters(
       .font(FONT)
       .fontSize(7)
       .fillColor(GRAY)
-      .text(
-        `Página ${index + 1} de ${range.count}`,
-        left,
-        doc.page.height - MARGIN - 10,
-        { width: usableWidth, align: 'right' },
-      );
+      .text(`Página ${index + 1} de ${range.count}`, left, doc.page.height - MARGIN - 10, {
+        width: usableWidth,
+        align: 'right',
+      });
   }
 }

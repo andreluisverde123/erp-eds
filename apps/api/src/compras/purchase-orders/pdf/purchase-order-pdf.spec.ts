@@ -8,9 +8,22 @@ import {
   type CompanySource,
   type PurchaseOrderSource,
 } from './purchase-order-document';
-import { measureRowHeight, renderPurchaseOrderPdf } from './purchase-order-pdf';
+import { measureRowHeight, renderDocumentPdf } from '../../../common/pdf/pdf-renderer';
+import type { PrintableDocument } from '../../../common/pdf/printable-document';
+import { PURCHASE_ORDER_COLUMNS } from './purchase-order-document';
 
 const decimal = (value: string) => new Prisma.Decimal(value);
+
+/// Os campos de identificação viraram blocos nomeados quando o renderizador
+/// passou a ser compartilhado com a Solicitação. Estes acessores mantêm as
+/// asserções falando de "campos da ordem" e "campos do fornecedor".
+const camposDaOrdem = (documento: PrintableDocument) => bloco(documento, 'ORDEM DE COMPRA');
+const camposDoFornecedor = (documento: PrintableDocument) => bloco(documento, 'FORNECEDOR');
+const camposDeOrigem = (documento: PrintableDocument) => documento.footer?.fields ?? [];
+
+function bloco(documento: PrintableDocument, titulo: string) {
+  return documento.blocks.find((item) => item.title === titulo)?.fields ?? [];
+}
 
 /// `Intl` separa "R$" do número com ESPAÇO NÃO-QUEBRÁVEL (U+00A0), não com
 /// espaço comum — é o que impede a moeda de sobrar sozinha no fim da linha.
@@ -138,14 +151,14 @@ describe('buildPurchaseOrderDocument', () => {
       const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
 
       expect(documento.code).toBe('OC-0001');
-      expect(documento.orderFields).toContainEqual({ label: 'Número', value: 'OC-0001' });
+      expect(camposDaOrdem(documento)).toContainEqual({ label: 'Número', value: 'OC-0001' });
     });
 
     it('formata data em pt-BR sem deslocar o dia por fuso', () => {
       const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
 
-      expect(documento.orderFields).toContainEqual({ label: 'Emissão', value: '23/08/2026' });
-      expect(documento.orderFields).toContainEqual({
+      expect(camposDaOrdem(documento)).toContainEqual({ label: 'Emissão', value: '23/08/2026' });
+      expect(camposDaOrdem(documento)).toContainEqual({
         label: 'Previsão de entrega',
         value: '05/09/2026',
       });
@@ -153,27 +166,30 @@ describe('buildPurchaseOrderDocument', () => {
 
     it('traduz o status para o mesmo rótulo da tela', () => {
       expect(
-        buildPurchaseOrderDocument(order({ status: 'ISSUED' }), EMPRESA_COMPLETA).orderFields,
+        camposDaOrdem(buildPurchaseOrderDocument(order({ status: 'ISSUED' }), EMPRESA_COMPLETA)),
       ).toContainEqual({ label: 'Status', value: 'Emitida' });
       expect(
-        buildPurchaseOrderDocument(order({ status: 'CANCELLED' }), EMPRESA_COMPLETA).orderFields,
+        camposDaOrdem(buildPurchaseOrderDocument(order({ status: 'CANCELLED' }), EMPRESA_COMPLETA)),
       ).toContainEqual({ label: 'Status', value: 'Cancelada' });
     });
 
     it('monta o bloco do fornecedor com os dados que ele tem', () => {
       const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
 
-      expect(documento.supplierName).toBe('FORNECEDORA DE MATERIAIS LTDA');
-      expect(documento.supplierFields).toContainEqual({
+      expect(camposDoFornecedor(documento)).toContainEqual({
+        label: 'Razão social',
+        value: 'FORNECEDORA DE MATERIAIS LTDA',
+      });
+      expect(camposDoFornecedor(documento)).toContainEqual({
         label: 'CNPJ',
         value: '98.765.432/0001-21',
       });
-      expect(documento.supplierFields).toContainEqual({
+      expect(camposDoFornecedor(documento)).toContainEqual({
         label: 'Endereço',
         value:
           'RUA DAS OBRAS, 100, GALPÃO 2, DISTRITO INDUSTRIAL, APARECIDA DE GOIÂNIA, GO, 74900-000',
       });
-      expect(documento.supplierFields).toContainEqual({
+      expect(camposDoFornecedor(documento)).toContainEqual({
         label: 'Telefone',
         value: '(62) 3333-4444',
       });
@@ -182,7 +198,7 @@ describe('buildPurchaseOrderDocument', () => {
     it('10. traz a origem da compra: solicitação, obra e centro de custo', () => {
       const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
 
-      expect(documento.traceabilityFields).toEqual([
+      expect(camposDeOrigem(documento)).toEqual([
         { label: 'Solicitação de origem', value: 'SOL-0004' },
         { label: 'Obra', value: 'OBRA-1 — Residencial Paineiras' },
         { label: 'Centro de custo', value: 'CC-01 — Estrutura' },
@@ -195,13 +211,14 @@ describe('buildPurchaseOrderDocument', () => {
         EMPRESA_COMPLETA,
       );
 
-      expect(documento.traceabilityFields.map((campo) => campo.label)).not.toContain('Obra');
+      expect(camposDeOrigem(documento).map((campo) => campo.label)).not.toContain('Obra');
     });
 
     it('as observações vêm da solicitação de origem', () => {
-      expect(buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA).notes).toBe(
-        'Entregar no portão B, aos cuidados do mestre.',
-      );
+      expect(buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA).notes).toEqual({
+        title: 'OBSERVAÇÕES',
+        text: 'Entregar no portão B, aos cuidados do mestre.',
+      });
     });
 
     it('observação em branco não vira uma seção vazia', () => {
@@ -270,8 +287,8 @@ describe('buildPurchaseOrderDocument', () => {
         EMPRESA_COMPLETA,
       );
 
-      expect(documento.supplierName).toBe('FORNECEDOR MINIMO LTDA');
-      expect(documento.supplierFields).toEqual([
+      expect(camposDoFornecedor(documento)).toEqual([
+        { label: 'Razão social', value: 'FORNECEDOR MINIMO LTDA' },
         { label: 'CNPJ', value: '11.222.333/0001-44' },
       ]);
     });
@@ -285,7 +302,7 @@ describe('buildPurchaseOrderDocument', () => {
       );
 
       expect(documento.rows[0]!.unitPrice).toBe(brl('R$ 1.234,56'));
-      expect(documento.total).toBe(brl('R$ 1.234.560,00'));
+      expect(documento.total?.value).toBe(brl('R$ 1.234.560,00'));
     });
 
     it('quantidade fracionária mantém as casas, sem zeros inúteis', () => {
@@ -304,7 +321,7 @@ describe('buildPurchaseOrderDocument', () => {
         EMPRESA_COMPLETA,
       );
 
-      expect(documento.total).toBe(brl('R$ 3.290,00'));
+      expect(documento.total?.value).toBe(brl('R$ 3.290,00'));
     });
   });
 
@@ -348,6 +365,7 @@ describe('buildPurchaseOrderDocument', () => {
 
 describe('measureRowHeight — regressão da sobreposição de linhas', () => {
   const LARGURAS = [200, 45, 35, 70, 75, 75];
+  const COLUNAS = PURCHASE_ORDER_COLUMNS;
   const linha = {
     description: 'Cimento',
     quantity: '1',
@@ -368,8 +386,8 @@ describe('measureRowHeight — regressão da sobreposição de linhas', () => {
     // desenhada por cima da linha seguinte.
     const origemLonga = { ...linha, origin: 'SOL-0004 (solic. 999,999 CAIXA)' };
 
-    expect(measureRowHeight(medir, origemLonga, LARGURAS)).toBeGreaterThan(
-      measureRowHeight(medir, linha, LARGURAS),
+    expect(measureRowHeight(medir, origemLonga, COLUNAS, LARGURAS)).toBeGreaterThan(
+      measureRowHeight(medir, linha, COLUNAS, LARGURAS),
     );
   });
 
@@ -379,15 +397,15 @@ describe('measureRowHeight — regressão da sobreposição de linhas', () => {
       description: 'Cimento Portland composto CP-II-E-32 ensacado 50kg, entrega paletizada',
     };
 
-    expect(measureRowHeight(medir, descricaoLonga, LARGURAS)).toBeGreaterThan(
-      measureRowHeight(medir, linha, LARGURAS),
+    expect(measureRowHeight(medir, descricaoLonga, COLUNAS, LARGURAS)).toBeGreaterThan(
+      measureRowHeight(medir, linha, COLUNAS, LARGURAS),
     );
   });
 
   it('nenhuma linha fica abaixo da altura mínima', () => {
     const vazia = { ...linha, description: '', origin: '', unit: '', quantity: '', unitPrice: '', totalPrice: '' };
 
-    expect(measureRowHeight(() => 0, vazia, LARGURAS)).toBeGreaterThanOrEqual(18);
+    expect(measureRowHeight(() => 0, vazia, COLUNAS, LARGURAS)).toBeGreaterThanOrEqual(18);
   });
 });
 
@@ -405,7 +423,7 @@ describe('renderPurchaseOrderPdf', () => {
   it('1. OC com 1 item cabe em uma página', async () => {
     const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
 
-    const { buffer, pageCount } = await renderPurchaseOrderPdf(documento);
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
     expect(pageCount).toBe(1);
@@ -417,7 +435,7 @@ describe('renderPurchaseOrderPdf', () => {
     );
     const documento = buildPurchaseOrderDocument(order({ items }), EMPRESA_COMPLETA);
 
-    const { buffer, pageCount } = await renderPurchaseOrderPdf(documento);
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
     expect(pageCount).toBe(1);
@@ -429,7 +447,7 @@ describe('renderPurchaseOrderPdf', () => {
     );
     const documento = buildPurchaseOrderDocument(order({ items }), EMPRESA_COMPLETA);
 
-    const { buffer, pageCount } = await renderPurchaseOrderPdf(documento);
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
     expect(pageCount).toBeGreaterThan(1);
@@ -446,8 +464,8 @@ describe('renderPurchaseOrderPdf', () => {
     );
 
     const [pdfCurto, pdfLongo] = await Promise.all([
-      renderPurchaseOrderPdf(buildPurchaseOrderDocument(order({ items: curtos }), EMPRESA_COMPLETA)),
-      renderPurchaseOrderPdf(buildPurchaseOrderDocument(order({ items: longos }), EMPRESA_COMPLETA)),
+      renderDocumentPdf(buildPurchaseOrderDocument(order({ items: curtos }), EMPRESA_COMPLETA)),
+      renderDocumentPdf(buildPurchaseOrderDocument(order({ items: longos }), EMPRESA_COMPLETA)),
     ]);
 
     // Se a altura da linha fosse fixa, os dois teriam o mesmo número de
@@ -462,7 +480,7 @@ describe('renderPurchaseOrderPdf', () => {
     ];
     const documento = buildPurchaseOrderDocument(order({ items }), EMPRESA_COMPLETA);
 
-    const { buffer } = await renderPurchaseOrderPdf(documento);
+    const { buffer } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
   });
@@ -477,7 +495,7 @@ describe('renderPurchaseOrderPdf', () => {
       EMPRESA_VAZIA,
     );
 
-    const { buffer, pageCount } = await renderPurchaseOrderPdf(documento);
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
     expect(pageCount).toBe(1);
@@ -489,12 +507,12 @@ describe('renderPurchaseOrderPdf', () => {
       EMPRESA_VAZIA,
     );
 
-    const { buffer, pageCount } = await renderPurchaseOrderPdf(documento);
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
 
     assertPdfValido(buffer);
     expect(pageCount).toBe(1);
     // O valor digitado à mão continua sendo impresso — a ordem antiga não
     // vira um documento de R$ 0,00.
-    expect(documento.total).toBe(brl('R$ 129,15'));
+    expect(documento.total?.value).toBe(brl('R$ 129,15'));
   });
 });

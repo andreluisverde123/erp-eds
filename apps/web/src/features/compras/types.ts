@@ -12,6 +12,10 @@ export interface PaginatedResult<T> {
 /// razão social, CNPJ e IE, e ninguém conferiu nada ali.
 export type SupplierOrigin = 'MANUAL' | 'NFE';
 
+/// Como um desconto foi INFORMADO. O valor em reais é sempre derivado da base
+/// a que ele se aplica; guardar o tipo preserva a intenção de quem digitou.
+export type DiscountType = 'AMOUNT' | 'PERCENT';
+
 export interface Supplier {
   id: string;
   legalName: string;
@@ -62,7 +66,19 @@ export interface PurchaseRequestItem {
   unit: string;
   quantity: string;
   estimatedUnitPrice: string | null;
+  /// Observação de QUEM PEDIU. Não confundir com `unavailabilityNote`, que é
+  /// de Compras.
   notes: string | null;
+  /// Compras procurou e o fornecedor não tem. Item assim fica sem preço e
+  /// fora do `estimatedTotal` — não é "R$ 0,00", é ausência.
+  unavailable: boolean;
+  /// Por que não tem ("sem estoque"). Opcional, e só existe junto de
+  /// `unavailable`.
+  unavailabilityNote: string | null;
+  /// Desconto DESTA linha, sobre `quantidade × preço unitário`. `AMOUNT` com
+  /// valor `"0"` é a ausência de desconto.
+  discountType: DiscountType;
+  discountValue: string;
 }
 
 export interface PurchaseRequestItemInput {
@@ -98,7 +114,25 @@ export interface PurchaseRequestListItem {
   /// da Ordem de Compra, onde ele volta a ser obrigatório.
   costCenter: CostCenterRef | null;
   requestedBy: { id: string; name: string };
+  /// O TOTAL FINAL, depois do desconto de item e do desconto geral. É o número
+  /// que a alçada de aprovação usa.
   estimatedTotal: number;
+  /// Desconto GERAL da cotação, sobre o subtotal já líquido dos descontos de
+  /// item.
+  discountType: DiscountType;
+  discountValue: string;
+  /// A conta aberta em etapas, calculada pelo servidor. A tela recalcula
+  /// enquanto o usuário digita (ver `quote-totals.ts`), mas o que ela EXIBE
+  /// depois de salvar é isto.
+  totals: PurchaseRequestTotals;
+}
+
+export interface PurchaseRequestTotals {
+  itemsSubtotal: number;
+  itemsDiscount: number;
+  subtotalAfterItemDiscounts: number;
+  generalDiscount: number;
+  total: number;
 }
 
 export interface AuditLogEntry {
@@ -123,10 +157,29 @@ export interface PurchaseRequestInput {
   items: PurchaseRequestItemInput[];
 }
 
-/// Cotação feita pelo setor de Compras: só o valor unitário de cada item, o
-/// campo que saiu do formulário de quem abre a solicitação.
+/// Cotação feita pelo setor de Compras: valor unitário e disponibilidade de
+/// cada item — os dois campos que a cotação decide, e que não estão no
+/// formulário de quem abre a solicitação.
+///
+/// `estimatedUnitPrice` é opcional porque o fornecedor pode não ter o item.
+/// Ver `UpdatePurchaseRequestQuoteDto` na API para os três estados possíveis.
 export interface PurchaseRequestQuoteInput {
-  items: { id: string; estimatedUnitPrice: number }[];
+  items: {
+    id: string;
+    estimatedUnitPrice?: number;
+    unavailable?: boolean;
+    unavailabilityNote?: string;
+    /// Ausente é o mesmo que zero — e é o que apaga um desconto informado
+    /// antes.
+    discount?: DiscountInput;
+  }[];
+  /// Desconto GERAL, sobre o subtotal já líquido dos descontos de item.
+  discount?: DiscountInput;
+}
+
+export interface DiscountInput {
+  type: DiscountType;
+  value: number;
 }
 
 export interface PurchaseRequestQuery {

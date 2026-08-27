@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   CalendarDays,
   ClipboardList,
+  FileText,
   ListChecks,
   Pencil,
   ShoppingCart,
@@ -10,7 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Button, Card, CardContent, Separator } from '@repo/ui';
+import { Alert, AlertTitle, Button, Card, CardContent, Separator } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
@@ -27,11 +28,12 @@ import { PurchaseOrderStatusBadge } from '@/features/compras/components/purchase
 import { usePurchaseRequest } from '@/features/compras/hooks/use-purchase-request';
 import {
   useDeletePurchaseRequest,
+  useDownloadPurchaseRequestPdf,
   useUpdatePurchaseRequestStatus,
 } from '@/features/compras/hooks/use-purchase-request-mutations';
 import { usePurchaseOrders } from '@/features/compras/hooks/use-purchase-orders';
 import { getAllowedTransitions } from '@/features/compras/purchase-request-status';
-import type { PurchaseRequestStatus } from '@/features/compras/types';
+import type { PurchaseRequestDetail, PurchaseRequestStatus } from '@/features/compras/types';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR');
@@ -72,6 +74,67 @@ function SummaryStat({
   );
 }
 
+/// De onde veio o total, em etapas — a mesma leitura que a gaveta de cotação
+/// mostra enquanto se digita, aqui em modo consulta.
+///
+/// As linhas de desconto só aparecem quando existem: sem elas, "subtotal" e
+/// "total" seriam o mesmo número escrito duas vezes.
+function QuoteTotalsSummary({ request }: { request: PurchaseRequestDetail }) {
+  const { totals } = request;
+  const semCotacao = totals.itemsSubtotal === 0 && totals.total === 0;
+
+  if (semCotacao) return null;
+
+  const temDesconto = totals.itemsDiscount > 0 || totals.generalDiscount > 0;
+
+  return (
+    <div className="ml-auto flex w-full max-w-xs flex-col gap-1.5 border-t border-border pt-3">
+      {temDesconto && (
+        <>
+          <TotalsLine label="Subtotal dos itens" value={formatCurrency(totals.itemsSubtotal)} />
+          {totals.itemsDiscount > 0 && (
+            <>
+              <TotalsLine
+                label="Descontos nos itens"
+                value={`- ${formatCurrency(totals.itemsDiscount)}`}
+              />
+              <TotalsLine
+                label="Subtotal após descontos"
+                value={formatCurrency(totals.subtotalAfterItemDiscounts)}
+              />
+            </>
+          )}
+          {totals.generalDiscount > 0 && (
+            <TotalsLine
+              label={
+                request.discountType === 'PERCENT'
+                  ? `Desconto geral (${Number(request.discountValue).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)`
+                  : 'Desconto geral'
+              }
+              value={`- ${formatCurrency(totals.generalDiscount)}`}
+            />
+          )}
+        </>
+      )}
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+        <span className="text-sm font-medium text-foreground">Total cotado</span>
+        <span className="text-sm font-semibold tabular-nums text-foreground">
+          {formatCurrency(totals.total)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TotalsLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs tabular-nums text-muted-foreground">{value}</span>
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
@@ -95,6 +158,7 @@ export function SolicitacaoDetailPage() {
 
   const updateStatusMutation = useUpdatePurchaseRequestStatus(id ?? '');
   const deleteMutation = useDeletePurchaseRequest();
+  const pdfMutation = useDownloadPurchaseRequestPdf();
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -139,6 +203,7 @@ export function SolicitacaoDetailPage() {
   // A cotação é o momento em que Compras informa os valores que saíram do
   // formulário do solicitante — vale enquanto a solicitação não foi aprovada.
   const canQuote = canManage && (request.status === 'PENDING' || request.status === 'QUOTING');
+  const indisponiveis = request.items.filter((item) => item.unavailable).length;
 
   async function handleTransition(status: PurchaseRequestStatus) {
     await updateStatusMutation.mutateAsync(status);
@@ -168,6 +233,18 @@ export function SolicitacaoDetailPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Gerar PDF é ação secundária e SEMPRE disponível: imprimir não
+              depende de status nem de permissão nova — quem pode ver a
+              solicitação pode imprimi-la, igual ao PDF da ordem de compra. */}
+          <Button
+            variant="outline"
+            disabled={pdfMutation.isPending}
+            onClick={() => pdfMutation.mutate({ id: request.id, code: request.code })}
+          >
+            <FileText />
+            {pdfMutation.isPending ? 'Gerando PDF...' : 'Gerar PDF'}
+          </Button>
+
           {canEdit && (
             <Button
               variant="outline"
@@ -221,6 +298,17 @@ export function SolicitacaoDetailPage() {
         </div>
       </div>
 
+      {/* Falha na geração não pode virar um botão que "não fez nada". A causa
+          técnica (401, timeout, 500) fica no console; aqui vai o que o
+          usuário pode fazer a respeito. */}
+      {pdfMutation.isError && (
+        <Alert variant="destructive">
+          <AlertTitle>
+            Não foi possível gerar o PDF desta solicitação. Tente novamente em instantes.
+          </AlertTitle>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Zerado significa "ainda não cotado", não "de graça" — mostrar
             R$ 0,00 nesse caso lia como erro de cálculo. */}
@@ -233,7 +321,17 @@ export function SolicitacaoDetailPage() {
               : 'Aguardando cotação'
           }
         />
-        <SummaryStat icon={ListChecks} label="Itens" value={String(request.items.length)} />
+        {/* Contar os indisponíveis aqui evita a pergunta que o total sozinho
+            provoca: "por que o valor não bate com a lista?". */}
+        <SummaryStat
+          icon={ListChecks}
+          label="Itens"
+          value={
+            indisponiveis > 0
+              ? `${request.items.length} (${indisponiveis} não disponível${indisponiveis > 1 ? 'is' : ''})`
+              : String(request.items.length)
+          }
+        />
         <SummaryStat icon={CalendarDays} label="Criada em" value={formatDate(request.createdAt)} />
       </div>
 
@@ -266,6 +364,7 @@ export function SolicitacaoDetailPage() {
         <CardContent className="flex flex-col gap-4">
           <h2 className="text-base font-semibold text-foreground">Itens</h2>
           <PurchaseRequestItemsTable items={request.items} />
+          <QuoteTotalsSummary request={request} />
         </CardContent>
       </Card>
 
@@ -329,12 +428,7 @@ export function SolicitacaoDetailPage() {
         onCreated={() => setGenerateOrderOpen(false)}
       />
 
-      <QuotePurchaseRequestDrawer
-        open={quoteOpen}
-        onOpenChange={setQuoteOpen}
-        purchaseRequestId={request.id}
-        items={request.items}
-      />
+      <QuotePurchaseRequestDrawer open={quoteOpen} onOpenChange={setQuoteOpen} request={request} />
 
       <ConfirmDialog
         open={cancelDialogOpen}
