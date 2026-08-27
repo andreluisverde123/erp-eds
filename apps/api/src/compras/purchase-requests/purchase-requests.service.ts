@@ -10,7 +10,9 @@ import { Prisma, type PurchaseRequestStatus } from '../../../generated/prisma/cl
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
+import { auditContextStorage } from '../../common/audit-context';
 import { ApprovalThresholdService } from '../../common/approval/approval-threshold.service';
+import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
 import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -20,6 +22,7 @@ import {
   calculateQuoteTotals,
   isQuoted,
   type Discount,
+  type DiscountType,
   type QuoteItem,
 } from './quote-totals';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
@@ -117,11 +120,24 @@ function withEstimatedTotal<T extends QuotedRow>(row: T) {
   };
 }
 
+/// Um desconto em texto, como o histórico deve mostrá-lo: "R$ 150,00" ou
+/// "10%", nunca o par cru `discountValue: 0 → 150` — que não diz se são reais
+/// ou porcentagem, e é justamente o que a auditoria genérica produziria.
+function describeDiscount(type: DiscountType, value: Prisma.Decimal | number | string): string {
+  const numero = Number(value);
+  if (!Number.isFinite(numero) || numero <= 0) return 'sem desconto';
+
+  return type === 'PERCENT'
+    ? `${numero.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+    : numero.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 @Injectable()
 export class PurchaseRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalThreshold: ApprovalThresholdService,
+    private readonly auditLogger: AuditLoggerService,
   ) {}
 
   async create(companyId: string, userId: string, dto: CreatePurchaseRequestDto) {
@@ -281,7 +297,15 @@ export class PurchaseRequestsService {
     // desconto em reais seria conferido contra um valor que não existe.
     const items = await this.prisma.purchaseRequestItem.findMany({
       where: { purchaseRequestId: id },
-      select: { id: true, quantity: true },
+      select: {
+        id: true,
+        quantity: true,
+        // Descrição e desconto ANTERIOR: a mesma consulta que já buscava as
+        // quantidades serve à auditoria, sem uma ida a mais ao banco.
+        description: true,
+        discountType: true,
+        discountValue: true,
+      },
     });
     const quantityById = new Map(items.map((item) => [item.id, item.quantity]));
 
@@ -348,7 +372,95 @@ export class PurchaseRequestsService {
       }),
     ]);
 
+    await this.logDiscountChanges(companyId, id, existing, items, dto, futuras);
+
     return this.findOne(companyId, id);
+  }
+
+  /// Registra, em UMA linha de auditoria, o que mudou de desconto nesta
+  /// cotação.
+  ///
+  /// Por que manualmente, e não estendendo a auditoria automática a
+  /// `PurchaseRequestItem` (`common/prisma/audit-extension.ts`): três motivos,
+  /// e cada um sozinho já bastava.
+  ///
+  ///  1. A extensão grava `entityType` = nome do modelo. Um log de item sairia
+  ///     como `PurchaseRequestItem`, e o painel de histórico da solicitação
+  ///     consulta `PurchaseRequest` — a auditoria existiria e ninguém a veria.
+  ///  2. Os itens são gravados dentro de um `$transaction`, e a extensão lê
+  ///     antes/depois por FORA dela. É a limitação que ela mesma documenta: a
+  ///     leitura de "depois" pode não enxergar o commit, e o diff sai vazio.
+  ///  3. Salvar uma cotação de vinte itens produziria vinte linhas de log —
+  ///     e mais vinte a cada ajuste de centavo, afogando o histórico.
+  ///
+  /// Logar manualmente pelo service é o mesmo padrão que Configurações já usa
+  /// para Company/User/Role, e que a própria extensão cita como a exceção
+  /// deliberada. O `entityType` é `PurchaseRequest` porque é onde o usuário
+  /// procura: a cotação não é um registro à parte.
+  private async logDiscountChanges(
+    companyId: string,
+    id: string,
+    antesDaSolicitacao: { discountType: DiscountType; discountValue: Prisma.Decimal },
+    antesDosItens: {
+      id: string;
+      description: string;
+      discountType: DiscountType;
+      discountValue: Prisma.Decimal;
+    }[],
+    dto: UpdatePurchaseRequestQuoteDto,
+    depoisDosItens: QuoteItem[],
+  ): Promise<void> {
+    const store = auditContextStorage.getStore();
+    if (!store) return;
+
+    const anteriorPorId = new Map(antesDosItens.map((item) => [item.id, item]));
+    const changes: Record<string, { from: string; to: string }> = {};
+
+    const itensAntes: string[] = [];
+    const itensDepois: string[] = [];
+
+    dto.items.forEach((enviado, index) => {
+      const anterior = anteriorPorId.get(enviado.id)!;
+      const atual = depoisDosItens[index]!;
+
+      const de = describeDiscount(anterior.discountType, anterior.discountValue);
+      const para = describeDiscount(atual.discountType, atual.discountValue);
+      if (de === para) return;
+
+      itensAntes.push(`${anterior.description}: ${de}`);
+      itensDepois.push(`${anterior.description}: ${para}`);
+    });
+
+    if (itensDepois.length > 0) {
+      // A descrição do item vai no VALOR, nunca na chave: o painel de
+      // histórico insere um espaço antes de cada maiúscula do nome do campo,
+      // e "Cimento CP-II" viraria " Cimento  C P- I I".
+      changes.descontosDosItens = {
+        from: itensAntes.join(' · '),
+        to: itensDepois.join(' · '),
+      };
+    }
+
+    const geralDe = describeDiscount(
+      antesDaSolicitacao.discountType,
+      antesDaSolicitacao.discountValue,
+    );
+    const geralPara = describeDiscount(dto.discount?.type ?? 'AMOUNT', dto.discount?.value ?? 0);
+
+    if (geralDe !== geralPara) {
+      changes.descontoGeral = { from: geralDe, to: geralPara };
+    }
+
+    if (Object.keys(changes).length === 0) return;
+
+    await this.auditLogger.log({
+      companyId,
+      userId: store.userId,
+      action: 'UPDATE',
+      entityType: 'PurchaseRequest',
+      entityId: id,
+      changes,
+    });
   }
 
   /// Uma linha do DTO traduzida para o formato da conta, com as regras de

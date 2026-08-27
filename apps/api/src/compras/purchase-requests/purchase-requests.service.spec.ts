@@ -4,7 +4,9 @@ import { validate } from 'class-validator';
 
 import { Prisma } from '../../../generated/prisma/client';
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
+import { auditContextStorage } from '../../common/audit-context';
 import { ApprovalThresholdService } from '../../common/approval/approval-threshold.service';
+import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PurchaseRequestsController } from './purchase-requests.controller';
 import { UpdatePurchaseRequestQuoteDto } from './dto/update-purchase-request-quote.dto';
@@ -186,8 +188,17 @@ function makeService(
   const approvalThreshold = new ApprovalThresholdService(prisma);
   const assertThreshold = jest.spyOn(approvalThreshold, 'assertWithinPurchaseThreshold');
 
+  /// O que foi para a auditoria nesta chamada. `AuditLoggerService` grava via
+  /// Prisma; aqui só interessa O QUE ele recebeu.
+  const auditado: Record<string, unknown>[] = [];
+  const auditLogger = new AuditLoggerService(prisma);
+  jest.spyOn(auditLogger, 'log').mockImplementation(async (entry) => {
+    auditado.push(entry as unknown as Record<string, unknown>);
+  });
+
   return {
-    service: new PurchaseRequestsService(prisma, approvalThreshold),
+    service: new PurchaseRequestsService(prisma, approvalThreshold, auditLogger),
+    auditado,
     prisma,
     store,
     solicitacao,
@@ -918,6 +929,130 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
         await service.updateStatus(EMPRESA_A, SOLICITACAO, 'APPROVED', ['compras.manage']);
 
         expect(statusGravado).toEqual(['APPROVED']);
+      });
+    });
+
+    describe('Auditoria do desconto', () => {
+      /// A auditoria só grava quando há um usuário na requisição — é o
+      /// `AuditContextInterceptor` que popula esse contexto. Nos testes ele é
+      /// simulado com o mesmo `AsyncLocalStorage`.
+      const USUARIO = '77777777-7777-4777-8777-777777777777';
+      const comUsuario = <T>(fn: () => Promise<T>) =>
+        auditContextStorage.run({ userId: USUARIO, companyId: EMPRESA_A }, fn);
+
+      it('registra desconto de item e desconto geral numa entrada só', async () => {
+        const { service, auditado } = makeService();
+
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [
+              { id: CIMENTO, estimatedUnitPrice: 100, discount: { type: 'AMOUNT', value: 100 } },
+              { id: PVC, estimatedUnitPrice: 100, discount: { type: 'PERCENT', value: 10 } },
+            ],
+            discount: { type: 'AMOUNT', value: 50 },
+          }),
+        );
+
+        // UMA linha, não uma por item: uma cotação de vinte itens afogaria o
+        // histórico.
+        expect(auditado).toHaveLength(1);
+        expect(auditado[0]).toMatchObject({
+          companyId: EMPRESA_A,
+          userId: USUARIO,
+          action: 'UPDATE',
+          // Atribuída à SOLICITAÇÃO, que é onde o painel de histórico procura.
+          entityType: 'PurchaseRequest',
+          entityId: SOLICITACAO,
+        });
+      });
+
+      it('descreve o desconto em linguagem de negócio, não no par cru', async () => {
+        const { service, auditado } = makeService();
+
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [
+              { id: CIMENTO, estimatedUnitPrice: 100, discount: { type: 'AMOUNT', value: 100 } },
+              { id: PVC, estimatedUnitPrice: 100, discount: { type: 'PERCENT', value: 10 } },
+            ],
+            discount: { type: 'PERCENT', value: 5 },
+          }),
+        );
+
+        const changes = auditado[0]!.changes as Record<string, { from: string; to: string }>;
+
+        // "discountValue: 0 → 100" não diria se são reais ou por cento.
+        expect(changes.descontosDosItens!.from).toBe(
+          'Cimento CP-II: sem desconto · Tubo PVC 100mm: sem desconto',
+        );
+        expect(changes.descontosDosItens!.to).toContain('Cimento CP-II: R$');
+        expect(changes.descontosDosItens!.to).toContain('Tubo PVC 100mm: 10%');
+        expect(changes.descontoGeral).toEqual({ from: 'sem desconto', to: '5%' });
+      });
+
+      it('a descrição do item vai no VALOR, nunca na chave', async () => {
+        // O painel insere um espaço antes de cada maiúscula do nome do campo:
+        // "Cimento CP-II" como chave viraria " Cimento  C P- I I".
+        const { service, auditado } = makeService();
+
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [
+              { id: CIMENTO, estimatedUnitPrice: 100, discount: { type: 'AMOUNT', value: 100 } },
+            ],
+          }),
+        );
+
+        const changes = auditado[0]!.changes as Record<string, unknown>;
+        expect(Object.keys(changes)).toEqual(['descontosDosItens']);
+      });
+
+      it('cotação sem mexer em desconto não gera linha de auditoria', async () => {
+        const { service, auditado } = makeService();
+
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [{ id: CIMENTO, estimatedUnitPrice: 100 }],
+          }),
+        );
+
+        expect(auditado).toEqual([]);
+      });
+
+      it('registra também a REMOÇÃO de um desconto', async () => {
+        const { service, auditado } = makeService();
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [
+              { id: CIMENTO, estimatedUnitPrice: 100, discount: { type: 'AMOUNT', value: 100 } },
+            ],
+            discount: { type: 'AMOUNT', value: 50 },
+          }),
+        );
+
+        await comUsuario(() =>
+          service.updateQuote(EMPRESA_A, SOLICITACAO, {
+            items: [{ id: CIMENTO, estimatedUnitPrice: 100 }],
+          }),
+        );
+
+        const changes = auditado[1]!.changes as Record<string, { from: string; to: string }>;
+        expect(changes.descontosDosItens!.to).toBe('Cimento CP-II: sem desconto');
+        expect(changes.descontoGeral).toEqual({ from: 'R$\u00a050,00', to: 'sem desconto' });
+      });
+
+      it('sem contexto de requisição, não inventa autor para o log', async () => {
+        // Seed e scripts rodam fora de uma requisição HTTP: gravar um log sem
+        // usuário seria pior que não gravar.
+        const { service, auditado } = makeService();
+
+        await service.updateQuote(EMPRESA_A, SOLICITACAO, {
+          items: [
+            { id: CIMENTO, estimatedUnitPrice: 100, discount: { type: 'AMOUNT', value: 100 } },
+          ],
+        });
+
+        expect(auditado).toEqual([]);
       });
     });
 

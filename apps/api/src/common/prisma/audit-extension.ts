@@ -28,6 +28,19 @@ const AUDITED_MODELS = new Set([
 /// Sempre presentes e nunca relevantes pra um diff visível ao usuário.
 const IGNORED_FIELDS = new Set(['id', 'companyId', 'createdAt', 'updatedAt']);
 
+/// Campos que o SERVICE do módulo já registra por conta própria, com
+/// significado de negócio — o diff genérico aqui só duplicaria a linha, e
+/// pior.
+///
+/// `PurchaseRequest.discountType/discountValue`: sozinhos eles não dizem nada.
+/// "Discount Value: 0 → 150" não informa se são cento e cinquenta reais ou
+/// cento e cinquenta por cento, e o par chega como duas linhas separadas. O
+/// `updateQuote` grava "Desconto geral: sem desconto → R$ 150,00", junto dos
+/// descontos de item da mesma cotação, numa entrada só.
+const SERVICE_LOGGED_FIELDS: Record<string, Set<string>> = {
+  PurchaseRequest: new Set(['discountType', 'discountValue']),
+};
+
 type RawRecord = Record<string, unknown>;
 
 interface FindUniqueDelegate {
@@ -68,10 +81,12 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 function diffRecords(
   before: RawRecord,
   after: RawRecord,
+  model: string,
 ): Record<string, { from: unknown; to: unknown }> {
+  const doService = SERVICE_LOGGED_FIELDS[model];
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   for (const key of Object.keys(after)) {
-    if (IGNORED_FIELDS.has(key) || !(key in before)) continue;
+    if (IGNORED_FIELDS.has(key) || doService?.has(key) || !(key in before)) continue;
     if (!valuesEqual(before[key], after[key])) {
       changes[key] = { from: serializeValue(before[key]), to: serializeValue(after[key]) };
     }
@@ -152,7 +167,7 @@ export function createAuditExtension(base: PrismaClient) {
           const after = await delegate.findUnique({ where: { id: whereId } });
 
           if (before && after) {
-            const changes = diffRecords(before, after);
+            const changes = diffRecords(before, after, model);
             if (Object.keys(changes).length > 0) {
               await base.auditLog.create({
                 data: {
