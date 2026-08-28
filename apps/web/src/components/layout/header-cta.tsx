@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { Button } from '@repo/ui';
+import { Button, cn } from '@repo/ui';
 
 import { useAuth } from '@/features/auth/context';
 
@@ -30,7 +30,7 @@ const CONTEXTUAL_CTAS = [
   { permission: 'admin.manage_users', label: 'Novo Usuário', path: '/configuracoes?tab=usuarios' },
 ];
 
-export function HeaderCta() {
+export function HeaderCta({ className }: { className?: string }) {
   const { user } = useAuth();
 
   const cta = CONTEXTUAL_CTAS.find((entry) => user?.permissions.includes(entry.permission));
@@ -38,7 +38,11 @@ export function HeaderCta() {
   if (!cta) return null;
 
   return (
-    <Button asChild size="sm" className="h-[38px] shrink-0 rounded-md px-4 text-xs font-semibold">
+    <Button
+      asChild
+      size="sm"
+      className={cn('h-[38px] shrink-0 rounded-md px-4 text-xs font-semibold', className)}
+    >
       <Link to={cta.path}>{cta.label}</Link>
     </Button>
   );

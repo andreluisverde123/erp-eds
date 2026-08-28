@@ -3,6 +3,7 @@ import { useLocation } from 'react-router';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@repo/ui';
 
 import { useSidebar } from '@/components/sidebar/sidebar-context';
+import { HeaderCta } from '@/components/layout/header-cta';
 import { SidebarBrand } from '@/components/sidebar/sidebar-brand';
 import { SidebarNav } from '@/components/sidebar/sidebar-nav';
 import { SidebarFooter } from '@/components/sidebar/sidebar-footer';
@@ -26,6 +27,14 @@ export function MobileSidebar() {
           Navegue entre os módulos do sistema.
         </SheetDescription>
         <SidebarBrand />
+
+        {/* A ação primária do perfil, que no desktop fica no header. O `empty:hidden`
+            cobre o caso de o usuário não ter permissão pra nenhum CTA: aí o HeaderCta
+            devolve null, a div fica vazia e some junto com o próprio espaçamento. */}
+        <div className="px-3 pb-2 empty:hidden">
+          <HeaderCta className="h-9 w-full" />
+        </div>
+
         <SidebarNav />
         <SidebarFooter />
       </SheetContent>

@@ -20,17 +20,24 @@ interface PaletteGroup {
   items: SearchResultItem[];
 }
 
+interface CommandPaletteProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
 /// Segunda porta de entrada pros mesmos dados do GlobalSearch do header
 /// (que continua intocado) — aberta via Cmd/Ctrl+K de qualquer página. Com
 /// busca vazia mostra Favoritos + Recentes; com busca, os mesmos grupos de
 /// resultado já usados no header.
-export function CommandPalette() {
-  const [open, setOpen] = useState(false);
-
-  useHotkey('mod+k', () => setOpen((prev) => !prev));
+///
+/// O estado de abertura mora no SiteHeader porque no celular a palette é a
+/// única busca que sobra (GlobalSearch e HeaderCta somem abaixo de 768px), e
+/// lá o gatilho é um botão de lupa, não o atalho de teclado.
+export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+  useHotkey('mod+k', () => onOpenChange(!open));
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
         className="top-[20%] max-w-xl translate-y-0 gap-0 overflow-hidden p-0"
@@ -43,7 +50,7 @@ export function CommandPalette() {
         {/* A key força um remount toda vez que a palette abre, então query e
             activeIndex sempre nascem zerados sem precisar de um useEffect
             resetando estado (mesmo padrão já usado nos drawers do app). */}
-        <CommandPaletteBody key={open ? 'open' : 'closed'} onNavigate={() => setOpen(false)} />
+        <CommandPaletteBody key={open ? 'open' : 'closed'} onNavigate={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );

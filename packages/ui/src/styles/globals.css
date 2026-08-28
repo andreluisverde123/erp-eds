@@ -145,3 +145,27 @@
     color: var(--color-foreground);
   }
 }
+
+/*
+ * O Safari do iOS dá zoom na página sempre que um campo de texto com fonte
+ * menor que 16px recebe foco — e não desfaz o zoom ao sair do campo. Como os
+ * primitivos do design system usam `text-sm` (14px), isso valia para todo
+ * formulário do ERP no celular.
+ *
+ * A regra fica FORA de `@layer` de propósito: CSS sem camada vence qualquer
+ * camada do Tailwind, então nem um `text-xs` aplicado direto no campo derruba
+ * o piso de 16px. Foi essa a razão de não resolver com `text-base sm:text-sm`
+ * nos primitivos: `tailwind-merge` só descarta classes conflitantes dentro do
+ * mesmo modificador, então um `text-lg` vindo de fora apagaria o `text-base`
+ * mas deixaria o `sm:text-sm` de pé, e o campo voltaria a 14px no desktop.
+ *
+ * Casa com o breakpoint `sm` do Tailwind (640px), que é onde o resto do app
+ * troca de layout mobile para desktop.
+ */
+@media (max-width: 639.98px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

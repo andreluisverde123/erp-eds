@@ -36,12 +36,17 @@ export function PurchaseOrderItemsPicker({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    // `overflow-x-auto`, não `overflow-hidden`: as colunas fixas já somam 248px
+    // e este bloco vive dentro de um Sheet que é de largura total no celular —
+    // com `hidden` a coluna de valor unitário era cortada e ficava inalcançável,
+    // em vez de rolar. Mesmo tratamento do primitivo Table e da grade de itens
+    // da solicitação.
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
             <th className="w-10 px-2 py-2" />
-            <th className="px-2 py-2 text-left font-medium">Item</th>
+            <th className="min-w-[180px] px-2 py-2 text-left font-medium">Item</th>
             <th className="w-24 px-2 py-2 text-right font-medium">Qtd.</th>
             <th className="w-28 px-2 py-2 text-right font-medium">Valor Unit.</th>
           </tr>
