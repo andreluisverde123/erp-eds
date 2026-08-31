@@ -75,6 +75,3 @@ coverage/
 
 # OS
 Thumbs.db
-
-# Valores originais da máscara de demonstração (não versionar)
-apps/api/scripts/demo-mask-backup.json

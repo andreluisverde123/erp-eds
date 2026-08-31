@@ -1,7 +1,7 @@
 {
-  "name": "ERP",
-  "short_name": "ERP",
-  "description": "Sistema de gestão de obras, compras, financeiro e pessoal.",
+  "name": "ERP EDS",
+  "short_name": "ERP EDS",
+  "description": "Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal.",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "/",
@@ -9,17 +9,17 @@
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
-  "theme_color": "#3F4A55",
+  "theme_color": "#ED2124",
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/favicon-demo.svg",
+      "src": "/favicon.svg",
       "type": "image/svg+xml",
       "sizes": "any",
       "purpose": "any"
     },
     {
-      "src": "/logo-demo.svg",
+      "src": "/logo-eds.svg",
       "type": "image/svg+xml",
       "sizes": "any",
       "purpose": "maskable"

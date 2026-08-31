@@ -75,16 +75,6 @@ export interface CompanyIdentity {
   theme: CompanyTheme;
 }
 
-/// VALORES REAIS — restaurar depois da gravação do vídeo:
-///
-///   shortName: 'EDS',
-///   appName: 'ERP EDS',
-///   description: 'Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal.',
-///   legalName: 'E D S Construcoes e Imobiliaria Ltda',   // razão social do CNPJ
-///   tradeName: 'EDS Construtora',                        // marca de exibição
-///   cnpj: '05534927000125',                              // 05.534.927/0001-25
-///   logo: '/logo-eds.svg',
-///
 /// A EDS. Empresa única e permanente desta aplicação.
 ///
 /// Os campos em `null` são dados cadastrais oficiais que ainda não foram
@@ -95,31 +85,29 @@ export interface CompanyIdentity {
 /// Pendentes hoje: inscrição estadual, endereço e contatos. Enquanto forem
 /// `null`, documento e relatório saem identificados por razão social e CNPJ,
 /// mas sem endereço e sem canal de contato.
-/// ┌──────────────────────────────────────────────────────────────────────┐
-/// │  MÁSCARA DE DEMONSTRAÇÃO ATIVA                                       │
-/// │                                                                      │
-/// │  Existe para gravar vídeo sem expor a marca. Os valores REAIS estão  │
-/// │  no bloco comentado logo acima desta constante — restaurar é copiar  │
-/// │  de volta e apagar esta caixa.                                       │
-/// │                                                                      │
-/// │  O par disto no banco é `npm run demo:mask:restore -w api`.          │
-/// └──────────────────────────────────────────────────────────────────────┘
 export const EDS_COMPANY: CompanyIdentity = {
-  shortName: 'ERP',
-  appName: 'ERP',
-  description: 'Sistema de gestão de obras, compras, financeiro e pessoal.',
+  shortName: 'EDS',
+  appName: 'ERP EDS',
+  description: 'Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal.',
 
-  legalName: 'Construtora Modelo Ltda',
-  tradeName: 'Construtora Modelo',
+  /// Razão social exatamente como consta no CNPJ — é ela que vale em documento
+  /// (ordem de compra, relatório, holerite), não a marca de exibição.
+  legalName: 'E D S Construcoes e Imobiliaria Ltda',
 
-  /// CNPJ neutro de propósito: estes dígitos NÃO formam um CNPJ válido (o
-  /// verificador não fecha), então o número não pode ser confundido com o de
-  /// nenhuma empresa real caso apareça num documento gerado durante a demo.
-  cnpj: '00000000000000',
+  /// Marca de EXIBIÇÃO (rodapé da barra lateral, via `COMPANY_NAME`). Difere do
+  /// nome fantasia registrado — "E D S Construcoes e Imobiliaria" — de
+  /// propósito: o registrado é a grafia da Receita, sem acento e com as
+  /// iniciais separadas, e não é como a empresa se apresenta. Documento usa
+  /// `legalName`; tela usa este.
+  tradeName: 'EDS Construtora',
 
+  /// Só dígitos: 05.534.927/0001-25. `formatCompanyCnpj` cuida da máscara.
+  cnpj: '05534927000125',
+
+  /// Ainda não informada. Continua `null` — nenhuma tela quebra por isso.
   stateRegistration: null,
 
-  logo: '/logo-demo.svg',
+  logo: '/logo-eds.svg',
   symbol: '/favicon.svg',
 
   address: {
