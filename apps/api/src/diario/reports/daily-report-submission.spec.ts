@@ -12,6 +12,7 @@ import {
   ENGENHEIRO_B,
   FISCAL,
   criarAuditLoggerFalso,
+  criarStorageMinimo,
   criarPrismaFalso,
   rdo,
   type LinhaRdo,
@@ -57,6 +58,7 @@ function montar(over: Partial<LinhaRdo> = {}, comAtividade = true) {
     prisma,
     new SiteAccessService(prisma),
     auditLogger as unknown as AuditLoggerService,
+    criarStorageMinimo() as unknown as StorageService,
   );
   const items = new DailyReportItemsService(prisma, service);
 

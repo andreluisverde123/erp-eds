@@ -14,10 +14,12 @@ import {
   ENGENHEIRO_B,
   FISCAL,
   criarAuditLoggerFalso,
+  criarStorageMinimo,
   criarPrismaFalso,
   rdo,
   type LinhaRdo,
 } from '../../testing/diario-fixture';
+import type { StorageService } from '../../../storage/storage.module';
 import { DailyReportsService } from '../daily-reports.service';
 import { DailyReportItemsService } from './daily-report-items.service';
 import { CreateMaterialDto } from './dto/material.dto';
@@ -50,6 +52,7 @@ function montar(over: Partial<LinhaRdo> = {}) {
     prisma,
     new SiteAccessService(prisma),
     criarAuditLoggerFalso() as unknown as AuditLoggerService,
+    criarStorageMinimo() as unknown as StorageService,
   );
   const items = new DailyReportItemsService(prisma, reportsService);
   return { items, reports: reportsService, db };

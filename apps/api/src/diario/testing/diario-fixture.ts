@@ -226,6 +226,13 @@ class Mutex {
 ///
 /// Os nomes das colunas vêm entre aspas de propósito: é assim que o Postgres
 /// os reporta, e quem lê isso procura substring.
+/// Storage falso. O `DailyReportsService` só o usa para apagar os arquivos de
+/// um relatório excluído, então um espião em `remove` cobre tudo que importa:
+/// quais chaves saíram, e se saíram.
+export function criarStorageMinimo() {
+  return { remove: jest.fn(async (_key: string) => undefined) };
+}
+
 export function uniqueError(campo: string) {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
@@ -491,6 +498,38 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       alvos.forEach((alvo) => Object.assign(alvo, data, { updatedAt: new Date() }));
       return { count: alvos.length };
     },
+    /// Usado pela exclusão de rascunho. Mesma disciplina do `updateMany`: a
+    /// espera vem ANTES de selecionar, porque `DELETE ... WHERE` também é
+    /// atômico no Postgres. E a cascata dos filhos é feita aqui, porque no
+    /// banco ela existe (`onDelete: Cascade`) — um dublê que deixasse mão de
+    /// obra e mídia para trás esconderia justamente o vazamento que a cascata
+    /// evita.
+    deleteMany: async ({ where }: { where: Where }) => {
+      await tick();
+      const alvos = db.reports.filter((linha) => casa(linha, where));
+      const ids = new Set(alvos.map((a) => a.id));
+      if (ids.size === 0) return { count: 0 };
+
+      // `splice`, e não reatribuição: quem montou o teste guarda a REFERÊNCIA
+      // do array (`rdos`). Trocar `db.reports` por um array novo deixaria essa
+      // referência apontando para a lista antiga, e o teste veria o relatório
+      // ainda ali depois de uma exclusão que funcionou.
+      for (let i = db.reports.length - 1; i >= 0; i -= 1) {
+        if (ids.has(db.reports[i]!.id)) db.reports.splice(i, 1);
+      }
+      for (const filhos of [db.labor, db.equipment, db.activities, db.occurrences, db.materials, db.media]) {
+        for (let i = filhos.length - 1; i >= 0; i -= 1) {
+          if (ids.has(filhos[i]!.dailyReportId as string)) filhos.splice(i, 1);
+        }
+      }
+      // `copiedFromId` é SET NULL no banco: a cópia sobrevive à exclusão da
+      // origem, perdendo só o ponteiro.
+      db.reports.forEach((linha) => {
+        if (linha.copiedFromId && ids.has(linha.copiedFromId as string)) linha.copiedFromId = null;
+      });
+
+      return { count: alvos.length };
+    },
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const linha = db.reports.find((o) => o.id === where.id)!;
       const futuro = { ...linha, ...data } as LinhaRdo;
@@ -520,6 +559,9 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       ...delegateFilho(db.media, 'media'),
       findFirst: async ({ where }: { where: Where }) =>
         db.media.find((linha) => casa(linha, where)) ?? null,
+      /// A exclusão do relatório lê as chaves daqui ANTES da cascata, para
+      /// saber quais objetos apagar do storage.
+      findMany: async ({ where }: { where: Where }) => db.media.filter((linha) => casa(linha, where)),
       delete: async ({ where }: { where: { id: string } }) => {
         const indice = db.media.findIndex((linha) => linha.id === where.id);
         const [removida] = db.media.splice(indice, 1);

@@ -9,6 +9,7 @@ import { getReport, updateReport, type ReportPatch } from '../api';
 import { REPORT_STATUS_CLASS, formatReportDate } from '../components/report-status';
 import { AutosaveIndicator } from '../components/autosave-indicator';
 import { ReportSectionCard } from '../components/report-section-card';
+import { DeleteReport } from '../components/delete-report';
 import { FinalizeReport } from '../components/finalize-report';
 import { SiteDataSection } from '../components/site-data-section';
 import { ActivitiesSection } from '../components/sections/activities-section';
@@ -198,6 +199,7 @@ function RdoEditor({ relatorio }: { relatorio: DiarioReportDetail }) {
 
       {/* Depois de todas as seções: finalizar é a última coisa do dia. */}
       <FinalizeReport report={relatorio} />
+      <DeleteReport report={relatorio} />
     </div>
   );
 }

@@ -397,9 +397,9 @@ editar" vira uma explicação em vez de um bloqueio sem motivo aparente.
 mesmo número — que é sequencial por obra e foi emitido para aquela data.
 
 > Uma versão anterior permitia corrigir a data enquanto o relatório fosse
-> rascunho. Foi removido. **Consequência a conhecer:** sem exclusão de RDO, o
-> preço de errar a data passa a ser um relatório vazio a mais na lista da obra.
-> Quando a exclusão existir, ela resolve isso.
+> rascunho. Foi removido. Errar a data não custa mais um relatório preso na
+> lista: a saída é **excluir o rascunho** e refazer — a data volta a ficar
+> livre no mesmo instante.
 
 ### Um relatório por obra por dia
 
@@ -411,12 +411,40 @@ numeração por obra. O que faltava era o banco impedir, e agora há um índice
 Sem ele, dois toques no botão de criar produzem dois RDOs da mesma data, e a
 segunda pessoa a preencher só descobre quando o dia já passou.
 
-> **Para quem for implementar exclusão de RDO:** a constraint não ignora
-> `deletedAt`. Um relatório excluído em soft delete bloquearia recriar aquela
-> data. Hoje não existe exclusão, então a situação não acontece — quando
-> existir, a decisão é entre um índice parcial (`WHERE "deletedAt" IS NULL`,
-> que o Prisma não expressa no schema e passaria a acusar drift) e exclusão
-> definitiva.
+> **Foi essa constraint que decidiu a forma da exclusão.** Ela não ignora
+> `deletedAt`, então um soft delete deixaria a data ocupada e recriá-la daria
+> 409 — anulando o motivo de existir a exclusão. Liberar a data exigiria um
+> índice parcial (`WHERE "deletedAt" IS NULL`) que o Prisma não expressa no
+> schema e que todo `migrate dev` seguinte tentaria trocar de volta pelo comum,
+> derrubando esta garantia em silêncio. Por isso a exclusão de rascunho é
+> **definitiva**.
+
+### Excluir rascunho
+
+`DELETE /diario/relatorios/:id`, exigindo `diario.report.manage` — a mesma
+permissão da escrita, sem código próprio, pela razão já aplicada à finalização.
+
+Só **rascunho**. Relatório finalizado é o documento do dia e não sai por
+nenhum caminho; desfazê-lo exigiria uma reabertura, que não existe.
+
+O que vai junto, por `onDelete: Cascade`: mão de obra, equipamentos,
+atividades, ocorrências, materiais e mídia — e os arquivos das mídias saem do
+storage, original e miniatura. Os RDOs copiados deste apenas perdem o ponteiro
+de origem (`copiedFromId` é `SET NULL`); a cópia é um relatório próprio.
+
+Duas consequências que valem saber:
+
+- **A prestação de contas fica na auditoria**, não numa linha morta: o
+  `AuditLoggerService` registra quem excluiu, o número e a data.
+- **O número volta para o próximo**, se o excluído era o último da obra —
+  `MAX(number) + 1` conta só o que existe. Não afeta relatório finalizado, que
+  não se exclui, então nenhum número já citado em ata ou medição se repete.
+
+A corrida com a finalização é fechada por `DELETE ... WHERE status = 'DRAFT'`,
+o mesmo desenho do `UPDATE` da finalização. As duas ordens são legítimas; o que
+não acontece é as duas darem certo. Se a exclusão vence, quem finalizava recebe
+"foi excluído por alguém enquanto você o editava" — e não "já foi finalizado",
+que faria a pessoa acreditar que o relatório está salvo.
 
 ### Numeração sequencial e concorrência
 

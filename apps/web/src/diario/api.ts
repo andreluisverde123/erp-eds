@@ -237,3 +237,11 @@ export function copyReport(
 ): Promise<DiarioReportDetail> {
   return apiClient.post(`/diario/relatorios/${sourceId}/copia`, input);
 }
+
+/// Exclui um rascunho, definitivamente.
+///
+/// Sem corpo na resposta (204): o recurso deixou de existir, então quem chamou
+/// navega para fora em vez de reexibir o relatório.
+export function deleteReport(id: string): Promise<void> {
+  return apiClient.delete(`/diario/relatorios/${id}`);
+}

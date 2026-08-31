@@ -37,6 +37,15 @@ export function isEditable(status: DailyReportStatus): boolean {
 export const NOT_EDITABLE_MESSAGE =
   'Este relatório já foi finalizado e não pode mais ser alterado.';
 
+/// Recusa da EXCLUSÃO, separada da recusa de escrita.
+///
+/// Poderia reaproveitar a de cima, e seria pior: quem clicou em excluir não
+/// tentou alterar nada, e ler "não pode mais ser alterado" depois de pedir
+/// exclusão deixa a dúvida de se o relatório ainda sai por outro caminho. A
+/// resposta é não — e a frase diz isso.
+export const NOT_DELETABLE_MESSAGE =
+  'Este relatório já foi finalizado e não pode mais ser excluído.';
+
 /// Transições permitidas, declaradas.
 ///
 /// Uma tabela, e não um `if`: é ela que torna óbvio, para quem chegar depois,

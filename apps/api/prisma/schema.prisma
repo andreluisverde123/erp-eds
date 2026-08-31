@@ -2215,6 +2215,10 @@ model DailyReport {
   createdById           String            @db.Uuid
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
+  /// Herdado do padrão de soft delete do ERP e NUNCA escrito neste modelo: a
+  /// exclusão de RDO é definitiva (ver o comentário da constraint de data
+  /// abaixo). As consultas filtram `deletedAt: null` de propósito — se um dia
+  /// existir arquivamento de relatório, ele já entra sem alterar leitura.
   deletedAt             DateTime?
 
   company          Company          @relation(fields: [companyId], references: [id])
@@ -2238,12 +2242,14 @@ model DailyReport {
   /// dois toques no botão de criar produzem dois RDOs para a mesma data, e a
   /// segunda pessoa a preencher descobre isso quando o dia já passou.
   ///
-  /// ATENÇÃO para quem for implementar exclusão: a constraint NÃO ignora
-  /// `deletedAt`, então um RDO excluído em soft delete bloquearia recriar
-  /// aquela data. Hoje não existe exclusão de RDO, então a situação não
-  /// acontece. Quando existir, a decisão é entre um índice parcial
-  /// (`WHERE "deletedAt" IS NULL`, que o Prisma não expressa no schema) e
-  /// exclusão definitiva.
+  /// A exclusão de rascunho, que chegou depois, é DEFINITIVA justamente por
+  /// causa desta constraint: ela não ignora `deletedAt`, então um soft delete
+  /// deixaria a data ocupada e recriá-la daria 409 — anulando o único motivo
+  /// de existir a exclusão, que é consertar uma data errada. A alternativa
+  /// seria um índice parcial (`WHERE "deletedAt" IS NULL`) que o Prisma não
+  /// expressa no schema, e que todo `migrate dev` seguinte tentaria trocar de
+  /// volta pelo comum, derrubando esta garantia em silêncio. Ver
+  /// `DailyReportsService.remove`.
   @@unique([constructionSiteId, reportDate])
   @@index([companyId])
   /// O índice comum que existia em `(constructionSiteId, reportDate)` saiu: o

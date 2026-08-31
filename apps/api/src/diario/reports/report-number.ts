@@ -42,9 +42,13 @@ export interface ReportNumberTx {
 /// único `(constructionSiteId, number)` recusa o duplicado — a criação falha
 /// com erro, em vez de gravar dois relatórios com o mesmo número.
 ///
-/// Números NÃO são reaproveitados: o máximo é lido sem filtrar `deletedAt`.
-/// Um RDO #24 excluído não devolve o 24 para o próximo — a numeração de um
-/// documento de obra precisa ser estável para quem a citou em ata ou medição.
+/// **O que a numeração garante, e o que não garante.** Dois RDOs nunca dividem
+/// um número, e o de um relatório FINALIZADO nunca muda nem se repete — é o que
+/// importa para quem citou o RDO 24 numa ata ou medição, porque finalizado não
+/// se exclui. Já o número de um RASCUNHO excluído volta para o próximo, se ele
+/// era o último: `MAX(number) + 1` sobre linhas que existem. É consequência
+/// aceita da exclusão ser definitiva (ver `DailyReportsService.remove`), e não
+/// custa nada — o rascunho apagado nunca foi documento de ninguém.
 export async function allocateReportNumber(
   tx: ReportNumberTx,
   constructionSiteId: string,

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -112,5 +113,24 @@ export class DailyReportsController {
     @CurrentUser('sub') userId: string,
   ) {
     return this.reports.copy(companyId, userId, id, dto);
+  }
+
+  /// Exclui um rascunho, definitivamente.
+  ///
+  /// Sem permissão própria (`diario.report.delete`): a mesma decisão já tomada
+  /// para a finalização. Quem pode escrever no relatório pode descartá-lo
+  /// enquanto ele é rascunho — inventar um terceiro código daria a impressão
+  /// de um controle que ninguém configuraria de forma diferente na prática.
+  ///
+  /// 204 sem corpo: não sobrou recurso para devolver.
+  @RequirePermissions('diario.access', 'diario.report.manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete(':id')
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.reports.remove(companyId, userId, id);
   }
 }

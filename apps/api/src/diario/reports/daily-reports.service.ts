@@ -5,9 +5,11 @@ import { paginate, type PaginatedResult } from '../../common/types/paginated-res
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { uniqueConstraintText } from '../../common/utils/prisma-error.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../../storage/storage.module';
 import { SiteAccessService, diarioSiteSelect } from '../access/site-access.service';
 import {
   DAILY_REPORT_STATUS_LABEL,
+  NOT_DELETABLE_MESSAGE,
   NOT_EDITABLE_MESSAGE,
   assertCanSubmit,
   isEditable,
@@ -225,6 +227,7 @@ export class DailyReportsService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
     private readonly auditLogger: AuditLoggerService,
+    private readonly storage: StorageService,
   ) {}
 
   async findAll(
@@ -462,9 +465,21 @@ export class DailyReportsService {
     });
 
     if (count === 0) {
-      // Alguém finalizou entre a leitura e a escrita. `assertCanSubmit` com o
-      // estado que passou a valer produz a mesma mensagem que o outro usuário
-      // veria.
+      // Duas coisas diferentes produzem `count === 0`, e dizer a errada é pior
+      // que não dizer nada: se alguém EXCLUIU o rascunho enquanto você
+      // finalizava, a mensagem "já foi finalizado por alguém" faria você
+      // acreditar que o relatório está salvo — quando ele deixou de existir.
+      const aindaExiste = await this.prisma.dailyReport.count({
+        where: { id, companyId, deletedAt: null },
+      });
+
+      if (aindaExiste === 0) {
+        throw new NotFoundException('Este relatório foi excluído por alguém enquanto você o editava.');
+      }
+
+      // Sobrou o caso real de corrida com outra finalização. `assertCanSubmit`
+      // com o estado que passou a valer produz a mesma mensagem que o outro
+      // usuário veria.
       assertCanSubmit('SUBMITTED');
     }
 
@@ -499,6 +514,102 @@ export class DailyReportsService {
   ///
   /// Devolve o horário já gravado porque a validação da jornada precisa dele, e
   /// a obra porque a mídia usa o id dela para montar a chave no storage.
+  /// Exclui um RASCUNHO, junto com tudo que pende dele.
+  ///
+  /// **Definitiva, e não soft delete.** O schema tem `deletedAt` e a decisão
+  /// estava anotada lá, em aberto, com as duas saídas: índice parcial ou
+  /// exclusão definitiva. É esta, por três motivos que se somam:
+  ///
+  /// 1. A constraint `(obra, data)` NÃO ignora `deletedAt`. Com soft delete, o
+  ///    rascunho excluído continuaria ocupando aquele dia e recriá-lo daria
+  ///    409 — o que anula justamente o caso de uso, que é consertar uma data
+  ///    errada. Liberar a data exigiria um índice parcial
+  ///    (`WHERE "deletedAt" IS NULL`) que o Prisma não expressa no schema, e
+  ///    todo `migrate dev` seguinte tentaria trocá-lo de volta pelo comum,
+  ///    derrubando em silêncio a garantia de um RDO por obra por dia.
+  /// 2. Um RASCUNHO não tem o que preservar: nunca foi finalizado, nunca saiu
+  ///    em PDF, nunca foi citado em ata ou medição. O que o soft delete
+  ///    protegeria não chegou a existir.
+  /// 3. Ficar com a linha e apagar as fotos seria a pior combinação: um
+  ///    registro "restaurável" que voltaria sem as imagens.
+  ///
+  /// A prestação de contas fica no `AuditLoggerService`, com quem excluiu, o
+  /// número e a data — não na linha morta.
+  ///
+  /// **Só rascunho.** Finalizado não é excluível por ninguém: é o documento do
+  /// dia, e o caminho para desfazê-lo seria uma reabertura, que não existe.
+  ///
+  /// Os filhos (mão de obra, equipamentos, atividades, ocorrências, materiais e
+  /// mídia) saem por `onDelete: Cascade`, já declarado no schema. Os RDOs que
+  /// tiverem sido copiados deste apenas perdem o ponteiro de origem
+  /// (`copiedFromId` é `SET NULL`) — a cópia é um relatório próprio e não
+  /// depende do original para existir.
+  async remove(companyId: string, userId: string, id: string): Promise<void> {
+    const report = await this.findRow(companyId, userId, id);
+
+    if (!isEditable(report.status)) {
+      throw new ConflictException(NOT_DELETABLE_MESSAGE);
+    }
+
+    // Lidos ANTES do delete: depois da cascata as linhas não existem mais e as
+    // chaves seriam impossíveis de recuperar, deixando os arquivos órfãos no
+    // storage para sempre.
+    const midias = await this.prisma.dailyReportMedia.findMany({
+      where: { dailyReportId: id },
+      select: { storageKey: true, thumbnailKey: true },
+    });
+
+    // `deleteMany` com o status no WHERE, e não `delete` pelo id: fecha a
+    // corrida com a finalização, do mesmo jeito que `submit` faz. Sem isso,
+    // finalizar e excluir ao mesmo tempo poderia apagar um relatório que
+    // acabou de virar documento.
+    const { count } = await this.prisma.dailyReport.deleteMany({
+      where: { id, companyId, deletedAt: null, status: 'DRAFT' },
+    });
+
+    if (count === 0) {
+      throw new ConflictException(NOT_DELETABLE_MESSAGE);
+    }
+
+    await this.auditLogger.log({
+      companyId,
+      userId,
+      action: 'DELETE',
+      entityType: 'DailyReport',
+      entityId: id,
+      changes: {
+        numero: report.number,
+        data: report.reportDate.toISOString().slice(0, 10),
+        obra: report.constructionSite.id,
+      },
+    });
+
+    // Storage por último, e fora de qualquer transação. A ordem é deliberada:
+    // se o banco falhasse depois de apagar os arquivos, sobraria um relatório
+    // apontando para imagens que já não existem. Do jeito que está, o pior
+    // caso é arquivo órfão — que custa espaço, aparece no log e não engana
+    // ninguém na tela.
+    for (const midia of midias) {
+      await this.removeObject(midia.storageKey);
+      if (midia.thumbnailKey) await this.removeObject(midia.thumbnailKey);
+    }
+
+    this.logger.log(
+      `RDO ${report.number} da obra ${report.constructionSite.id} excluído por ${userId}.`,
+    );
+  }
+
+  private async removeObject(key: string): Promise<void> {
+    try {
+      await this.storage.remove(key);
+    } catch (error) {
+      this.logger.error(
+        `Falha ao remover "${key}" do storage após excluir o relatório. Arquivo órfão.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
   async assertWritable(
     companyId: string,
     userId: string,

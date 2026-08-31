@@ -10,6 +10,7 @@ import { SiteAccessService } from './access/site-access.service';
 import { SiteAccessAdminService } from './access/site-access-admin.service';
 import { DiarioController } from './diario.controller';
 import { DailyReportsController } from './reports/daily-reports.controller';
+import type { StorageService } from '../storage/storage.module';
 import { DailyReportsService } from './reports/daily-reports.service';
 import { DiarioSitesController } from './sites/diario-sites.controller';
 import { DiarioSitesService } from './sites/diario-sites.service';
@@ -28,6 +29,7 @@ import {
   OBRA_OUTRA_EMPRESA,
   SEM_OBRAS,
   criarAuditLoggerFalso,
+  criarStorageMinimo,
   criarPrismaFalso,
   rdo,
 } from './testing/diario-fixture';
@@ -61,6 +63,7 @@ function montar() {
     prisma,
     siteAccess,
     criarAuditLoggerFalso() as unknown as AuditLoggerService,
+    criarStorageMinimo() as unknown as StorageService,
   );
   return { prisma: client, siteAccess, sites, reports };
 }

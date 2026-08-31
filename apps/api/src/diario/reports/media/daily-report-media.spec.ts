@@ -123,12 +123,16 @@ function montar(over: Partial<LinhaRdo> = {}) {
 
   const { client, db } = criarPrismaFalso(reports);
   const prisma = client as unknown as PrismaService;
+  // O MESMO storage do serviço de mídia: a exclusão do relatório precisa apagar
+  // exatamente os objetos que o upload gravou, e dois dublês diferentes
+  // esconderiam uma divergência entre gravar e remover.
+  const { storage, objetos } = criarStorageFalso();
   const reportsService = new DailyReportsService(
     prisma,
     new SiteAccessService(prisma),
     criarAuditLoggerFalso() as unknown as AuditLoggerService,
+    storage as unknown as StorageService,
   );
-  const { storage, objetos } = criarStorageFalso();
 
   const uploadPolicy = {
     assertUploadAllowed: jest.fn(async () => undefined),
