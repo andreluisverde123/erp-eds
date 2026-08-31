@@ -201,6 +201,15 @@ export const apiClient = {
       method: 'PATCH',
       body: body ? JSON.stringify(body) : undefined,
     }),
+  /// PUT, e não PATCH: usado onde o corpo SUBSTITUI o recurso inteiro em vez
+  /// de alterar campos — a equipe de uma obra é a lista final, e quem não está
+  /// nela sai.
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(path, {
+      ...options,
+      method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   delete: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { ...options, method: 'DELETE' }),
   upload: <T>(path: string, formData: FormData) =>

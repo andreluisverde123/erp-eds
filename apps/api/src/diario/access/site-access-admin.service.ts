@@ -59,6 +59,14 @@ export class SiteAccessAdminService {
         companyId,
         deletedAt: null,
         isActive: true,
+        // As DUAS portas do Diário, e não só a permissão do papel.
+        //
+        // O interruptor por pessoa (`diarioEnabled`) pode ter retirado o
+        // acesso de alguém cujo papel o concede. Listar essa pessoa como
+        // candidata ofereceria um vínculo que não funciona: ela seria
+        // adicionada à equipe da obra e continuaria sem conseguir entrar,
+        // sem nada na tela explicando por quê.
+        diarioEnabled: true,
         userRoles: {
           some: {
             role: {
