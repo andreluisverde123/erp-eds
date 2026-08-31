@@ -1,9 +1,7 @@
 <svg width="40" height="26" viewBox="0 0 40 26" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ERP">
-  <!-- Marca NEUTRA para gravação de demonstração.
-
-       Três barras em escada, sem letra e sem referência a empresa nenhuma:
-       não imita a identidade da EDS nem a de qualquer outra marca. O
-       arquivo real (`logo-eds.svg`) continua no repositório, intocado. -->
+  <!-- Marca neutra da máscara de demonstração. Sem letra e sem referência a
+       empresa nenhuma. Serve hoje só como ícone "maskable" do manifest, onde
+       um desenho quase quadrado funciona melhor que um logo horizontal. -->
   <rect x="2" y="16" width="9" height="8" rx="1.5" fill="currentColor" opacity="0.45" />
   <rect x="14" y="9" width="9" height="15" rx="1.5" fill="currentColor" opacity="0.7" />
   <rect x="26" y="2" width="9" height="22" rx="1.5" fill="currentColor" />

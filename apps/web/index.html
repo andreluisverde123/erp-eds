@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- MÁSCARA DE DEMONSTRAÇÃO ATIVA. Valores reais, para restaurar:
-           <title>ERP EDS</title>
-           description: "Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal."
-           application-name: "ERP EDS"
-           author: "EDS"
-           splash: /logo-eds.svg, alt "EDS", "Carregando o ERP EDS…" -->
+    <!-- MÁSCARA DE DEMONSTRAÇÃO ATIVA.
+
+         Os valores reais NÃO estão escritos aqui de propósito: comentário de
+         HTML vai inteiro para o navegador e aparece em "ver código-fonte" —
+         escrevê-los aqui deixaria no ar exatamente o que a máscara esconde.
+         Eles estão em packages/types/src/company.ts, e o `git revert` do
+         commit da máscara devolve este arquivo junto. -->
     <title>ERP</title>
     <meta
       name="description"
@@ -18,8 +19,8 @@
     <meta name="application-name" content="ERP" />
     <meta name="author" content="ERP" />
 
-    <!-- Sistema interno da EDS: não é site público, não tem página de captação
-         e não deve aparecer em resultado de busca. -->
+    <!-- Sistema interno: não é site público, não tem página de captação e não
+         deve aparecer em resultado de busca. -->
     <meta name="robots" content="noindex, nofollow" />
 
     <!-- máscara: o real é /favicon.svg nos dois -->
@@ -27,10 +28,14 @@
     <link rel="apple-touch-icon" href="/favicon-demo.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
-    <!-- Vermelho institucional da EDS. Espelha `EDS_COMPANY.theme.primary`
-         (packages/types/src/company.ts) — este HTML é servido antes de qualquer
-         JavaScript, então o valor precisa estar literal aqui. -->
-    <meta name="theme-color" content="#ED2124" />
+    <!-- Cor de marca. Espelha o token primário (packages/types/src/company.ts)
+         — este HTML é servido antes de qualquer JavaScript, então o valor
+         precisa estar literal aqui.
+
+         Durante a máscara de demonstração fica cinza-azulado: o vermelho da
+         empresa pinta a barra do navegador no celular e a gravação mostraria
+         a cor da marca justamente onde ela deveria sumir. -->
+    <meta name="theme-color" content="#3F4A55" />
 
     <!--
       Splash de carregamento. Cobre a janela entre o primeiro byte do HTML e o
