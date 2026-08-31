@@ -23,7 +23,10 @@ import { PrismaClient } from '../generated/prisma/client';
 
 const BACKUP = join(__dirname, 'demo-mask-backup.json');
 
-const EMPRESA = { tradeName: 'Construtora Modelo', legalName: 'Construtora Modelo Ltda' };
+/// Casado com `EDS_COMPANY` mascarado e com o logo da demonstração, que já
+/// traz o nome desenhado. Nomes diferentes nos dois lados fariam a mesma tela
+/// dizer uma coisa no topo e outra no rodapé.
+const EMPRESA = { tradeName: 'Engeo', legalName: 'Engeo' };
 const ERP_NAME = 'ERP';
 
 /// Nomes de obra genéricos, atribuídos na ordem do código. Não descrevem nada
