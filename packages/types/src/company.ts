@@ -109,11 +109,8 @@ export const EDS_COMPANY: CompanyIdentity = {
   appName: 'ERP',
   description: 'Sistema de gestão de obras, compras, financeiro e pessoal.',
 
-  /// Casados com o logo da demonstração, que já traz o nome desenhado: com
-  /// "Construtora Modelo" aqui, o topo da barra diria uma coisa e o rodapé
-  /// outra na mesma tela.
-  legalName: 'Engeo',
-  tradeName: 'Engeo',
+  legalName: 'Construtora Modelo Ltda',
+  tradeName: 'Construtora Modelo',
 
   /// CNPJ neutro de propósito: estes dígitos NÃO formam um CNPJ válido (o
   /// verificador não fecha), então o número não pode ser confundido com o de
@@ -122,7 +119,7 @@ export const EDS_COMPANY: CompanyIdentity = {
 
   stateRegistration: null,
 
-  logo: '/logo-demo.png',
+  logo: '/logo-demo.svg',
   symbol: '/favicon.svg',
 
   address: {
