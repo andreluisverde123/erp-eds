@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Readable } from 'node:stream';
 
 import type { DailyReportMediaType } from '../../../../generated/prisma/client';
@@ -102,13 +108,35 @@ export class DailyReportMediaService {
     }
 
     const pasta = `diario/${companyId}/${report.constructionSiteId}/${reportId}`;
-    const { key } = await this.storage.saveUpload(pasta, {
-      ...file,
-      // A extensão sai do tipo DETECTADO, não do nome enviado: é ela que vira
-      // parte da chave no storage.
-      originalname: `arquivo${extensionForMimeType(assinatura.mimeType)}`,
-      mimetype: assinatura.mimeType,
-    });
+
+    // O storage é a ÚNICA dependência deste caminho que pode estar quebrada
+    // sem que o resto da API dê sinal: o banco tem health check, o storage não.
+    // Sem este catch a falha subia como 500 genérico e sem nenhuma linha de
+    // log — o pior estado possível para diagnosticar, porque o sintoma (envio
+    // falhou) não diz se o problema é permissão de disco, disco cheio, bucket
+    // mal configurado ou credencial vencida. Aqui a causa vai para o log e o
+    // cliente recebe 503, que é o código honesto: a requisição estava certa,
+    // quem falhou foi a infraestrutura.
+    let key: string;
+    try {
+      ({ key } = await this.storage.saveUpload(pasta, {
+        ...file,
+        // A extensão sai do tipo DETECTADO, não do nome enviado: é ela que vira
+        // parte da chave no storage.
+        originalname: `arquivo${extensionForMimeType(assinatura.mimeType)}`,
+        mimetype: assinatura.mimeType,
+      }));
+    } catch (error) {
+      this.logger.error(
+        `Falha ao GRAVAR mídia no storage (pasta "${pasta}"). Driver configurado: ` +
+          `"${this.storageDriverName()}". Verifique permissão de escrita, espaço em disco ` +
+          'e as credenciais do bucket.',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new ServiceUnavailableException(
+        'Não foi possível guardar o arquivo. O armazenamento de mídia está indisponível.',
+      );
+    }
 
     // A miniatura vai para um objeto SEPARADO. O original nunca é alterado nem
     // substituído — a grade usa uma, abrir a foto entrega a outra.
@@ -281,6 +309,15 @@ export class DailyReportMediaService {
   /// negócio: no upload a exceção original é a que importa, e na exclusão a
   /// mídia já saiu do relatório. O log é o que permite encontrar o órfão
   /// depois.
+  /// Nome do driver ativo, só para a mensagem de log.
+  ///
+  /// Lido do ambiente em vez de injetado: a alternativa era pôr o
+  /// `ConfigService` no construtor, o que obrigaria todo teste que monta este
+  /// serviço a fornecer um dublê a mais para enriquecer UMA linha de log.
+  private storageDriverName(): string {
+    return process.env.STORAGE_DRIVER ?? 'local';
+  }
+
   private async removeFromStorage(key: string, contexto: string): Promise<void> {
     try {
       await this.storage.remove(key);

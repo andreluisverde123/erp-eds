@@ -1,3 +1,5 @@
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
+
 import type { AuditLoggerService } from '../../../common/services/audit-logger.service';
 
 import {
@@ -361,15 +363,28 @@ describe('Mídia do RDO — falha entre storage e banco', () => {
     criar.mockRestore();
   });
 
-  it('falha do storage NÃO deixa registro no banco', async () => {
+  it('falha do storage NÃO deixa registro no banco, e a causa vai para o log', async () => {
     const { media, storage, db } = montar();
-    storage.saveUpload.mockRejectedValueOnce(new Error('bucket indisponível'));
+    const causa = new Error('EACCES: permission denied, mkdir /app/apps/api/uploads/diario');
+    storage.saveUpload.mockRejectedValueOnce(causa);
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
-    await expect(
-      media.upload(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, arquivo(png()), {}),
-    ).rejects.toThrow('bucket indisponível');
+    // 503, e não 500: a requisição estava correta — quem falhou foi a
+    // infraestrutura. E a mensagem NÃO repete o erro do storage, que pode
+    // conter caminho de disco ou nome de bucket.
+    const erro = await media
+      .upload(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, arquivo(png()), {})
+      .catch((e: unknown) => e);
 
+    expect(erro).toBeInstanceOf(ServiceUnavailableException);
+    expect((erro as Error).message).not.toContain('EACCES');
     expect(db.media).toHaveLength(0);
+
+    // A garantia que faltava quando isto falhou em produção: sem log, o
+    // sintoma "envio falhou" não distingue permissão de disco, disco cheio e
+    // credencial de bucket vencida.
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('GRAVAR mídia no storage'), causa.stack);
+    log.mockRestore();
   });
 
   it('upload interrompido não deixa registro nenhum — não existe estado pendente', async () => {
