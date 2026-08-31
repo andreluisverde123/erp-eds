@@ -24,6 +24,8 @@
     "seed:development": "DOTENV_CONFIG_PATH=.env.development prisma db seed",
     "seed:staging": "DOTENV_CONFIG_PATH=.env.staging prisma db seed",
     "seed:diario:staging": "node --env-file=.env.staging ../../node_modules/.bin/ts-node --transpile-only prisma/seed/staging-diario-runner.ts",
+    "demo:mask": "node --env-file=.env.staging ../../node_modules/.bin/ts-node --transpile-only scripts/demo-mask.ts",
+    "demo:mask:restore": "node --env-file=.env.staging ../../node_modules/.bin/ts-node --transpile-only scripts/demo-mask.ts --restore",
     "seed:production": "DOTENV_CONFIG_PATH=.env.production prisma db seed",
     "db:status:local": "DOTENV_CONFIG_PATH=.env.local prisma migrate status",
     "db:status:development": "DOTENV_CONFIG_PATH=.env.development prisma migrate status",

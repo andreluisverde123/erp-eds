@@ -4,20 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>ERP EDS</title>
+    <!-- MÁSCARA DE DEMONSTRAÇÃO ATIVA. Valores reais, para restaurar:
+           <title>ERP EDS</title>
+           description: "Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal."
+           application-name: "ERP EDS"
+           author: "EDS"
+           splash: /logo-eds.svg, alt "EDS", "Carregando o ERP EDS…" -->
+    <title>ERP</title>
     <meta
       name="description"
-      content="Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal."
+      content="Sistema de gestão de obras, compras, financeiro e pessoal."
     />
-    <meta name="application-name" content="ERP EDS" />
-    <meta name="author" content="EDS" />
+    <meta name="application-name" content="ERP" />
+    <meta name="author" content="ERP" />
 
     <!-- Sistema interno da EDS: não é site público, não tem página de captação
          e não deve aparecer em resultado de busca. -->
     <meta name="robots" content="noindex, nofollow" />
 
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- máscara: o real é /favicon.svg nos dois -->
+    <link rel="icon" type="image/svg+xml" href="/favicon-demo.svg" />
+    <link rel="apple-touch-icon" href="/favicon-demo.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
     <!-- Vermelho institucional da EDS. Espelha `EDS_COMPANY.theme.primary`
@@ -75,8 +82,8 @@
   <body>
     <div id="root">
       <div id="app-splash">
-        <img src="/logo-eds.svg" alt="EDS" />
-        <span>Carregando o ERP EDS…</span>
+        <img src="/logo-demo.svg" alt="ERP" />
+        <span>Carregando o ERP…</span>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
