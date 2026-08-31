@@ -1,0 +1,104 @@
+{
+  "criadoEm": "2026-08-31T17:54:43.118Z",
+  "empresas": [
+    {
+      "id": "526cddd7-7595-4ecb-b0c7-d21d8b3a6630",
+      "tradeName": "EDS Construtora",
+      "legalName": "EDS Construtora"
+    }
+  ],
+  "settings": [
+    {
+      "id": "ff3d798b-676b-404a-9d6e-f364664505a6",
+      "erpName": "ERP"
+    }
+  ],
+  "obras": [
+    {
+      "id": "792ca332-844e-46c6-bcf3-b090d4091454",
+      "name": "SEDE DO COMPLEXO SOCIOCULTURAL - TJRR",
+      "clientName": "TRIBUNAL DE JUSTIÇA DE RORAIMA",
+      "responsibleName": "Vitor Araújo"
+    },
+    {
+      "id": "03a0aaa4-74e6-4a0f-a861-1ed5ed1003bf",
+      "name": "TCE ENE GARCEZ",
+      "clientName": null,
+      "responsibleName": "Ana e Vitor"
+    },
+    {
+      "id": "1ca4fb97-c61d-40bb-8875-d912d93d31d4",
+      "name": "Lago - Wazim",
+      "clientName": "Wazim",
+      "responsibleName": "Ana"
+    },
+    {
+      "id": "d2567b3b-7e80-418c-a883-475abcb89cea",
+      "name": "UNIVERSIDADE ESTADUAL DE RORAIMA - UERR",
+      "clientName": "UERR",
+      "responsibleName": "Vitor"
+    }
+  ],
+  "usuarios": [
+    {
+      "id": "490e0edc-1ec0-455e-86bd-3c648e36308f",
+      "name": "Administrador",
+      "email": "admin@eds.com.br"
+    },
+    {
+      "id": "cc5aaaaa-f3cf-4433-a9bd-2a399df7c8b5",
+      "name": "Administrador Obrei",
+      "email": "admin@obrei.com"
+    },
+    {
+      "id": "02f21852-1591-4139-a83e-d602e577cb11",
+      "name": "Ana",
+      "email": "ana@eds.com.br"
+    },
+    {
+      "id": "1d55d414-5e37-4770-835c-f97dd8d1be0a",
+      "name": "[TESTE] Admin sem obra",
+      "email": "diario.admin@eds.app"
+    },
+    {
+      "id": "d3bb4810-f4c4-4777-9eee-6699aa831e03",
+      "name": "[TESTE] Engenharia 1",
+      "email": "diario.engenharia1@eds.app"
+    },
+    {
+      "id": "52f7146f-e71c-4213-9bde-9bf9014cbc68",
+      "name": "[TESTE] Engenharia 2",
+      "email": "diario.engenharia2@eds.app"
+    },
+    {
+      "id": "9f429d1a-886e-4c52-ab10-4bbdccea67a9",
+      "name": "[TESTE] Fiscal de Obra",
+      "email": "diario.fiscal@eds.app"
+    },
+    {
+      "id": "0fb4c415-9ea9-456d-9ca0-5f2f7d7d7c9e",
+      "name": "[TESTE] Sem acesso ao Diário",
+      "email": "diario.sem.acesso@eds.app"
+    },
+    {
+      "id": "2e135dbd-9d49-4029-9cd1-f89fb2e37189",
+      "name": "Indira",
+      "email": "indira@eds.com.br"
+    },
+    {
+      "id": "28607dcc-2a32-4fc7-b0d5-efb75dc7050b",
+      "name": "Jessica",
+      "email": "jessica@eds.com.br"
+    },
+    {
+      "id": "13f9a4d4-631e-4419-9ee7-fc3a5186813c",
+      "name": "Priscila",
+      "email": "priscila@eds.com.br"
+    },
+    {
+      "id": "e13c44a5-d7ad-4374-b812-e7426b673927",
+      "name": "Vitor Araujo",
+      "email": "vitor@eds.com.br"
+    }
+  ]
+}

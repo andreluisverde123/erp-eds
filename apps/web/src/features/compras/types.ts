@@ -283,9 +283,10 @@ export interface PurchaseOrderItemInput {
 export interface PurchaseOrderInput {
   purchaseRequestId: string;
   supplierId: string;
-  /// A atribuição de custo da ordem. A solicitação pode ter vindo sem uma, e é
-  /// na emissão que ela deixa de ser opcional.
-  costCenterId: string;
+  /// A atribuição de custo da ordem. OPCIONAL, como na solicitação, na fatura
+  /// e na conta a pagar: a ordem era a única estrita na cadeia, e isso
+  /// obrigava Compras a inventar uma conta para conseguir emitir.
+  costCenterId?: string;
   /// Desconto geral, copiado da cotação pela tela e editável antes de gerar.
   discount?: DiscountInput;
   /// Sem `totalAmount`: o total da ordem é a soma dos itens, calculada pelo

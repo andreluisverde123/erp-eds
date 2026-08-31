@@ -142,7 +142,9 @@ function GeneratePurchaseOrderBody({
       await createMutation.mutateAsync({
         purchaseRequestId,
         supplierId: values.supplierId,
-        costCenterId: values.costCenterId,
+        // String vazia é "não escolhi", não um id — mandá-la faria a API
+        // procurar um centro de custo de id "" e recusar a ordem.
+        costCenterId: values.costCenterId || undefined,
         issueDate: values.issueDate,
         expectedDeliveryDate: values.expectedDeliveryDate || undefined,
         // Só as linhas marcadas, e só o que o backend aceita: descrição e
@@ -222,7 +224,10 @@ function GeneratePurchaseOrderBody({
               name="costCenterId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Centro de Custo</FormLabel>
+                  <FormLabel>
+                    Centro de Custo{' '}
+                    <span className="font-normal text-muted-foreground">(opcional)</span>
+                  </FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">

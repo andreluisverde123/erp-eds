@@ -881,7 +881,14 @@ model PurchaseOrder {
   /// Copiado da solicitação de origem — nulo quando o centro de custo dela não
   /// pertence a nenhuma obra. Ver a nota em `PurchaseRequest.constructionSiteId`.
   constructionSiteId   String?             @db.Uuid
-  costCenterId         String              @db.Uuid
+  /// OPCIONAL, como na solicitação e como na fatura e na conta a pagar que
+  /// vêm depois — a ordem era a única estrita no meio de uma cadeia que
+  /// tolera nulo dos dois lados, e isso obrigava Compras a inventar uma
+  /// atribuição de custo só para conseguir emitir.
+  ///
+  /// Quando vem, continua tendo de pertencer à obra da solicitação: centro de
+  /// custo de outra obra somaria despesa no lugar errado.
+  costCenterId         String?             @db.Uuid
   code                 String
   status               PurchaseOrderStatus @default(OPEN)
   /// DESCONTO GERAL DA ORDEM, sobre o subtotal já líquido dos descontos de
@@ -911,7 +918,7 @@ model PurchaseOrder {
   purchaseRequest  PurchaseRequest   @relation(fields: [purchaseRequestId], references: [id])
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
-  costCenter       CostCenter        @relation(fields: [costCenterId], references: [id])
+  costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
 
   items           PurchaseOrderItem[]
   invoices        Invoice[]

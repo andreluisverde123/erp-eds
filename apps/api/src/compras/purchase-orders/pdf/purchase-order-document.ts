@@ -89,7 +89,9 @@ export interface PurchaseOrderSource {
   };
   purchaseRequest: { code: string; notes: string | null };
   constructionSite: { code: string; name: string } | null;
-  costCenter: { code: string; name: string };
+  /// Opcional: a ordem pode sair sem atribuição de custo quando a
+  /// solicitação de origem também não tinha.
+  costCenter: { code: string; name: string } | null;
   items: {
     description: string;
     unit: string;
@@ -196,7 +198,16 @@ export function buildPurchaseOrderDocument(
             ? `${order.constructionSite.code} — ${order.constructionSite.name}`
             : null,
         ),
-        { label: 'Centro de custo', value: `${order.costCenter.code} — ${order.costCenter.name}` },
+        // Sem centro de custo a LINHA some, em vez de sair com um traço: numa
+        // lista de origem, um campo vazio parece dado que faltou carregar.
+        ...(order.costCenter
+          ? [
+              {
+                label: 'Centro de custo',
+                value: `${order.costCenter.code} — ${order.costCenter.name}`,
+              },
+            ]
+          : []),
       ],
     },
   };

@@ -36,7 +36,11 @@ export const purchaseOrderFormSchema = z
     /// Obrigatório aqui, mesmo sendo opcional na solicitação: é nesta tela que
     /// o dinheiro é comprometido, e a ordem não pode nascer sem atribuição de
     /// custo. Vem pré-preenchido quando a solicitação já trouxe um.
-    costCenterId: z.string().min(1, 'Selecione o centro de custo.'),
+    /// OPCIONAL, como na solicitação. Exigi-lo aqui obrigava o comprador a
+    /// escolher uma conta qualquer para conseguir emitir a ordem de uma
+    /// solicitação que veio sem centro de custo — e conta escolhida no
+    /// aperto entra no relatório de custos como se fosse decisão.
+    costCenterId: z.string().optional(),
     issueDate: z.string().min(1, 'Informe a data de emissão.'),
     expectedDeliveryDate: z.string().optional(),
     items: z.array(purchaseOrderItemSchema),

@@ -1,0 +1,11 @@
+-- Centro de custo deixa de ser obrigatório na ordem de compra.
+--
+-- Ele já era opcional na SOLICITAÇÃO (o solicitante escolhe a obra e nem
+-- sempre sabe a conta) e continua opcional na FATURA e na CONTA A PAGAR que
+-- vêm depois. A ordem era a única estrita no meio dessa cadeia, e o efeito
+-- prático era obrigar Compras a inventar uma atribuição de custo só para
+-- conseguir emitir a ordem de uma solicitação que veio sem uma.
+--
+-- Afrouxar NOT NULL não toca em nenhuma linha existente: toda ordem já
+-- gravada continua com o seu centro de custo.
+ALTER TABLE "PurchaseOrder" ALTER COLUMN "costCenterId" DROP NOT NULL;

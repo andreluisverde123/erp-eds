@@ -572,7 +572,12 @@ export class InboundInvoicesService {
       throw new BadRequestException('Ordem de compra informada não existe ou está cancelada.');
     }
 
-    let costCenterId: string;
+    // Pode ficar nulo quando a nota vem de uma ORDEM que não tem centro de
+    // custo. `AccountPayable.costCenterId` sempre aceitou nulo; o que mudou é
+    // que agora a ordem também pode não ter, e herdar "nada" é herdar
+    // corretamente — inventar uma conta aqui poluiria o relatório de custos
+    // com uma atribuição que ninguém decidiu.
+    let costCenterId: string | null;
     let constructionSiteId: string | null;
     let isDivergent = false;
     /// O que estava divergente na hora de conciliar, em texto, para a

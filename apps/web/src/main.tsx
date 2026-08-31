@@ -2,6 +2,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
+import { registerStaleBundleReload } from './lib/stale-bundle-reload';
+
+// Antes de montar: o pedaço que falha pode ser o da primeira rota, e o ouvinte
+// precisa já estar de pé quando isso acontecer.
+registerStaleBundleReload();
 
 const container = document.getElementById('root')!;
 

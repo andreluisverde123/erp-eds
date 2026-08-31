@@ -280,15 +280,26 @@ export class IndicatorsService {
       where: { companyId, deletedAt: null },
       _count: true,
     });
+    // Ordem sem centro de custo passou a existir (a solicitação de origem podia
+    // não ter um). Ela vira uma fatia PRÓPRIA no gráfico, e não some: o volume
+    // de compra sem atribuição de custo é exatamente o que quem lê este
+    // indicador precisa enxergar para ir atrás.
+    const identificados = grouped
+      .map((g) => g.costCenterId)
+      .filter((id): id is string => id !== null);
+
     const costCenters = await this.prisma.costCenter.findMany({
-      where: { id: { in: grouped.map((g) => g.costCenterId) } },
+      where: { id: { in: identificados } },
       select: { id: true, name: true },
     });
     const nameById = new Map(costCenters.map((cc) => [cc.id, cc.name]));
 
     return grouped
       .map((g) => ({
-        label: nameById.get(g.costCenterId) ?? 'Centro de custo removido',
+        label:
+          g.costCenterId === null
+            ? 'Sem centro de custo'
+            : (nameById.get(g.costCenterId) ?? 'Centro de custo removido'),
         value: g._count,
       }))
       .sort((a, b) => b.value - a.value)

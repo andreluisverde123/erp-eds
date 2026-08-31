@@ -502,14 +502,15 @@ export class PurchaseOrdersService {
     constructionSiteId: string,
     doPedido: string | null,
     informado?: string,
-  ): Promise<string> {
+  ): Promise<string | null> {
     const escolhido = informado ?? doPedido;
 
-    if (!escolhido) {
-      throw new BadRequestException(
-        'Informe o centro de custo: a solicitação de origem não tem um definido.',
-      );
-    }
+    // Sem centro de custo em lugar nenhum, a ordem sai sem ele — como a
+    // solicitação que a originou, e como a fatura e a conta a pagar que virão
+    // depois. Recusar aqui obrigava Compras a inventar uma atribuição de custo
+    // só para conseguir emitir, e uma atribuição inventada é pior que a
+    // ausência: ela entra nos relatórios como se fosse verdade.
+    if (!escolhido) return null;
 
     const costCenter = await this.prisma.costCenter.findFirst({
       where: { id: escolhido, companyId, deletedAt: null },

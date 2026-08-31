@@ -24,10 +24,10 @@ export class CreatePurchaseOrderDto {
   /// O centro de custo da ordem, que Compras informa quando a solicitação veio
   /// sem ele — o solicitante escolhe a obra e nem sempre sabe a conta.
   ///
-  /// Opcional no DTO e obrigatório no resultado: o service usa este valor
-  /// quando vem, cai no da solicitação quando não vem, e recusa a emissão se
-  /// não houver nenhum dos dois. Em `PurchaseOrder` a coluna continua NOT NULL
-  /// — nenhuma ordem sai daqui sem atribuição de custo.
+  /// Opcional aqui E no resultado: o service usa este valor quando vem, cai no
+  /// da solicitação quando não vem, e aceita a ordem sem nenhum dos dois — a
+  /// coluna deixou de ser NOT NULL. Era a única estrita numa cadeia em que a
+  /// solicitação, a fatura e a conta a pagar sempre toleraram nulo.
   @IsOptional()
   @IsUUID(undefined, { message: 'Centro de custo inválido.' })
   costCenterId?: string;
