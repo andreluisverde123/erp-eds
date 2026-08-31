@@ -12,6 +12,7 @@ import {
   FormLabel,
   FormMessage,
   Input,
+  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -223,7 +224,13 @@ function GeneratePurchaseOrderBody({
             />
 
             <div className="flex flex-col gap-2">
-              <FormLabel>Itens da solicitação</FormLabel>
+              {/* `Label`, e NÃO `FormLabel`: este é o título da seção de itens,
+                  não o rótulo de um campo. `FormLabel` chama `useFormField`,
+                  que exige o contexto de um `<FormField>` e lança quando não o
+                  encontra — e como o erro sobe durante a renderização, ele não
+                  quebrava só o rótulo: derrubava a tela inteira de gerar a
+                  ordem de compra. */}
+              <Label>Itens da solicitação</Label>
               {loadingRequest ? (
                 <p className="text-sm text-muted-foreground">Carregando itens...</p>
               ) : (
