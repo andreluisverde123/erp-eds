@@ -29,6 +29,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "type-check": "turbo run type-check",
+    "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
     "prepare": "husky || echo 'husky indisponível (install sem devDependencies ou sem .git) — hooks de commit não instalados'"
   },

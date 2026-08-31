@@ -17,6 +17,29 @@ export class UploadPolicyService {
   constructor(private readonly prisma: PrismaService) {}
 
   async assertUploadAllowed(companyId: string, file: Express.Multer.File): Promise<void> {
+    const settings = await this.assertUploadsEnabled(companyId);
+
+    const maxBytes = (settings?.maxUploadSizeMb ?? 10) * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new BadRequestException(
+        `Arquivo de ${formatMb(file.size)} excede o limite de ${settings?.maxUploadSizeMb ?? 10} MB definido nas configurações.`,
+      );
+    }
+  }
+
+  /// Só o interruptor de anexos, sem o limite de tamanho.
+  ///
+  /// Existe por causa do vídeo do Diário de Obras: `maxUploadSizeMb` foi
+  /// escrito para documento (10 MB por omissão) e tornaria a seção de vídeo
+  /// inutilizável, mas `allowAttachments` continua valendo — uma empresa que
+  /// desligou o envio de arquivos desligou para tudo. Quem chama assume o
+  /// próprio teto de tamanho, e responde por ele.
+  ///
+  /// Devolve as configurações lidas para o chamador não precisar de uma
+  /// segunda consulta.
+  async assertUploadsEnabled(
+    companyId: string,
+  ): Promise<{ allowAttachments: boolean; maxUploadSizeMb: number } | null> {
     const settings = await this.prisma.systemSettings.findUnique({
       where: { companyId },
       select: { allowAttachments: true, maxUploadSizeMb: true },
@@ -30,12 +53,7 @@ export class UploadPolicyService {
       );
     }
 
-    const maxBytes = (settings?.maxUploadSizeMb ?? 10) * 1024 * 1024;
-    if (file.size > maxBytes) {
-      throw new BadRequestException(
-        `Arquivo de ${formatMb(file.size)} excede o limite de ${settings?.maxUploadSizeMb ?? 10} MB definido nas configurações.`,
-      );
-    }
+    return settings;
   }
 }
 

@@ -38,8 +38,14 @@ services:
       # refresh token tem que viver em /api/auth (senão não é enviado e a
       # sessão cai quando o access token expira).
       REFRESH_COOKIE_PATH: ${REFRESH_COOKIE_PATH:-/api/auth}
-      # Com front e API na mesma origem o navegador nem faz preflight — este
-      # valor só importa se algum cliente externo chamar a API direto.
+      # Domínio do cookie de sessão. Vazio = cookie host-only, cada endereço
+      # com a própria sessão (comportamento de sempre). Preencher com
+      # `.seu-dominio.com.br` faz o ERP e o Diário de Obras — que vivem em
+      # subdomínios do mesmo domínio — compartilharem UMA sessão.
+      REFRESH_COOKIE_DOMAIN: ${REFRESH_COOKIE_DOMAIN:-}
+      # Lista separada por vírgula. Com front e API na mesma origem o navegador
+      # nem faz preflight; o valor importa para o Diário de Obras servido em
+      # outro host e para qualquer cliente externo que chame a API direto.
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
       # Em produção as duas precisam declarar `sslmode` (a API se recusa a subir
       # sem — ver env.validation.ts). No Neon: host com sufixo `-pooler` na

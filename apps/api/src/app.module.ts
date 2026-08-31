@@ -24,6 +24,7 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { ComprasModule } from './compras/compras.module';
 import { envValidationSchema } from './config/env.validation';
 import { ConfiguracoesModule } from './configuracoes/configuracoes.module';
+import { DiarioModule } from './diario/diario.module';
 import { EngenhariaModule } from './engenharia/engenharia.module';
 import { FilesModule } from './files/files.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
@@ -88,6 +89,10 @@ import { WorkflowModule } from './workflow/workflow.module';
     CommonModule,
     AuthModule,
     EngenhariaModule,
+    // Diário de Obras — ambiente de campo servido pelo subdomínio
+    // `diario.*`. Mesma API, mesmo banco, mesma autenticação: o subdomínio é
+    // roteamento no cliente, não uma segunda aplicação.
+    DiarioModule,
     ComprasModule,
     FinanceiroModule,
     RhModule,

@@ -29,8 +29,18 @@ Duas regras do Vite que ditam isso:
    nome de modo. Não existe, portanto, `.env.local` nem `build:local` no web.
 2. **`development` é o modo padrão do `vite dev`.** `npm run dev` lê
    `.env.development`. Esse arquivo descreve a máquina do desenvolvedor, não um
-   ambiente remoto — por isso ele aponta para `http://localhost:3000`, enquanto
-   staging e produção usam o caminho relativo `/api`.
+   ambiente remoto.
+
+> **Local agora usa origem única, como os ambientes publicados.**
+> `VITE_API_URL` era `http://localhost:3000` no desenvolvimento e `/api` em
+> staging/produção — local era o único ambiente com front e API em origens
+> diferentes. Isso deixou de servir quando o Diário de Obras passou a ser
+> acessado por subdomínio (`diario.localhost:5173`): dali, uma chamada para
+> `localhost:3000` é **cross-site** para o navegador, e o cookie `SameSite=Lax`
+> do refresh token não é enviado — a sessão morreria a cada recarga, só na
+> máquina do desenvolvedor. Hoje o `server.proxy` do Vite repassa `/api` para a
+> API, do mesmo jeito que o nginx faz lá fora, e o par obrigatório disso é
+> `REFRESH_COOKIE_PATH=/api/auth` na API. Ver `docs/diario-de-obras.md`.
 
 Se um dia existir um ambiente de desenvolvimento **publicado**, ele precisa de um
 modo próprio (`--mode devshared` + `.env.devshared`). Reaproveitar `development`

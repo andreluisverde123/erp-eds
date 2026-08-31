@@ -109,10 +109,7 @@ export class FiscalIntegrationController {
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('sync')
-  syncNow(
-    @CurrentUser('companyId') companyId: string,
-    @CurrentUser('sub') actingUserId: string,
-  ) {
+  syncNow(@CurrentUser('companyId') companyId: string, @CurrentUser('sub') actingUserId: string) {
     return this.sync.sync(companyId, 'MANUAL', actingUserId);
   }
 

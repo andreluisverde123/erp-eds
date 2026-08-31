@@ -52,6 +52,176 @@ const DEMO_USERS: {
     position: 'Diretor Geral',
     isActive: false,
   },
+  // Dois engenheiros, e não um, por causa do Diário de Obras: com um só, a
+  // regra "cada engenheiro vê apenas as obras dele" fica indistinguível de
+  // "todo mundo vê tudo" — as duas produzem a mesma tela.
+  {
+    name: 'Bruna Engenharia',
+    email: 'engenharia2@eds.app',
+    roleName: 'Engenharia',
+    position: 'Engenheira de Obras',
+  },
+  {
+    name: 'Fábio Fiscal',
+    email: 'fiscal@eds.app',
+    roleName: 'Fiscal de Obra',
+    position: 'Fiscal de Obra',
+  },
+];
+
+/// Vínculos usuário↔obra do Diário de Obras. Montados para que o isolamento
+/// seja VERIFICÁVEL abrindo o app: Eduardo e Bruna não compartilham nenhuma
+/// obra, e o fiscal enxerga só a Alpha. Entrando como Bruna, a Alpha não pode
+/// aparecer em lugar nenhum — nem na lista, nem pela URL direta.
+const DEMO_SITE_ACCESS: { email: string; siteCode: string; role: 'ENGINEER' | 'INSPECTOR' }[] = [
+  { email: 'engenharia@eds.app', siteCode: 'OBR-001', role: 'ENGINEER' },
+  { email: 'engenharia@eds.app', siteCode: 'OBR-003', role: 'ENGINEER' },
+  { email: 'engenharia2@eds.app', siteCode: 'OBR-002', role: 'ENGINEER' },
+  { email: 'fiscal@eds.app', siteCode: 'OBR-001', role: 'INSPECTOR' },
+  // A administradora entra sem nenhuma obra de propósito: é o caso "usuário
+  // com acesso ao Diário e nenhuma obra vinculada", que a Home precisa saber
+  // tratar sem parecer defeito.
+];
+
+/// Relatórios diários de exemplo. Só a casca (obra, número, data, autor,
+/// situação) — o conteúdo do RDO é a próxima etapa do Diário. Existem para a
+/// Home não nascer vazia e para a regra "não leio RDO de obra que não é
+/// minha" ter o que barrar.
+const DEMO_DAILY_REPORTS: {
+  siteCode: string;
+  number: number;
+  daysAgo: number;
+  authorEmail: string;
+  status: 'DRAFT' | 'SUBMITTED' | 'APPROVED';
+  notes?: string;
+  /// Conteúdo operacional. Só o RDO mais recente vem preenchido — é o que a
+  /// pessoa abre primeiro, e um seed que preenche tudo esconde como as seções
+  /// vazias se comportam.
+  content?: {
+    workStartMinutes: number;
+    workBreakStartMinutes: number;
+    workBreakEndMinutes: number;
+    workEndMinutes: number;
+    morningWeather: 'SUNNY' | 'PARTLY_CLOUDY' | 'CLOUDY' | 'RAIN' | 'STORM';
+    afternoonWeather: 'SUNNY' | 'PARTLY_CLOUDY' | 'CLOUDY' | 'RAIN' | 'STORM';
+    weatherNotes?: string;
+    labor: { role: string; quantity: number }[];
+    equipment: { name: string; quantity: number; notes?: string }[];
+    activities: { description: string; location?: string; notes?: string }[];
+    occurrences: {
+      type:
+        | 'MATERIAL'
+        | 'LABOR'
+        | 'EQUIPMENT'
+        | 'WEATHER'
+        | 'DESIGN'
+        | 'SAFETY'
+        | 'SCHEDULE'
+        | 'INSPECTION'
+        | 'STOPPAGE'
+        | 'OTHER';
+      description: string;
+      occurredAtMinutes?: number;
+    }[];
+    materials: {
+      name: string;
+      quantity: number;
+      unit: 'UN' | 'KG' | 'TON' | 'M' | 'M2' | 'M3' | 'L' | 'SC' | 'CX' | 'PCT' | 'OTHER';
+      movementType: 'RECEIVED' | 'USED' | 'RETURNED' | 'OTHER';
+      notes?: string;
+    }[];
+  };
+}[] = [
+  {
+    siteCode: 'OBR-001',
+    number: 24,
+    daysAgo: 0,
+    authorEmail: 'engenharia@eds.app',
+    status: 'DRAFT',
+    notes: 'Concretagem da laje do 3º pavimento iniciada às 07h.',
+    content: {
+      workStartMinutes: 7 * 60,
+      workBreakStartMinutes: 12 * 60,
+      workBreakEndMinutes: 13 * 60,
+      workEndMinutes: 17 * 60,
+      morningWeather: 'SUNNY',
+      afternoonWeather: 'RAIN',
+      weatherNotes: 'Chuva forte entre 14h e 15h.',
+      labor: [
+        { role: 'Pedreiro', quantity: 8 },
+        { role: 'Servente', quantity: 6 },
+        { role: 'Eletricista', quantity: 2 },
+        { role: 'Encanador', quantity: 1 },
+        { role: 'Engenheiro', quantity: 1 },
+      ],
+      equipment: [
+        { name: 'Betoneira', quantity: 1 },
+        { name: 'Guindaste', quantity: 1 },
+        { name: 'Andaime', quantity: 4 },
+        { name: 'Retroescavadeira', quantity: 1, notes: 'Em manutenção' },
+      ],
+      activities: [
+        {
+          description: 'Execução da alvenaria do pavimento 03.',
+          location: 'Pavimento 03',
+          notes: 'Serviço executado conforme planejamento.',
+        },
+        { description: 'Instalação da rede hidráulica.', location: 'Pavimento 02' },
+        { description: 'Concretagem da laje.', location: 'Pavimento 03' },
+      ],
+      occurrences: [
+        {
+          type: 'WEATHER',
+          description: 'Chuva forte interrompeu a concretagem.',
+          occurredAtMinutes: 14 * 60 + 30,
+        },
+        { type: 'MATERIAL', description: 'Atraso na entrega de ferragem.' },
+      ],
+      // Movimentação do DIA, não estoque: o mesmo cimento aparece recebido e
+      // utilizado, que é o caso normal em canteiro.
+      materials: [
+        { name: 'Cimento CP-II', quantity: 50, unit: 'SC', movementType: 'RECEIVED' },
+        { name: 'Cimento CP-II', quantity: 18, unit: 'SC', movementType: 'USED' },
+        { name: 'Bloco cerâmico 14x19x39', quantity: 1200, unit: 'UN', movementType: 'RECEIVED' },
+        {
+          name: 'Concreto usinado FCK 25',
+          quantity: 2.5,
+          unit: 'M3',
+          movementType: 'USED',
+          notes: 'Laje do pavimento 03.',
+        },
+        {
+          name: 'Tubo PVC 100mm',
+          quantity: 6,
+          unit: 'UN',
+          movementType: 'RETURNED',
+          notes: 'Devolvido ao almoxarifado — bitola errada.',
+        },
+      ],
+    },
+  },
+  {
+    siteCode: 'OBR-001',
+    number: 23,
+    daysAgo: 1,
+    authorEmail: 'engenharia@eds.app',
+    status: 'SUBMITTED',
+    notes: 'Armação da laje concluída. Equipe de forma liberada para o bloco B.',
+  },
+  {
+    siteCode: 'OBR-001',
+    number: 22,
+    daysAgo: 2,
+    authorEmail: 'engenharia@eds.app',
+    status: 'APPROVED',
+  },
+  {
+    siteCode: 'OBR-002',
+    number: 8,
+    daysAgo: 1,
+    authorEmail: 'engenharia2@eds.app',
+    status: 'SUBMITTED',
+  },
 ];
 
 /// Dados de exemplo do módulo de Engenharia, só pra a tela de Obras não
@@ -209,7 +379,16 @@ interface DemoRequestItemSeed {
 /// nula quando o centro não pertence a obra nenhuma), igual ao que o service
 /// faz quando alguém cria a solicitação pela tela.
 interface DemoRequestSeed {
-  costCenterCode: string;
+  /// A obra é ESCOLHIDA pela solicitação, não derivada do centro de custo.
+  ///
+  /// A migration `20260825200000_solicitacao_escolhe_a_obra` inverteu essa
+  /// relação e tornou `constructionSiteId` obrigatório. O seed continuava
+  /// derivando a obra do centro de custo, o que quebrava assim que o centro
+  /// não pertencia a nenhuma — ver o caso do escritório abaixo.
+  siteCode: string;
+  /// Opcional: `costCenterId` é anulável, e nem toda solicitação tem um
+  /// destino contábil definido na abertura.
+  costCenterCode?: string;
   requesterEmail: string;
   notes?: string;
   status: 'DRAFT' | 'PENDING' | 'QUOTING' | 'APPROVED' | 'CANCELLED';
@@ -223,6 +402,7 @@ interface DemoRequestSeed {
 
 const DEMO_REQUESTS: DemoRequestSeed[] = [
   {
+    siteCode: 'OBR-001',
     costCenterCode: 'CC-001',
     requesterEmail: 'engenharia@eds.app',
     notes: 'Urgente para a próxima etapa da fundação.',
@@ -237,6 +417,7 @@ const DEMO_REQUESTS: DemoRequestSeed[] = [
   {
     // Aberta pela Engenharia e ainda sem valor: é o estado normal de uma
     // solicitação nova agora que o valor unitário é preenchido por Compras.
+    siteCode: 'OBR-001',
     costCenterCode: 'CC-002',
     requesterEmail: 'engenharia@eds.app',
     notes: 'Aguardando cotação de ferragens.',
@@ -244,17 +425,26 @@ const DEMO_REQUESTS: DemoRequestSeed[] = [
     items: [{ description: 'Vergalhão CA-50 10mm', unit: 'BR', quantity: 200 }],
   },
   {
+    siteCode: 'OBR-002',
     costCenterCode: 'CC-003',
     requesterEmail: 'engenharia@eds.app',
     status: 'DRAFT',
     items: [{ description: 'Locação de retroescavadeira', unit: 'DIA', quantity: 5 }],
   },
   {
-    // Destino que não é obra: mostra que o centro de custo cobre qualquer
-    // destino da solicitação, não só canteiro.
-    costCenterCode: 'CC-100',
+    // Solicitação SEM centro de custo — o caso que a regra atual admite e que
+    // vale demonstrar.
+    //
+    // Antes esta entrada apontava para o centro "Escritório" (CC-100), que não
+    // pertence a obra nenhuma, para mostrar que o centro de custo cobria
+    // qualquer destino. A migration `20260825200000_solicitacao_escolhe_a_obra`
+    // acabou com esse arranjo: a obra passou a ser obrigatória e escolhida pela
+    // própria solicitação. O dado ficou para trás e derrubava o seed inteiro
+    // com "Argument `company` is missing" — a mensagem que o Prisma dá quando
+    // um campo obrigatório chega nulo e ele tenta a outra variante do create.
+    siteCode: 'OBR-001',
     requesterEmail: 'engenharia@eds.app',
-    notes: 'Reposição de material de escritório.',
+    notes: 'Material de consumo do canteiro, sem centro de custo definido.',
     status: 'PENDING',
     items: [
       { description: 'Papel A4 75g (resma)', unit: 'RS', quantity: 20 },
@@ -420,9 +610,12 @@ export async function seedDemo(
   }
 
   for (const [index, requestSeed] of DEMO_REQUESTS.entries()) {
-    const costCenter = costCenterByCode.get(requestSeed.costCenterCode);
+    const site = siteByCode.get(requestSeed.siteCode);
+    const costCenter = requestSeed.costCenterCode
+      ? costCenterByCode.get(requestSeed.costCenterCode)
+      : undefined;
     const requester = userByEmail.get(requestSeed.requesterEmail);
-    if (!costCenter || !requester) {
+    if (!site || !requester || (requestSeed.costCenterCode && !costCenter)) {
       throw new Error(`Referência inválida no seed de solicitações (índice ${index}).`);
     }
 
@@ -436,8 +629,8 @@ export async function seedDemo(
     const request = await prisma.purchaseRequest.create({
       data: {
         companyId: company.id,
-        constructionSiteId: costCenter.constructionSiteId,
-        costCenterId: costCenter.id,
+        constructionSiteId: site.id,
+        costCenterId: costCenter?.id ?? null,
         requestedById: requester.id,
         code,
         status: requestSeed.status,
@@ -527,6 +720,16 @@ export async function seedDemo(
         data: {
           companyId: company.id,
           invoiceId: invoice.id,
+          // `origin` e `supplierId` viraram obrigatórios na migration
+          // `20260823184500_conta_a_pagar_avulsa`, que abriu o segundo caminho
+          // de criação (lançamento direto pelo Financeiro). O seed não
+          // acompanhou e passou a falhar com "Argument `company` is missing" —
+          // a mensagem que o Prisma dá quando um campo obrigatório falta e ele
+          // tenta a variante `connect` do create.
+          //
+          // Aqui a conta nasce de uma NOTA, então o fornecedor é o dela.
+          origin: 'INVOICE',
+          supplierId: invoice.supplierId,
           amount: invoice.totalAmount,
           dueDate: new Date('2026-07-31'),
           status: 'PARTIAL',
@@ -781,6 +984,114 @@ export async function seedDemo(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Diário de Obras: vínculos usuário↔obra e os RDOs de exemplo.
+  // ---------------------------------------------------------------------------
+  for (const access of DEMO_SITE_ACCESS) {
+    const user = userByEmail.get(access.email);
+    const site = siteByCode.get(access.siteCode);
+    if (!user || !site) {
+      throw new Error(
+        `Vínculo do Diário aponta para usuário/obra inexistente: ${access.email} → ${access.siteCode}`,
+      );
+    }
+
+    await prisma.userConstructionSite.upsert({
+      where: { userId_constructionSiteId: { userId: user.id, constructionSiteId: site.id } },
+      update: { role: access.role },
+      create: { userId: user.id, constructionSiteId: site.id, role: access.role },
+    });
+  }
+
+  for (const report of DEMO_DAILY_REPORTS) {
+    const site = siteByCode.get(report.siteCode);
+    const author = userByEmail.get(report.authorEmail);
+    if (!site || !author) {
+      throw new Error(`RDO de exemplo aponta para obra/autor inexistente: ${report.siteCode}`);
+    }
+
+    const reportDate = new Date();
+    reportDate.setUTCDate(reportDate.getUTCDate() - report.daysAgo);
+    reportDate.setUTCHours(0, 0, 0, 0);
+
+    const { content } = report;
+    const escalares = {
+      reportDate,
+      status: report.status,
+      createdById: author.id,
+      notes: report.notes ?? null,
+      workStartMinutes: content?.workStartMinutes ?? null,
+      workBreakStartMinutes: content?.workBreakStartMinutes ?? null,
+      workBreakEndMinutes: content?.workBreakEndMinutes ?? null,
+      workEndMinutes: content?.workEndMinutes ?? null,
+      morningWeather: content?.morningWeather ?? null,
+      afternoonWeather: content?.afternoonWeather ?? null,
+      weatherNotes: content?.weatherNotes ?? null,
+    };
+
+    const persistido = await prisma.dailyReport.upsert({
+      where: {
+        constructionSiteId_number: { constructionSiteId: site.id, number: report.number },
+      },
+      update: escalares,
+      create: {
+        companyId: company.id,
+        constructionSiteId: site.id,
+        number: report.number,
+        ...escalares,
+      },
+    });
+
+    if (!content) continue;
+
+    // As listas são REESCRITAS a cada seed, e não acrescentadas: rodar o seed
+    // duas vezes tem que produzir o mesmo RDO, não um com dez pedreiros.
+    await prisma.dailyReportLabor.deleteMany({ where: { dailyReportId: persistido.id } });
+    await prisma.dailyReportEquipment.deleteMany({ where: { dailyReportId: persistido.id } });
+    await prisma.dailyReportActivity.deleteMany({ where: { dailyReportId: persistido.id } });
+    await prisma.dailyReportOccurrence.deleteMany({ where: { dailyReportId: persistido.id } });
+    await prisma.dailyReportMaterial.deleteMany({ where: { dailyReportId: persistido.id } });
+
+    await prisma.dailyReportLabor.createMany({
+      data: content.labor.map((linha) => ({ dailyReportId: persistido.id, ...linha })),
+    });
+    await prisma.dailyReportEquipment.createMany({
+      data: content.equipment.map((linha) => ({
+        dailyReportId: persistido.id,
+        name: linha.name,
+        quantity: linha.quantity,
+        notes: linha.notes ?? null,
+      })),
+    });
+    await prisma.dailyReportActivity.createMany({
+      data: content.activities.map((linha, indice) => ({
+        dailyReportId: persistido.id,
+        description: linha.description,
+        location: linha.location ?? null,
+        notes: linha.notes ?? null,
+        position: indice + 1,
+      })),
+    });
+    await prisma.dailyReportOccurrence.createMany({
+      data: content.occurrences.map((linha) => ({
+        dailyReportId: persistido.id,
+        type: linha.type,
+        description: linha.description,
+        occurredAtMinutes: linha.occurredAtMinutes ?? null,
+      })),
+    });
+    await prisma.dailyReportMaterial.createMany({
+      data: content.materials.map((linha) => ({
+        dailyReportId: persistido.id,
+        name: linha.name,
+        quantity: linha.quantity,
+        unit: linha.unit,
+        movementType: linha.movementType,
+        notes: linha.notes ?? null,
+      })),
+    });
+  }
+
   console.log(`Empresa de demonstração: ${company.tradeName} (${company.cnpj})`);
   console.log(`Papéis: ${ROLES.map((role) => role.name).join(', ')}`);
   console.log('Usuários de demonstração (senha única abaixo):');
@@ -788,4 +1099,8 @@ export async function seedDemo(
     console.log(`  - ${demoUser.email} [${demoUser.roleName}]`);
   }
   console.log(`Senha: ${DEV_PASSWORD}`);
+  console.log('Diário de Obras — obras vinculadas a cada usuário:');
+  for (const access of DEMO_SITE_ACCESS) {
+    console.log(`  - ${access.email} → ${access.siteCode} (${access.role})`);
+  }
 }

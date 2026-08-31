@@ -403,7 +403,15 @@ describe('measureRowHeight — regressão da sobreposição de linhas', () => {
   });
 
   it('nenhuma linha fica abaixo da altura mínima', () => {
-    const vazia = { ...linha, description: '', origin: '', unit: '', quantity: '', unitPrice: '', totalPrice: '' };
+    const vazia = {
+      ...linha,
+      description: '',
+      origin: '',
+      unit: '',
+      quantity: '',
+      unitPrice: '',
+      totalPrice: '',
+    };
 
     expect(measureRowHeight(() => 0, vazia, COLUNAS, LARGURAS)).toBeGreaterThanOrEqual(18);
   });

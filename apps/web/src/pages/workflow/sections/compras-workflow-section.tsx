@@ -60,7 +60,9 @@ export function ComprasWorkflowSection() {
                   onClick={() => setSelectedId(row.id)}
                 >
                   <TableCell className="font-medium text-foreground">{row.code}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.constructionSite.name}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {row.constructionSite.name}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{row.requestedBy.name}</TableCell>
                   <TableCell>
                     <StageBadge

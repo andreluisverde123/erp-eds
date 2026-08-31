@@ -7,7 +7,8 @@ import { DfeClientService } from './dfe/dfe-client.service';
 import { FiscalSyncJob } from './sync/fiscal-sync.job';
 import { FiscalSyncService } from './sync/fiscal-sync.service';
 
-export type ConnectionStatus = 'OK' | 'SEM_CERTIFICADO' | 'CERTIFICADO_EXPIRADO' | 'BLOQUEADO' | 'ERRO';
+export type ConnectionStatus =
+  'OK' | 'SEM_CERTIFICADO' | 'CERTIFICADO_EXPIRADO' | 'BLOQUEADO' | 'ERRO';
 
 /// Tudo que o painel de Administração > Integração Fiscal exibe, numa
 /// requisição só — a tela tem oito indicadores e buscá-los separadamente

@@ -43,7 +43,10 @@ describe('compareSlipToPayable — grau de compatibilidade', () => {
 
     it('fornecedor e valor conferem, vencimento não: MÉDIA', () => {
       // É o segundo exemplo do prompt, literal.
-      const resultado = nivel({ documentNumber: null }, { dueDate: new Date('2026-10-15T00:00:00Z') });
+      const resultado = nivel(
+        { documentNumber: null },
+        { dueDate: new Date('2026-10-15T00:00:00Z') },
+      );
 
       expect(resultado.level).toBe('MEDIUM');
       expect(resultado.checks.dueDate).toBe('DIVERGENT');

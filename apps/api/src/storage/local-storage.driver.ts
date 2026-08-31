@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { StorageDriver } from './storage.types';
+import type { ByteRange, StorageDriver } from './storage.types';
 
 /// Disco local — o comportamento que o sistema sempre teve. Continua sendo o
 /// padrão em desenvolvimento e serve instalação em servidor único.
@@ -27,12 +27,17 @@ export class LocalStorageDriver implements StorageDriver {
     await writeFile(path, content);
   }
 
-  async getStream(key: string): Promise<Readable> {
+  async getStream(key: string, range?: ByteRange): Promise<Readable> {
     const path = this.resolveKey(key);
     if (!(await this.exists(key))) {
       throw new NotFoundException('Arquivo não encontrado.');
     }
-    return createReadStream(path);
+    // `createReadStream` já aceita o trecho — `start`/`end` são inclusivos nos
+    // dois lados, exatamente como o header `Range` do HTTP. Nenhum byte fora
+    // da faixa chega a ser lido do disco.
+    return range
+      ? createReadStream(path, { start: range.start, end: range.end })
+      : createReadStream(path);
   }
 
   async exists(key: string): Promise<boolean> {

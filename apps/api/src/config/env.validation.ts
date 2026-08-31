@@ -61,6 +61,26 @@ export const envValidationSchema = Joi.object({
   // `/api`), precisa ser `/api/auth` — ver comentário em `refresh-cookie.ts`.
   REFRESH_COOKIE_PATH: Joi.string().pattern(/^\//).default('/auth'),
 
+  /// Domínio do cookie do refresh token. Vazio por omissão: o cookie nasce
+  /// host-only e cada host tem a própria sessão.
+  ///
+  /// Defina para compartilhar UMA sessão entre o ERP e o Diário de Obras, que
+  /// vivem em subdomínios do mesmo domínio — `.gestaoeds.com.br` cobre
+  /// `gestaoeds.com.br` e `diario.gestaoeds.com.br`. Ligar isto é declarar que
+  /// todos os subdomínios daquele domínio pertencem a este sistema; se algum
+  /// dia um deles for servido por outra coisa, o cookie de sessão vai junto.
+  ///
+  /// O ponto inicial é aceito e ignorado pelos navegadores modernos (a
+  /// RFC 6265 trata `.exemplo.com` e `exemplo.com` como o mesmo escopo);
+  /// mantido no exemplo por ser a forma que a maioria da documentação usa.
+  REFRESH_COOKIE_DOMAIN: Joi.string()
+    .pattern(/^\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i)
+    .optional()
+    .messages({
+      'string.pattern.base':
+        'deve ser um domínio (ex.: .gestaoeds.com.br). Deixe vazio para o cookie ficar preso ao host que o emitiu.',
+    }),
+
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),

@@ -163,7 +163,9 @@ export class FiscalCertificateService {
   async loadMaterial(companyId: string): Promise<CertificateMaterial> {
     const row = await this.prisma.fiscalCertificate.findUnique({ where: { companyId } });
     if (!row || !row.isActive) {
-      throw new NotFoundException('Nenhum certificado digital ativo configurado para esta empresa.');
+      throw new NotFoundException(
+        'Nenhum certificado digital ativo configurado para esta empresa.',
+      );
     }
     if (row.notAfter < new Date()) {
       throw new BadRequestException(

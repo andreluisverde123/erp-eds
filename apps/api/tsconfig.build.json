@@ -3,5 +3,8 @@
   "compilerOptions": {
     "incremental": false
   },
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  // `src/**/testing/` guarda dublês e massa usados só pelos specs. Excluí-los
+  // aqui mantém o código de teste fora da imagem de produção — e faz o build
+  // quebrar se algum arquivo de produção importar um deles por engano.
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "src/**/testing/**"]
 }

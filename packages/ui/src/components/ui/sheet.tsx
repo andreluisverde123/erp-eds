@@ -47,6 +47,19 @@ function SheetContent({
             'inset-y-0 left-0 h-full w-72 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
           side === 'right' &&
             'inset-y-0 right-0 h-full w-72 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
+          // `top` e `bottom` já eram valores aceitos pelo tipo do prop `side`,
+          // mas não tinham estilo nenhum — passá-los rendia um painel solto no
+          // canto superior esquerdo. As duas linhas abaixo completam o
+          // contrato que o componente já declarava.
+          //
+          // `bottom` é o formato que serve ao mobile: o painel sobe da borda
+          // inferior, onde o polegar está, em vez de vir da lateral. A altura
+          // é limitada a 85svh para o conteúdo rolar por dentro quando o
+          // teclado do celular abre, em vez de empurrar a folha para fora.
+          side === 'top' &&
+            'inset-x-0 top-0 max-h-[85svh] w-full border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top',
+          side === 'bottom' &&
+            'inset-x-0 bottom-0 max-h-[85svh] w-full rounded-t-2xl border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
           className,
         )}
         {...props}

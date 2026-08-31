@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { LocalStorageDriver } from './local-storage.driver';
 import { S3StorageDriver } from './s3-storage.driver';
-import { STORAGE_DRIVER, type StorageDriver } from './storage.types';
+import { STORAGE_DRIVER, type ByteRange, type StorageDriver } from './storage.types';
 
 /// Fachada usada pelos módulos de domínio: eles não sabem (nem precisam
 /// saber) se o arquivo foi parar no disco ou num bucket.
@@ -26,8 +26,8 @@ export class StorageService {
     return { key, fileUrl: `/uploads/${key}` };
   }
 
-  getStream(key: string) {
-    return this.driver.getStream(key);
+  getStream(key: string, range?: ByteRange) {
+    return this.driver.getStream(key, range);
   }
 
   exists(key: string) {

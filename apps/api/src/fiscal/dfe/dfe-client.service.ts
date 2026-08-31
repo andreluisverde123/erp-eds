@@ -218,9 +218,10 @@ export class DfeClientService {
       return { ...vazio, transportError: `A SEFAZ respondeu HTTP ${response.status}.` };
     }
 
-    const ret = this.buscar(parser.parse(response.body), 'retDistDFeInt') as
-      | Record<string, unknown>
-      | null;
+    const ret = this.buscar(parser.parse(response.body), 'retDistDFeInt') as Record<
+      string,
+      unknown
+    > | null;
     if (!ret) {
       return { ...vazio, transportError: 'Resposta da SEFAZ sem retDistDFeInt.' };
     }

@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type {
-  FiscalSyncStatus,
-  FiscalSyncTrigger,
-  Prisma,
-} from '../../../generated/prisma/client';
+import type { FiscalSyncStatus, FiscalSyncTrigger, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FiscalCertificateService } from '../certificate/fiscal-certificate.service';
 import { CSTAT, DfeClientService, type DfeDocument } from '../dfe/dfe-client.service';
@@ -40,9 +36,33 @@ const MAX_PAGES_PER_RUN = 20;
 
 /// Código IBGE por UF — o `cUFAutor` só afeta roteamento interno da SEFAZ.
 const UF_CODES: Record<string, number> = {
-  AC: 12, AL: 27, AP: 16, AM: 13, BA: 29, CE: 23, DF: 53, ES: 32, GO: 52,
-  MA: 21, MT: 51, MS: 50, MG: 31, PA: 15, PB: 25, PR: 41, PE: 26, PI: 22,
-  RJ: 33, RN: 24, RS: 43, RO: 11, RR: 14, SC: 42, SE: 28, SP: 35, TO: 17,
+  AC: 12,
+  AL: 27,
+  AP: 16,
+  AM: 13,
+  BA: 29,
+  CE: 23,
+  DF: 53,
+  ES: 32,
+  GO: 52,
+  MA: 21,
+  MT: 51,
+  MS: 50,
+  MG: 31,
+  PA: 15,
+  PB: 25,
+  PR: 41,
+  PE: 26,
+  PI: 22,
+  RJ: 33,
+  RN: 24,
+  RS: 43,
+  RO: 11,
+  RR: 14,
+  SC: 42,
+  SE: 28,
+  SP: 35,
+  TO: 17,
 };
 
 export interface SyncOutcome {

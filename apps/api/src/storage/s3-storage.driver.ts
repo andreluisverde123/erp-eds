@@ -10,7 +10,7 @@ import {
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { StorageDriver } from './storage.types';
+import type { ByteRange, StorageDriver } from './storage.types';
 
 /// Armazenamento em bucket S3 (AWS, MinIO, Cloudflare R2, Supabase Storage —
 /// qualquer um compatível, via `S3_ENDPOINT` + `S3_FORCE_PATH_STYLE`).
@@ -62,10 +62,17 @@ export class S3StorageDriver implements StorageDriver {
     );
   }
 
-  async getStream(key: string): Promise<Readable> {
+  async getStream(key: string, range?: ByteRange): Promise<Readable> {
     try {
       const result = await this.client.send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          // O S3 fala o mesmo dialeto do HTTP aqui, então o trecho é repassado
+          // como veio: o bucket entrega só a faixa, e a API não precisa ler o
+          // objeto inteiro para recortar.
+          ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),
+        }),
       );
       if (!result.Body) throw new NotFoundException('Arquivo não encontrado.');
       return result.Body as Readable;

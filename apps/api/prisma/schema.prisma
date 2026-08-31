@@ -20,6 +20,133 @@ enum UserRoleType {
   HR_ANALYST
   FINANCE_ANALYST
   VIEWER
+  /// Fiscal DE OBRA — quem acompanha a execução em campo e assina o diário
+  /// pelo contratante. Nada a ver com o módulo `fiscal` do código, que é
+  /// tributário (NF-e, certificado digital, DF-e): a palavra é a mesma, o
+  /// assunto não. Valor novo em vez de reaproveitar `ENGINEER` porque as duas
+  /// funções assinam o RDO em papéis opostos.
+  SITE_INSPECTOR
+}
+
+/// Em que papel a pessoa participa DAQUELA obra. Não substitui o RBAC: o
+/// papel (`Role`) decide o que o usuário pode FAZER no sistema; isto decide
+/// como ele aparece NAQUELA obra — quem assina o diário como responsável
+/// técnico e quem assina como fiscal. A mesma pessoa pode ser engenheiro numa
+/// obra e fiscal em outra, e nenhum papel de RBAC consegue expressar isso.
+enum SiteAssignmentRole {
+  ENGINEER
+  /// Fiscal de obra. Ver a nota em `UserRoleType.SITE_INSPECTOR`.
+  INSPECTOR
+}
+
+/// Condição do tempo num período do dia. Enumerado, e não texto livre, porque
+/// o clima do RDO vira estatística: "quantos dias de chuva esta obra teve em
+/// março" é uma pergunta de medição contratual, e ela não se responde sobre uma
+/// coluna onde cabem "chuva", "Chuvoso", "chuva forte" e "🌧️".
+enum WeatherCondition {
+  SUNNY
+  PARTLY_CLOUDY
+  CLOUDY
+  RAIN
+  STORM
+}
+
+/// Que tipo de evidência visual é o arquivo.
+///
+/// Enum, e não texto: a tela agrupa fotos e vídeos em seções diferentes, e um
+/// `type` livre transformaria "PHOTO"/"photo"/"foto" em três seções.
+enum DailyReportMediaType {
+  PHOTO
+  VIDEO
+}
+
+/// Unidade de medida do material movimentado no dia.
+///
+/// **Enum, e não `String` livre como em `PurchaseRequestItem.unit`.** Lá o
+/// campo é texto porque o seed já havia gravado abreviações do setor antes de
+/// existir catálogo, e enumerá-lo hoje exigiria migrar dado. Aqui a tabela
+/// nasce vazia: dá para exigir um valor válido desde o primeiro registro, e é
+/// o backend que passa a recusar unidade inventada, não a boa vontade da tela.
+///
+/// Os códigos que existem nos dois lugares são os MESMOS de
+/// `MEASUREMENT_UNITS` (`apps/web/src/lib/measurement-units.ts`) — `SC`, `CX`,
+/// `PCT` e não `SACO`/`CAIXA`/`PACOTE`. Não é preciosismo: no dia em que
+/// alguém quiser abrir uma solicitação de compra a partir do material faltante
+/// de um RDO, a unidade atravessa sem tabela de tradução.
+enum MaterialUnit {
+  UN
+  KG
+  TON
+  M
+  M2
+  M3
+  L
+  SC
+  CX
+  PCT
+  /// Escape para o que não cabe na lista. Existe para ninguém escolher uma
+  /// unidade errada só porque a certa não estava lá — a quantidade continua
+  /// registrada, e a descrição diz do que se trata.
+  OTHER
+}
+
+/// O que aconteceu com o material na obra naquele dia.
+///
+/// É movimentação de DIÁRIO, não de estoque: não há saldo, custo, fornecedor
+/// nem nota. A pergunta que estes quatro valores respondem é "o que entrou,
+/// saiu ou voltou hoje", e o histórico de uma obra se lê percorrendo os RDOs.
+enum MaterialMovementType {
+  RECEIVED
+  USED
+  RETURNED
+  OTHER
+}
+
+/// Classificação da ocorrência registrada no dia.
+///
+/// Dez valores, e não trinta: o objetivo é permitir filtrar e contar, não
+/// descrever. O detalhe do que aconteceu vive na descrição, que é texto livre —
+/// uma taxonomia grande demais faz todo mundo escolher "Outro".
+///
+/// `INSPECTION` (fiscalização) e `DESIGN` (projeto) não são problemas; a
+/// palavra "ocorrência" aqui significa "o que aconteceu de digno de registro",
+/// não "o que deu errado".
+enum OccurrenceType {
+  MATERIAL
+  LABOR
+  EQUIPMENT
+  WEATHER
+  DESIGN
+  SAFETY
+  SCHEDULE
+  INSPECTION
+  STOPPAGE
+  OTHER
+}
+
+/// Situação do relatório diário de obra (RDO).
+///
+/// O ciclo implementado hoje tem DOIS estados e UMA transição:
+///
+///   DRAFT ──finalizar──> SUBMITTED
+///
+/// `APPROVED` continua no enum como o degrau da conferência pelo
+/// fiscal/contratante, que ainda não existe. Ele NÃO é alcançável por rota
+/// nenhuma — nenhum código o produz — e está aqui porque removê-lo e
+/// recolocá-lo depois custaria duas migrations para chegar ao mesmo lugar.
+///
+/// **Não existe estado de "em revisão", e não é esquecimento.** Um estado
+/// intermediário só se justifica quando alguém age sobre ele; enquanto a
+/// aprovação não existir, REVIEW seria um beco — o relatório entraria e não
+/// teria como sair. O fluxo cresce quando aparecer o ator que o justifica.
+enum DailyReportStatus {
+  /// Em preenchimento pelo autor, ainda editável.
+  DRAFT
+  /// Finalizado pelo autor. A partir daqui o conteúdo é histórico e nenhuma
+  /// escrita é aceita — ver `isEditable`.
+  SUBMITTED
+  /// Conferido pelo fiscal/contratante. Reservado; ainda não alcançável.
+  APPROVED
 }
 
 enum ConstructionStatus {
@@ -287,6 +414,7 @@ model Company {
   fiscalSyncRuns          FiscalSyncRun[]
   fiscalDocuments         FiscalDocument[]
   fiscalImportLogs        FiscalImportLog[]
+  dailyReports            DailyReport[]
 }
 
 // =============================================================================
@@ -324,7 +452,7 @@ model User {
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
 
-  company                   Company             @relation(fields: [companyId], references: [id])
+  company                   Company                @relation(fields: [companyId], references: [id])
   userRoles                 UserRole[]
   refreshTokens             RefreshToken[]
   purchaseRequests          PurchaseRequest[]
@@ -336,8 +464,14 @@ model User {
   fiscalCertificates        FiscalCertificate[]
   fiscalSyncRuns            FiscalSyncRun[]
   bankAccounts              BankAccount[]
-  uploadedBankSlips         BankSlip[]          @relation("BankSlipUploadedBy")
-  linkedBankSlips           BankSlip[]          @relation("BankSlipLinkedBy")
+  uploadedBankSlips         BankSlip[]             @relation("BankSlipUploadedBy")
+  linkedBankSlips           BankSlip[]             @relation("BankSlipLinkedBy")
+  /// Obras a que este usuário está vinculado — é o que o Diário de Obras lê
+  /// para responder "quais obras eu vejo".
+  constructionSites         UserConstructionSite[]
+  dailyReports              DailyReport[]
+  submittedDailyReports     DailyReport[]          @relation("DailyReportSubmittedBy")
+  dailyReportMedia          DailyReportMedia[]
 
   @@index([companyId])
   /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
@@ -437,6 +571,34 @@ model UserRole {
   @@index([roleId])
 }
 
+/// Vínculo entre um usuário do sistema e uma obra — a fonte de verdade de
+/// "quais obras esta pessoa enxerga" no Diário de Obras.
+///
+/// Precisou existir: até aqui NENHUMA tabela ligava `User` a
+/// `ConstructionSite`. `EmployeeAllocation` liga obra a `Employee`, que é o
+/// colaborador do RH (a maioria não tem login), e o comentário do próprio
+/// `User` já registra que as duas entidades são propositalmente distintas.
+/// Sem esta tabela, "engenheiro A não vê a obra do engenheiro B" não teria
+/// como ser respondido pelo backend.
+///
+/// Não há coluna `companyId`: a obra já tem uma, e duplicá-la abriria a
+/// possibilidade de vínculo entre usuário de uma empresa e obra de outra. Os
+/// services cruzam `companyId` pela obra (ver `SiteAccessService`).
+model UserConstructionSite {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @db.Uuid
+  constructionSiteId String             @db.Uuid
+  role               SiteAssignmentRole @default(ENGINEER)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, constructionSiteId])
+  @@index([constructionSiteId])
+}
+
 // =============================================================================
 // ENGENHARIA
 // =============================================================================
@@ -463,7 +625,7 @@ model ConstructionSite {
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?
 
-  company             Company              @relation(fields: [companyId], references: [id])
+  company             Company                @relation(fields: [companyId], references: [id])
   costCenters         CostCenter[]
   employeeAllocations EmployeeAllocation[]
   timeEntries         TimeEntry[]
@@ -473,6 +635,8 @@ model ConstructionSite {
   contractorContracts ContractorContract[]
   invoices            Invoice[]
   accountsPayable     AccountPayable[]
+  userAccess          UserConstructionSite[]
+  dailyReports        DailyReport[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -643,12 +807,12 @@ model PurchaseRequest {
 
 /// Item de linha de uma requisição de compra.
 model PurchaseRequestItem {
-  id                 String   @id @default(uuid()) @db.Uuid
-  purchaseRequestId  String   @db.Uuid
+  id                 String       @id @default(uuid()) @db.Uuid
+  purchaseRequestId  String       @db.Uuid
   description        String
-  quantity           Decimal  @db.Decimal(12, 3)
+  quantity           Decimal      @db.Decimal(12, 3)
   unit               String
-  estimatedUnitPrice Decimal? @db.Decimal(14, 2)
+  estimatedUnitPrice Decimal?     @db.Decimal(14, 2)
   notes              String?
   /// DISPONIBILIDADE NA COTAÇÃO. `false` (o padrão) cobre dois casos que o
   /// preço distingue sozinho: item ainda não cotado (`estimatedUnitPrice`
@@ -663,7 +827,7 @@ model PurchaseRequestItem {
   /// Item indisponível NÃO entra no total estimado e NÃO some da solicitação:
   /// a linha continua íntegra e pode virar item de ordem de compra de outro
   /// fornecedor depois (ver `PurchaseOrderItem`).
-  unavailable        Boolean  @default(false)
+  unavailable        Boolean      @default(false)
   /// Por que o fornecedor não tem ("sem estoque", "fora de linha"). Opcional,
   /// e só faz sentido com `unavailable = true` — o service limpa quando o
   /// item volta a disponível.
@@ -679,8 +843,8 @@ model PurchaseRequestItem {
   /// inteira (regra C-16). O service limpa o desconto nos dois casos.
   discountType       DiscountType @default(AMOUNT)
   discountValue      Decimal      @default(0) @db.Decimal(14, 2)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   purchaseRequest    PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
   /// Uma linha da solicitação pode virar VÁRIAS linhas de ordem — é assim que
@@ -1963,4 +2127,320 @@ model FiscalImportLog {
   @@index([companyId, createdAt])
   @@index([result])
   @@index([fiscalDocumentId])
+}
+
+// =============================================================================
+// DIÁRIO DE OBRAS
+// =============================================================================
+
+/// Relatório Diário de Obra (RDO). **Esqueleto deliberado**: aqui existem
+/// apenas a identidade e o vínculo do relatório — obra, data, número, autor e
+/// situação. Clima, mão de obra, equipamentos, atividades, ocorrências,
+/// materiais, fotos, vídeos, PDF e assinaturas são as etapas seguintes do
+/// Diário e ainda NÃO estão modelados; cada uma entra como tabela/coluna
+/// própria, sem alterar o que está aqui.
+///
+/// Ele nasce nesta fundação, e não na etapa em que o preenchimento for
+/// implementado, porque o controle de acesso precisa de algo para proteger: a
+/// regra "não consigo ler o RDO de uma obra que não é minha" só é verificável
+/// se o RDO existir como tabela.
+///
+/// `companyId` é redundante em relação à obra, ao contrário do que acontece em
+/// `UserConstructionSite`: aqui ele existe para as listagens do Diário
+/// filtrarem por inquilino sem um join obrigatório com `ConstructionSite` — o
+/// mesmo padrão já usado por `Invoice` e `AccountPayable`. O service escreve
+/// os dois a partir da obra, nunca do cliente.
+model DailyReport {
+  id                    String            @id @default(uuid()) @db.Uuid
+  companyId             String            @db.Uuid
+  constructionSiteId    String            @db.Uuid
+  /// Sequencial POR OBRA, e não global: em campo o relatório é "o RDO 24 da
+  /// Aurora", nunca "o RDO 1.842 do sistema".
+  number                Int
+  reportDate            DateTime          @db.Date
+  status                DailyReportStatus @default(DRAFT)
+  /// Observações gerais do dia. PRIMEIRO campo de conteúdo do RDO, e por
+  /// enquanto o único: clima, mão de obra, equipamentos, atividades,
+  /// ocorrências, materiais, fotos e vídeos são as etapas seguintes e entram
+  /// como tabelas próprias.
+  ///
+  /// Ele existe agora porque o salvamento incremental (autosave) precisa de
+  /// algo real para salvar: uma infraestrutura de autosave sem nenhum campo
+  /// que a exercite não é infraestrutura, é código não executado.
+  notes                 String?
+  /// Horário de trabalho do dia, em MINUTOS desde a meia-noite (0–1439).
+  ///
+  /// Não é `DateTime`, e a diferença importa. Um horário de expediente não tem
+  /// data nem fuso: "07:00" é sete da manhã na obra, e guardá-lo como
+  /// timestamp obrigaria a inventar um dia e um fuso que não significam nada —
+  /// e a errar em uma hora quando o servidor mudasse de zona. `TimeEntry`, no
+  /// RH, usa `DateTime` porque lá o valor É um instante (a batida do ponto);
+  /// aqui é uma hora do relógio.
+  ///
+  /// Inteiro também é o formato em que a conta futura sai de graça: horas
+  /// trabalhadas no mês é uma soma, não um parse.
+  ///
+  /// Os quatro são opcionais de propósito — o RDO é preenchido ao longo do dia,
+  /// e exigir o horário de término às 9h da manhã travaria o resto da tela.
+  workStartMinutes      Int?
+  workBreakStartMinutes Int?
+  workBreakEndMinutes   Int?
+  workEndMinutes        Int?
+  scheduleNotes         String?
+  /// Clima por período. Duas colunas, e não uma tabela filha com uma linha por
+  /// período: são exatamente dois períodos, fixos, um por relatório. Uma tabela
+  /// 1:1 aqui seria um join comprado sem nada em troca — e o PATCH do autosave,
+  /// que já existe para `notes`, passa a cobrir clima sem nenhum mecanismo novo.
+  ///
+  /// (Se um dia os períodos virarem variáveis — noite, madrugada, faixas de
+  /// hora —, aí sim a forma certa passa a ser uma tabela com `period`.)
+  morningWeather        WeatherCondition?
+  afternoonWeather      WeatherCondition?
+  weatherNotes          String?
+  /// De qual relatório este foi copiado. Responde "de onde veio este RDO"
+  /// sem depender de auditoria, e é o gancho da tela ("copiado do RDO #23").
+  /// Nulo em todo relatório começado do zero.
+  copiedFromId          String?           @db.Uuid
+  /// Quando o relatório foi finalizado, e por quem. Preenchidos SÓ na
+  /// transição — nunca na criação, nunca por um PATCH.
+  ///
+  /// `createdAt` não serve para isso: um RDO aberto às 7h e finalizado às 17h
+  /// tem dois instantes distintos, e o documento precisa dizer quando foi
+  /// FECHADO, não quando foi aberto.
+  ///
+  /// Nulos enquanto é rascunho — e é essa nulidade que responde "este RDO já
+  /// foi entregue?" sem depender de o enum estar correto.
+  submittedAt           DateTime?
+  submittedById         String?           @db.Uuid
+  createdById           String            @db.Uuid
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  deletedAt             DateTime?
+
+  company          Company          @relation(fields: [companyId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+  createdBy        User             @relation(fields: [createdById], references: [id])
+  submittedBy      User?            @relation("DailyReportSubmittedBy", fields: [submittedById], references: [id])
+  copiedFrom       DailyReport?     @relation("DailyReportCopy", fields: [copiedFromId], references: [id])
+  copies           DailyReport[]    @relation("DailyReportCopy")
+
+  labor       DailyReportLabor[]
+  equipment   DailyReportEquipment[]
+  activities  DailyReportActivity[]
+  occurrences DailyReportOccurrence[]
+  materials   DailyReportMaterial[]
+  media       DailyReportMedia[]
+
+  @@unique([constructionSiteId, number])
+  /// UM relatório por obra por dia. Não é regra inventada aqui: o modelo já
+  /// dizia isso em três lugares — o nome (relatório DIÁRIO de obra), o tipo da
+  /// coluna (`@db.Date`, sem hora) e a numeração por obra. Sem a constraint,
+  /// dois toques no botão de criar produzem dois RDOs para a mesma data, e a
+  /// segunda pessoa a preencher descobre isso quando o dia já passou.
+  ///
+  /// ATENÇÃO para quem for implementar exclusão: a constraint NÃO ignora
+  /// `deletedAt`, então um RDO excluído em soft delete bloquearia recriar
+  /// aquela data. Hoje não existe exclusão de RDO, então a situação não
+  /// acontece. Quando existir, a decisão é entre um índice parcial
+  /// (`WHERE "deletedAt" IS NULL`, que o Prisma não expressa no schema) e
+  /// exclusão definitiva.
+  @@unique([constructionSiteId, reportDate])
+  @@index([companyId])
+  /// O índice comum que existia em `(constructionSiteId, reportDate)` saiu: o
+  /// índice ÚNICO acima cobre exatamente as mesmas consultas ("os últimos
+  /// relatórios das minhas obras"). Manter os dois só pagaria escrita dobrada.
+  @@index([createdById])
+  @@index([copiedFromId])
+  @@index([submittedById])
+}
+
+/// Efetivo por função presente na obra no dia.
+///
+/// Uma linha por função, com a quantidade. NÃO existe coluna de total: o total
+/// é a soma das linhas, e guardá-lo criaria dois números para a mesma verdade —
+/// o segundo ficando errado no primeiro item editado. A tela também não deixa
+/// digitar o total, pelo mesmo motivo.
+model DailyReportLabor {
+  id            String   @id @default(uuid()) @db.Uuid
+  dailyReportId String   @db.Uuid
+  /// Texto livre, e não um catálogo de funções. Em campo aparecem "Pedreiro",
+  /// "Servente", mas também "Encarregado da empreiteira X" — travar num
+  /// catálogo faria todo mundo lançar tudo em "Outros", que é pior que texto.
+  role          String
+  quantity      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+
+  /// A mesma função duas vezes no mesmo dia é sempre engano: "Pedreiro 8" e
+  /// "Pedreiro 3" deveriam ser "Pedreiro 11". A constraint transforma o engano
+  /// em erro na hora, em vez de num total silenciosamente certo e numa lista
+  /// confusa.
+  @@unique([dailyReportId, role])
+  @@index([dailyReportId])
+}
+
+/// Equipamento presente na obra no dia.
+///
+/// A lista é a do DIA, não a frota da empresa: um equipamento cadastrado no
+/// ERP não está automaticamente nesta obra nesta data. Por isso o nome é texto
+/// e não uma referência a um cadastro — não existe cadastro de equipamentos no
+/// sistema, e inventar um aqui resolveria um problema que ninguém tem.
+model DailyReportEquipment {
+  id            String   @id @default(uuid()) @db.Uuid
+  dailyReportId String   @db.Uuid
+  name          String
+  quantity      Int
+  /// Situação do equipamento naquele dia ("em manutenção", "parado por falta
+  /// de operador"). É o que torna legítimo o mesmo equipamento aparecer duas
+  /// vezes — um operando, outro parado —, e por isso aqui NÃO há a constraint
+  /// de unicidade que a mão de obra tem.
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+
+  @@index([dailyReportId])
+}
+
+/// Serviço executado no dia.
+model DailyReportActivity {
+  id            String   @id @default(uuid()) @db.Uuid
+  dailyReportId String   @db.Uuid
+  description   String
+  /// Onde na obra ("Pavimento 03", "Bloco B — fachada leste"). Opcional: numa
+  /// obra pequena a localização é óbvia e exigi-la só atrasaria o registro.
+  location      String?
+  notes         String?
+  /// Ordem de exibição. Preenchida na criação como "última da lista"; existe
+  /// desde já para que reordenar seja depois um UPDATE de coluna, e não uma
+  /// migration com backfill num RDO já assinado.
+  position      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+
+  @@index([dailyReportId, position])
+}
+
+/// Acontecimento relevante do dia — atraso de material, chuva, visita técnica,
+/// paralisação.
+model DailyReportOccurrence {
+  id                String         @id @default(uuid()) @db.Uuid
+  dailyReportId     String         @db.Uuid
+  type              OccurrenceType
+  description       String
+  /// Hora do acontecimento, em minutos desde a meia-noite. Mesma escolha de
+  /// `workStartMinutes`, e OPCIONAL: "chuva intensa durante a tarde" é um
+  /// registro legítimo e não tem hora. Exigi-la faria o usuário inventar uma.
+  occurredAtMinutes Int?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+
+  @@index([dailyReportId])
+}
+
+/// Material movimentado na obra no dia.
+///
+/// **Não é estoque.** Não há saldo, entrada fiscal, fornecedor, custo,
+/// almoxarifado nem inventário — esses conceitos pertencem a Compras e
+/// Financeiro, que já os têm. Aqui a pergunta é uma só: "o que aconteceu com
+/// os materiais na obra hoje?". Consultar o histórico de uma obra é percorrer
+/// os RDOs dela; nenhum acumulado é mantido, e antecipar um seria criar uma
+/// segunda verdade sobre o estoque que o ERP já modela em outro lugar.
+///
+/// Sem vínculo com `DailyReportActivity`, e de propósito: uma obra recebe
+/// cimento sem que ninguém queira dizer a qual serviço ele pertence. Obrigar a
+/// associação faria o usuário escolher uma atividade qualquer para conseguir
+/// salvar.
+model DailyReportMaterial {
+  id            String               @id @default(uuid()) @db.Uuid
+  dailyReportId String               @db.Uuid
+  /// `name`, e não `materialName`: as irmãs desta tabela já chamam o campo de
+  /// identificação de `name` (equipamento), `role` (função) e `description`
+  /// (atividade). Repetir o nome do modelo dentro da coluna seria o único
+  /// caso do schema.
+  name          String
+  /// `Decimal(12,3)` — o mesmo de `PurchaseRequestItem.quantity`. Decimal e
+  /// não `Int` porque 2,5 m³ de concreto e 150,75 kg de vergalhão são as
+  /// quantidades normais de uma obra; e não `Float` porque quantidade que
+  /// entra em medição não pode carregar erro binário.
+  quantity      Decimal              @db.Decimal(12, 3)
+  unit          MaterialUnit
+  movementType  MaterialMovementType
+  notes         String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+
+  /// Sem unicidade por nome, ao contrário de `DailyReportLabor`: o mesmo
+  /// material aparece legitimamente duas vezes no mesmo dia quando parte foi
+  /// recebida e parte foi utilizada — são movimentações distintas, não engano.
+  @@index([dailyReportId])
+}
+
+/// Foto ou vídeo anexado a um relatório diário.
+///
+/// **O binário NÃO fica aqui.** Esta tabela guarda só a referência
+/// (`storageKey`) e os metadados; o arquivo vive no `StorageService`, que já
+/// existia no ERP e já abstrai disco local e bucket S3. Não há segunda
+/// infraestrutura de armazenamento para o Diário.
+///
+/// `storageKey` e não `fileUrl` (como em `Attachment`): aquele campo nasceu
+/// guardando o caminho público `/uploads/...` porque o `FilesController`
+/// localiza o anexo POR ele. Aqui a mídia é servida por uma rota própria do
+/// Diário, que a encontra pelo id e checa o vínculo com a obra — a chave crua
+/// é o que o storage precisa, e uma URL no banco só seria um caminho a mais
+/// para manter em sincronia.
+///
+/// A linha só existe DEPOIS de o arquivo estar gravado no storage: não há
+/// estado "pendente". É o que torna impossível um registro apontando para
+/// arquivo que nunca chegou — ver `DailyReportMediaService.register`.
+model DailyReportMedia {
+  id              String               @id @default(uuid()) @db.Uuid
+  dailyReportId   String               @db.Uuid
+  type            DailyReportMediaType
+  /// Caminho do objeto no storage, gerado pelo servidor
+  /// (`diario/<empresa>/<obra>/<relatório>/<uuid>.<ext>`). Único: o mesmo
+  /// objeto não pode ser registrado duas vezes, nem por retentativa.
+  storageKey      String               @unique
+  /// Miniatura da FOTO, quando existe. Objeto separado no storage: o original
+  /// nunca é alterado nem substituído.
+  ///
+  /// Nulo para vídeo (não há miniatura gerada) e para qualquer foto enviada
+  /// por um cliente que não a produziu — nesse caso a rota da miniatura serve
+  /// o original, e a tela continua funcionando. É o que permite a coluna nascer
+  /// sem backfill.
+  thumbnailKey    String?              @unique
+  /// Nome original do arquivo, guardado APENAS como metadado — nunca como
+  /// chave de storage nem como parte de caminho. Nome vindo do cliente já foi
+  /// vetor de path traversal em aplicação demais.
+  fileName        String
+  /// Tipo detectado pela ASSINATURA do arquivo, não o declarado pelo cliente.
+  mimeType        String
+  sizeBytes       Int
+  /// Dimensões da imagem, lidas do cabeçalho do próprio arquivo no servidor.
+  /// Nulas para vídeo, cujo contêiner exigiria um parser inteiro.
+  width           Int?
+  height          Int?
+  /// Duração do vídeo em segundos, informada pelo navegador. É metadado de
+  /// exibição, não controle de segurança: o cliente pode mentir, e mentir aqui
+  /// só faz a tela mostrar um número errado.
+  durationSeconds Int?
+  createdById     String               @db.Uuid
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+  createdBy   User        @relation(fields: [createdById], references: [id])
+
+  @@index([dailyReportId])
+  @@index([createdById])
 }

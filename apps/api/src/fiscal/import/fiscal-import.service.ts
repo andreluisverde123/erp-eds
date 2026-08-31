@@ -96,7 +96,10 @@ export class FiscalImportService {
     let errorMessage: string | null = null;
 
     try {
-      const parsed = parseFiscalDocument(Buffer.from(documento.xml).toString('utf8'), documento.schema);
+      const parsed = parseFiscalDocument(
+        Buffer.from(documento.xml).toString('utf8'),
+        documento.schema,
+      );
 
       if (parsed.kind === 'event') {
         result = await this.aplicarEvento(companyId, parsed.data);
@@ -243,9 +246,7 @@ export class FiscalImportService {
       protocolNumber: nota.protocolNumber,
       hasFullDocument: nota.isComplete,
       source: 'SEFAZ' as const,
-      ...(nota.cancelled
-        ? { status: 'CANCELLED' as const, cancelledAt: new Date() }
-        : {}),
+      ...(nota.cancelled ? { status: 'CANCELLED' as const, cancelledAt: new Date() } : {}),
     };
 
     const id = await this.prisma.$transaction(async (tx) => {
@@ -254,9 +255,7 @@ export class FiscalImportService {
           where: { id: existente.id },
           // Na nota conciliada, só o que o resumo não tinha. Na pendente, o
           // documento completo é a versão boa e substitui o cabeçalho inteiro.
-          data: conciliada
-            ? apenasEnriquecimento(dados)
-            : limparNulos(dados, nota.isComplete),
+          data: conciliada ? apenasEnriquecimento(dados) : limparNulos(dados, nota.isComplete),
         });
         // Só o documento completo mexe nos itens. Substituir em vez de
         // acrescentar: reprocessar o mesmo XML não pode duplicar linhas.
@@ -309,10 +308,7 @@ export class FiscalImportService {
   /// Cancelamento chega como documento SEPARADO, normalmente depois da nota.
   /// Os demais eventos (ciência, confirmação, carta de correção) não alteram a
   /// nota nesta etapa — são registrados no log e seguem.
-  private async aplicarEvento(
-    companyId: string,
-    evento: ParsedEvent,
-  ): Promise<FiscalImportResult> {
+  private async aplicarEvento(companyId: string, evento: ParsedEvent): Promise<FiscalImportResult> {
     if (!evento.isCancellation || !evento.accessKey) return 'SKIPPED';
 
     const atualizadas = await this.prisma.inboundInvoice.updateMany({

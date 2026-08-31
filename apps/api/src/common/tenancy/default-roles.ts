@@ -141,6 +141,36 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     action: 'view',
     description: 'Ver relatórios e indicadores executivos de todos os módulos.',
   },
+  /// O Diário de Obras é um ambiente à parte do ERP (subdomínio próprio,
+  /// experiência de campo), mas NÃO tem autorização à parte: ele usa estas
+  /// permissões, o mesmo `Permission`/`Role`/`RolePermission` de todo o
+  /// resto. Ter `diario.access` é condição para ENTRAR; quais obras a pessoa
+  /// enxerga lá dentro é outra pergunta, respondida pelos vínculos em
+  /// `UserConstructionSite` — permissão não substitui vínculo, e vínculo não
+  /// substitui permissão.
+  {
+    code: 'diario.access',
+    module: 'diario',
+    action: 'access',
+    description: 'Entrar no Diário de Obras e consultar as obras e relatórios vinculados a você.',
+  },
+  {
+    code: 'diario.report.manage',
+    module: 'diario',
+    action: 'report_manage',
+    description: 'Criar e editar relatórios diários (RDO) nas obras vinculadas a você.',
+  },
+  /// Separada de `admin.manage_users` porque quem decide "qual engenheiro
+  /// toca qual obra" é a Engenharia, não quem administra contas de acesso —
+  /// e dar `admin.manage_users` a um coordenador de obra só para ele
+  /// distribuir vínculos entregaria junto a criação de usuários e a troca de
+  /// perfis de todo mundo.
+  {
+    code: 'diario.manage_access',
+    module: 'diario',
+    action: 'manage_access',
+    description: 'Definir quais usuários têm acesso a quais obras no Diário de Obras.',
+  },
   /// Dados bancários têm TRÊS permissões, e não as duas de sempre, porque aqui
   /// consultar e ver não são a mesma coisa: a listagem devolve `****1234`, e
   /// ler o número inteiro é um ato à parte, com auditoria própria.
@@ -197,6 +227,12 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       // aprovação e ordem de compra exigem `compras.manage`.
       'compras.view',
       'compras.request',
+      // Diário de Obras: o time de engenharia é o público principal do
+      // ambiente de campo, e é ele quem distribui as obras entre engenheiros
+      // e fiscais.
+      'diario.access',
+      'diario.report.manage',
+      'diario.manage_access',
     ],
   },
   {
@@ -242,6 +278,25 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'engenharia.view',
     ],
   },
+  /// Fiscal de obra: acompanha a execução em campo pelo contratante. Papel
+  /// NOVO, e não um apelido de `Engenharia`, porque o recorte de acesso é
+  /// outro — ele não cadastra obra, não abre solicitação de compra e não vê
+  /// terceirizados; entra no Diário, nas obras em que foi colocado, e ponto.
+  ///
+  /// `relatorios.view` fica de fora de propósito (é a única exceção ao
+  /// BASE_PERMISSIONS): são os indicadores executivos de todos os módulos, e
+  /// um fiscal é externo à operação da construtora.
+  ///
+  /// `dashboard.view` entra porque o ERP principal manda todo mundo para
+  /// `/dashboard` ao entrar — sem ela, um fiscal que abrisse o endereço do
+  /// ERP em vez do Diário cairia numa tela de erro em vez de uma tela vazia.
+  {
+    name: 'Fiscal de Obra',
+    type: 'SITE_INSPECTOR',
+    description:
+      'Fiscalização de campo: acessa o Diário de Obras somente nas obras vinculadas a ele.',
+    permissionCodes: ['dashboard.view', 'diario.access', 'diario.report.manage'],
+  },
   {
     name: 'Diretoria',
     type: 'VIEWER',
@@ -261,6 +316,10 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'terceiros.manage',
       'compras.approve',
       'financeiro.approve',
+      // Entra no Diário, mas continua vendo só as obras em que foi colocada —
+      // não há atalho de "diretor vê tudo" no Diário (ver `SiteAccessService`).
+      'diario.access',
+      'diario.manage_access',
     ],
   },
 ];
