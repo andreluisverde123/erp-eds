@@ -123,6 +123,21 @@ export interface DocumentTotal {
   caption?: string;
 }
 
+/// Uma linha para assinar à mão.
+///
+/// O documento sai do sistema e é assinado em papel — não há assinatura
+/// eletrônica aqui, e o `name` NÃO é uma assinatura: é a identificação de quem
+/// deve assinar sobre a linha.
+///
+/// `name` opcional porque nem todo signatário é conhecido pelo sistema. A
+/// ordem emitida antes de o autor passar a ser gravado imprime a linha sem
+/// nome — que é exatamente o que um campo para assinar à mão sempre foi.
+export interface DocumentSignature {
+  /// O papel de quem assina ("Responsável pela emissão", "Fornecedor").
+  role: string;
+  name?: string | null;
+}
+
 export interface PrintableDocument {
   /// Nome que aparece no topo. Sempre existe (`Company.legalName` é NOT NULL).
   companyName: string;
@@ -139,6 +154,9 @@ export interface PrintableDocument {
   notes: { title: string; text: string } | null;
   /// Bloco final de rastreabilidade. `null` quando não há o que rastrear.
   footer: DocumentBlock | null;
+  /// Linhas para assinar à mão, lado a lado no fim do documento. Vazio quando
+  /// o documento não é assinado.
+  signatures?: DocumentSignature[];
 }
 
 export interface CompanySource {

@@ -71,6 +71,9 @@ export interface PurchaseOrderSource {
   expectedDeliveryDate: Date | null;
   discountType: 'AMOUNT' | 'PERCENT';
   discountValue: Prisma.Decimal;
+  /// Quem emitiu. `null` nas ordens anteriores ao campo — a linha de
+  /// assinatura sai sem nome em vez de atribuída a alguém que não a emitiu.
+  createdBy: { name: string } | null;
   totalAmount: Prisma.Decimal;
   supplier: {
     legalName: string;
@@ -210,6 +213,20 @@ export function buildPurchaseOrderDocument(
           : []),
       ],
     },
+
+    /// Duas linhas: quem emitiu e o fornecedor.
+    ///
+    /// A ordem de compra é o documento que compromete o dinheiro, e quem a
+    /// assina precisa estar identificado — antes disso o PDF saía sem dono, e
+    /// o fornecedor recebia um pedido que não dizia de quem partiu.
+    ///
+    /// O nome NÃO é assinatura: é a identificação de quem assina sobre a
+    /// linha, à mão. O sistema não tem assinatura eletrônica, e imprimir
+    /// "assinado digitalmente" seria afirmar algo que não aconteceu.
+    signatures: [
+      { role: 'Responsável pela emissão', name: order.createdBy?.name ?? null },
+      { role: 'Fornecedor — ciente do pedido' },
+    ],
   };
 }
 

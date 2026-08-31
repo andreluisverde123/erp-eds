@@ -14,6 +14,8 @@ import {
 } from './purchase-orders.service';
 
 const EMPRESA_A = '11111111-1111-1111-1111-111111111111';
+/// Quem emite a ordem — é o nome que assina o PDF.
+const COMPRADOR = 'cccccccc-0000-4000-8000-000000000001';
 const EMPRESA_B = '22222222-2222-2222-2222-222222222222';
 const SOLICITACAO = '33333333-3333-3333-3333-333333333333';
 const FORNECEDOR = '44444444-4444-4444-4444-444444444444';
@@ -197,7 +199,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('cria a ordem com a linha pedida', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
       });
@@ -218,7 +220,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('cria todas as linhas, cada uma com a sua origem', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [
           { purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 },
@@ -242,7 +244,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service } = makeService();
 
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [
             { purchaseRequestItemId: 'item-cimento', quantity: 30, unitPrice: 32.9 },
@@ -257,7 +259,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('o vínculo é por ITEM, não pelo id da solicitação', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-areia', quantity: 12, unitPrice: 95 }],
       });
@@ -271,7 +273,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('descrição e unidade são COPIADAS da origem, não aceitas do cliente', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [
           {
@@ -295,7 +297,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('a quantidade COMPRADA pode ser menor que a solicitada (compra parcial)', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 80, unitPrice: 10 }],
       });
@@ -307,7 +309,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('a quantidade comprada também pode ser MAIOR (arredondamento de embalagem)', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 120, unitPrice: 10 }],
       });
@@ -318,7 +320,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('a unidade vem da solicitação e acompanha a linha', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [
           { purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 },
@@ -332,7 +334,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('o valor unitário negociado é o que vale, mesmo divergindo da cotação', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 27.5 }],
       });
@@ -343,7 +345,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('aceita valor unitário zero (brinde/bonificação)', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 5, unitPrice: 0 }],
       });
@@ -356,7 +358,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('totalPrice é quantidade × valor unitário, calculado pelo backend', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
       });
@@ -367,7 +369,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('um totalPrice enviado pelo cliente é ignorado — nunca diverge do cálculo', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [
           {
@@ -407,7 +409,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service } = makeService();
 
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [{ purchaseRequestItemId: 'item-de-outra-empresa', quantity: 1, unitPrice: 10 }],
         }),
@@ -420,7 +422,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       // Isolamento não é só entre empresas: a linha tem de ser da solicitação
       // que originou esta ordem, senão a rastreabilidade seria uma mentira.
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [
             { purchaseRequestItemId: 'item-de-outra-solicitacao', quantity: 1, unitPrice: 10 },
@@ -467,7 +469,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service } = makeService();
 
       await expect(
-        service.create(EMPRESA_B, {
+        service.create(EMPRESA_B, COMPRADOR, {
           ...BASE,
           items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
         }),
@@ -477,7 +479,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('toda consulta de item carrega o escopo da empresa e da solicitação', async () => {
       const { service, prisma } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
       });
@@ -496,7 +498,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service, prisma } = makeService();
 
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [
             { purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 },
@@ -579,7 +581,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('soma os totais dos itens (10×100 + 5×200 = 2.000)', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [
           { purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 100 },
@@ -593,7 +595,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('ordem de um item só: o total é o total do item', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 50, unitPrice: 32.9 }],
       });
@@ -604,7 +606,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('um totalAmount enviado pelo cliente é ignorado', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 2, unitPrice: 10 }],
         // O campo saiu do DTO; mesmo que alguém o mande, não chega ao banco.
@@ -719,7 +721,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service } = makeService({ requestStatus: 'PENDING' });
 
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
         }),
@@ -730,7 +732,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       const { service } = makeService({ supplierExists: false });
 
       await expect(
-        service.create(EMPRESA_A, {
+        service.create(EMPRESA_A, COMPRADOR, {
           ...BASE,
           items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 1 }],
         }),
@@ -823,7 +825,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('a situação é DERIVADA — nada é gravado na ordem', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 100 }],
       });
@@ -896,7 +898,7 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
     it('continua podendo virar linha de ordem — a compra é de outro fornecedor', async () => {
       const { service, criados } = makeService();
 
-      await service.create(EMPRESA_A, {
+      await service.create(EMPRESA_A, COMPRADOR, {
         ...BASE,
         costCenterId: 'cc-1',
         items: [{ purchaseRequestItemId: 'item-areia', quantity: 5, unitPrice: 90 }],

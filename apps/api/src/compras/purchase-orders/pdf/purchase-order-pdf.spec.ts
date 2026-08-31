@@ -108,6 +108,7 @@ function order(overrides: Partial<PurchaseOrderSource> = {}): PurchaseOrderSourc
     purchaseRequest: { code: 'SOL-0004', notes: 'Entregar no portão B, aos cuidados do mestre.' },
     constructionSite: { code: 'OBRA-1', name: 'Residencial Paineiras' },
     costCenter: { code: 'CC-01', name: 'Estrutura' },
+    createdBy: { name: 'Marina Souza' },
     ...overrides,
     items,
   };
@@ -526,5 +527,37 @@ describe('renderPurchaseOrderPdf', () => {
     // O valor digitado à mão continua sendo impresso — a ordem antiga não
     // vira um documento de R$ 0,00.
     expect(documento.total?.value).toBe(brl('R$ 129,15'));
+  });
+});
+
+describe('assinaturas da ordem de compra', () => {
+  it('traz quem EMITIU e o fornecedor', () => {
+    const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
+
+    expect(documento.signatures).toEqual([
+      { role: 'Responsável pela emissão', name: 'Marina Souza' },
+      { role: 'Fornecedor — ciente do pedido' },
+    ]);
+  });
+
+  it('ordem antiga, sem autor gravado, sai com a linha SEM nome', () => {
+    const documento = buildPurchaseOrderDocument(order({ createdBy: null }), EMPRESA_COMPLETA);
+
+    // As ordens anteriores à coluna não têm autor. Atribuí-las a alguém seria
+    // inventar uma assinatura; a linha em branco é o que um campo para
+    // assinar à mão sempre foi.
+    expect(documento.signatures?.[0]).toEqual({
+      role: 'Responsável pela emissão',
+      name: null,
+    });
+  });
+
+  it('o nome não é apresentado como assinatura eletrônica', () => {
+    const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
+    const textos = (documento.signatures ?? []).flatMap((a) => [a.role, a.name ?? '']);
+
+    // O sistema não tem assinatura eletrônica. Imprimir "assinado
+    // digitalmente" afirmaria algo que não aconteceu.
+    expect(textos.join(' ')).not.toMatch(/assinad|digital|certificad/i);
   });
 });

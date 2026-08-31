@@ -471,6 +471,8 @@ model User {
   userRoles                 UserRole[]
   refreshTokens             RefreshToken[]
   purchaseRequests          PurchaseRequest[]
+  /// Ordens que este usuário emitiu — é o nome que assina o PDF da ordem.
+  purchaseOrders            PurchaseOrder[]        @relation("PurchaseOrderCreatedBy")
   attachments               Attachment[]
   auditLogs                 AuditLog[]
   workflowComments          WorkflowComment[]
@@ -910,6 +912,14 @@ model PurchaseOrder {
   totalAmount          Decimal             @db.Decimal(14, 2)
   issueDate            DateTime
   expectedDeliveryDate DateTime?
+  /// QUEM EMITIU a ordem. É o nome que assina o PDF — sem ele, o documento
+  /// que vai ao fornecedor não diz de quem partiu o pedido.
+  ///
+  /// Opcional porque as ordens anteriores a este campo não têm autor, e
+  /// atribuí-las a alguém seria inventar uma assinatura. Nelas o PDF imprime a
+  /// linha sem nome, que é o que um documento em branco para assinar à mão
+  /// sempre foi.
+  createdById          String?             @db.Uuid
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   deletedAt            DateTime?
@@ -919,6 +929,7 @@ model PurchaseOrder {
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
+  createdBy        User?             @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id])
 
   items           PurchaseOrderItem[]
   invoices        Invoice[]

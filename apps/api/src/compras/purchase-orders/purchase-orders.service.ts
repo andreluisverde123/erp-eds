@@ -25,6 +25,8 @@ const includeArgs = Prisma.validator<Prisma.PurchaseOrderDefaultArgs>()({
     purchaseRequest: { select: { id: true, code: true } },
     constructionSite: { select: { id: true, code: true, name: true } },
     costCenter: { select: { id: true, code: true, name: true } },
+    /// Quem emitiu — é o nome impresso no campo de assinatura do PDF.
+    createdBy: { select: { id: true, name: true } },
     items: {
       // A ordem das linhas é a da solicitação, não a de inserção: é assim que
       // o comprador confere o pedido contra o que foi pedido.
@@ -59,6 +61,8 @@ const pdfArgs = Prisma.validator<Prisma.PurchaseOrderDefaultArgs>()({
     purchaseRequest: { select: { code: true, notes: true } },
     constructionSite: { select: { code: true, name: true } },
     costCenter: { select: { code: true, name: true } },
+    /// Quem emitiu — assina o documento.
+    createdBy: { select: { name: true } },
     items: {
       orderBy: { createdAt: 'asc' },
       include: {
@@ -104,7 +108,7 @@ export function sumItemTotals(items: { totalPrice: Prisma.Decimal }[]): Prisma.D
 export class PurchaseOrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(companyId: string, dto: CreatePurchaseOrderDto) {
+  async create(companyId: string, createdById: string, dto: CreatePurchaseOrderDto) {
     const request = await this.prisma.purchaseRequest.findFirst({
       where: { id: dto.purchaseRequestId, companyId, deletedAt: null },
       select: { id: true, status: true, constructionSiteId: true, costCenterId: true },
@@ -153,6 +157,7 @@ export class PurchaseOrdersService {
         constructionSiteId: request.constructionSiteId,
         costCenterId,
         code,
+        createdById,
         discountType: desconto.type,
         discountValue: desconto.value,
         // DERIVADO dos itens e do desconto geral, nunca informado pelo cliente

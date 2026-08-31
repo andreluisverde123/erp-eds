@@ -81,6 +81,7 @@ export async function renderDocumentPdf(document: PrintableDocument): Promise<Re
   drawTotal(doc, document, left, usableWidth, bottomLimit);
   drawNotes(doc, document, left, usableWidth, bottomLimit);
   drawFooterBlock(doc, document, left, usableWidth, bottomLimit);
+  drawSignatures(doc, document, left, usableWidth, bottomLimit);
 
   const range = doc.bufferedPageRange();
   drawFooters(doc, range, left, usableWidth);
@@ -398,6 +399,67 @@ function drawFooterBlock(
   for (const item of document.footer.fields) {
     doc.text(`${item.label}: ${item.value}`, left, doc.y + 1, { width: usableWidth });
   }
+}
+
+/// Linhas para assinar à mão, lado a lado no fim do documento.
+///
+/// O bloco inteiro cabe ou vai para a página seguinte: uma assinatura separada
+/// do nome que a identifica, ou uma linha sozinha no pé da folha, é pior que
+/// uma página a mais.
+///
+/// O nome vai ABAIXO da linha, não sobre ela — o espaço acima é onde a pessoa
+/// escreve. Imprimir o nome em cima é o erro que transforma um campo de
+/// assinatura numa etiqueta.
+function drawSignatures(
+  doc: Doc,
+  document: PrintableDocument,
+  left: number,
+  usableWidth: number,
+  bottomLimit: number,
+) {
+  const signatures = document.signatures ?? [];
+  if (signatures.length === 0) return;
+
+  const ALTURA = 58;
+  ensureSpace(doc, ALTURA, bottomLimit);
+
+  const y = doc.y + 30;
+  const columnWidth = usableWidth / signatures.length;
+
+  for (const [index, signature] of signatures.entries()) {
+    const x = left + columnWidth * index;
+    // Margem lateral dentro da coluna: sem ela, duas assinaturas vizinhas
+    // ficam com as linhas se tocando e parecem uma só.
+    const lineWidth = columnWidth - 28;
+
+    doc
+      .moveTo(x + 14, y)
+      .lineTo(x + 14 + lineWidth, y)
+      .lineWidth(0.5)
+      .stroke(BLACK);
+
+    if (signature.name) {
+      doc.font(FONT_BOLD).fontSize(8).fillColor(BLACK).text(signature.name, x + 14, y + 4, {
+        width: lineWidth,
+        align: 'center',
+        lineBreak: false,
+        ellipsis: true,
+      });
+    }
+
+    doc
+      .font(FONT)
+      .fontSize(7.5)
+      .fillColor(GRAY)
+      .text(signature.role, x + 14, y + (signature.name ? 15 : 4), {
+        width: lineWidth,
+        align: 'center',
+        lineBreak: false,
+        ellipsis: true,
+      });
+  }
+
+  doc.y = y + 26;
 }
 
 /// Página nova quando o bloco inteiro não cabe no que sobrou.

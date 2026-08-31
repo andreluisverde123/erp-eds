@@ -64,8 +64,14 @@ export class PurchaseOrdersController {
 
   @RequirePermissions('compras.manage')
   @Post()
-  create(@Body() dto: CreatePurchaseOrderDto, @CurrentUser('companyId') companyId: string) {
-    return this.purchaseOrdersService.create(companyId, dto);
+  create(
+    @Body() dto: CreatePurchaseOrderDto,
+    @CurrentUser('companyId') companyId: string,
+    /// Quem emite assina o PDF. Vem do TOKEN, nunca do corpo: aceitar o autor
+    /// do cliente deixaria qualquer um emitir a ordem em nome de outro.
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.purchaseOrdersService.create(companyId, userId, dto);
   }
 
   @RequirePermissions('compras.manage')
