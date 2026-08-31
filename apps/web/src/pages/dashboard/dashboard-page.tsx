@@ -2,7 +2,7 @@ import { QuickActions } from '@/components/dashboard/quick-actions';
 import { StatsCards } from '@/components/dashboard/stats-cards';
 import { ComprasStatusSection } from '@/components/dashboard/compras-status-section';
 import { ObrasHomeSection } from '@/components/dashboard/obras-home-section';
-import { ContractExpiryAlertCard } from '@/features/terceiros/components/contract-expiry-alert-card';
+import { PendingAlerts } from '@/features/dashboard/components/pending-alerts';
 import { useAuth } from '@/features/auth/context';
 
 /// A Home é a mesma tela para todo mundo, mas cada bloco só aparece para quem
@@ -15,7 +15,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <ContractExpiryAlertCard />
+      <PendingAlerts />
 
       <QuickActions />
 

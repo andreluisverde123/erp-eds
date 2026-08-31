@@ -163,6 +163,31 @@ export class PurchaseRequestsService {
     return this.findOne(companyId, created.id);
   }
 
+  /// Quantas solicitações estão paradas esperando alguém.
+  ///
+  /// Dois estados de espera, e eles têm donos DIFERENTES:
+  ///
+  ///   PENDING   o solicitante enviou e Compras ainda não cotou
+  ///   QUOTING   Compras cotou e ninguém aprovou
+  ///
+  /// Separados de propósito. Somá-los produziria um número que não diz de quem
+  /// é a vez — e o alerta da Home existe justamente para dizer isso a quem
+  /// abre o sistema.
+  async getPendingSummary(
+    companyId: string,
+  ): Promise<{ awaitingQuote: number; awaitingApproval: number }> {
+    const [awaitingQuote, awaitingApproval] = await this.prisma.$transaction([
+      this.prisma.purchaseRequest.count({
+        where: { companyId, deletedAt: null, status: 'PENDING' },
+      }),
+      this.prisma.purchaseRequest.count({
+        where: { companyId, deletedAt: null, status: 'QUOTING' },
+      }),
+    ]);
+
+    return { awaitingQuote, awaitingApproval };
+  }
+
   async findAll(
     companyId: string,
     query: QueryPurchaseRequestDto,

@@ -5,10 +5,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 /// Um material já pedido antes, com o que se sabe dele.
 export interface ItemSuggestion {
   description: string;
-  /// A unidade da ÚLTIMA vez que este material foi pedido. Escolher a sugestão
-  /// preenche as duas coisas: quem digita "cimento" quase nunca quer mudar de
-  /// saco para quilo.
-  unit: string;
   /// Quantas vezes apareceu. Serve para ordenar — o material do dia a dia sobe,
   /// o pedido uma vez só desce.
   timesUsed: number;
@@ -33,11 +29,17 @@ export class ItemSuggestionsService {
 
   /// Materiais já pedidos que casam com o que está sendo digitado.
   ///
-  /// **SQL cru, e não `groupBy` do Prisma.** A consulta precisa de duas coisas
-  /// ao mesmo tempo: agrupar por descrição e trazer a UNIDADE da ocorrência
-  /// mais recente de cada grupo. `groupBy` devolveria só as colunas agrupadas
-  /// e as agregações; a unidade exigiria uma segunda consulta por linha.
-  /// `DISTINCT ON` do Postgres resolve numa passada.
+  /// A sugestão é SÓ O NOME. Unidade, quantidade e observação continuam
+  /// digitadas — são decisões daquele pedido, não do material: a mesma tinta
+  /// vem em lata numa compra e em galão na outra, e preencher a unidade da vez
+  /// anterior colocaria um valor plausível e errado num campo que ninguém
+  /// olharia de novo.
+  ///
+  /// **SQL cru, e não `groupBy` do Prisma.** Não basta agrupar: é preciso
+  /// escolher UMA grafia entre as várias que existem para o mesmo material
+  /// ("Cimento CP-II", "cimento cp2"), e ela tem de ser a mais recente.
+  /// `groupBy` devolveria só as colunas agrupadas; `DISTINCT ON` do Postgres
+  /// resolve numa passada.
   async search(companyId: string, search: string, limit = 8): Promise<ItemSuggestion[]> {
     const termo = search.trim();
 
@@ -49,12 +51,10 @@ export class ItemSuggestionsService {
 
     return this.prisma.$queryRaw<ItemSuggestion[]>`
       SELECT description,
-             unit,
              "timesUsed"
         FROM (
               SELECT DISTINCT ON (lower(i.description))
                      i.description,
-                     i.unit,
                      COUNT(*) OVER (PARTITION BY lower(i.description))::int AS "timesUsed",
                      i."createdAt"
                 FROM "PurchaseRequestItem" i
@@ -63,9 +63,8 @@ export class ItemSuggestionsService {
                  AND r."deletedAt" IS NULL
                  AND i.description ILIKE ${'%' + termo + '%'}
                -- A ocorrência MAIS RECENTE de cada descrição vence: é dela que
-               -- saem a grafia e a unidade sugeridas. Uma unidade corrigida no
-               -- mês passado não deve ser sobreposta pela errada do ano
-               -- passado.
+               -- sai a grafia sugerida. Uma correção de ontem não deve ser
+               -- sobreposta pela escrita errada do ano passado.
                ORDER BY lower(i.description), i."createdAt" DESC
              ) AS recentes
        -- Mais pedido primeiro; empate desempata pelo uso mais recente.

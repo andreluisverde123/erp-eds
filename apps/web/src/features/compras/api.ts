@@ -98,3 +98,15 @@ export function downloadPurchaseOrderPdf(id: string, code: string): Promise<void
 export function deletePurchaseOrder(id: string): Promise<void> {
   return apiClient.delete(`/purchase-orders/${id}`);
 }
+
+/// Quantas solicitações estão paradas esperando alguém — alimenta o alerta da
+/// Home. Os dois estados têm donos diferentes: `awaitingQuote` espera Compras
+/// cotar, `awaitingApproval` espera quem autoriza.
+export interface PurchaseRequestsPendingSummary {
+  awaitingQuote: number;
+  awaitingApproval: number;
+}
+
+export function getPurchaseRequestsPendingSummary(): Promise<PurchaseRequestsPendingSummary> {
+  return apiClient.get('/purchase-requests/pending-summary');
+}

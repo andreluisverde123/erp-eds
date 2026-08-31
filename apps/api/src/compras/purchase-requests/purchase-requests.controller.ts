@@ -46,6 +46,15 @@ export class PurchaseRequestsController {
   ///
   /// `compras.view` basta: é leitura do histórico da própria empresa, e quem
   /// preenche uma solicitação já enxerga as solicitações anteriores.
+  /// Contagem do que está parado esperando alguém — alimenta o alerta da Home.
+  ///
+  /// Antes de `:id`, como a de sugestões: rota literal declarada depois de um
+  /// parâmetro nunca é alcançada.
+  @Get('pending-summary')
+  getPendingSummary(@CurrentUser('companyId') companyId: string) {
+    return this.purchaseRequestsService.getPendingSummary(companyId);
+  }
+
   @Get('item-suggestions')
   suggestItems(
     @Query() query: QueryItemSuggestionDto,

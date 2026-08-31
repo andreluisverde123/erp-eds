@@ -6,7 +6,6 @@ import {
   type Control,
   type FieldErrors,
   type UseFormRegister,
-  type UseFormSetValue,
 } from 'react-hook-form';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -51,16 +50,12 @@ interface PurchaseRequestItemsGridProps {
   control: Control<PurchaseRequestFormValues>;
   register: UseFormRegister<PurchaseRequestFormValues>;
   errors: FieldErrors<PurchaseRequestFormValues>;
-  /// Necessário porque escolher uma sugestão preenche a UNIDADE, que é outro
-  /// campo da mesma linha — o `Controller` da descrição não a alcança.
-  setValue: UseFormSetValue<PurchaseRequestFormValues>;
 }
 
 export function PurchaseRequestItemsGrid({
   control,
   register,
   errors,
-  setValue,
 }: PurchaseRequestItemsGridProps) {
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
   const items = useWatch({ control, name: 'items' }) as PurchaseRequestItemFormValues[] | undefined;
@@ -167,16 +162,10 @@ export function PurchaseRequestItemsGrid({
                           value={descField.value ?? ''}
                           onChange={descField.onChange}
                           onBlur={descField.onBlur}
-                          // Escolher a sugestão preenche a UNIDADE também: quem
-                          // digita "cimento" quase nunca quer trocar de saco
-                          // para quilo, e é o segundo campo que ela deixaria
-                          // de digitar.
-                          onPick={(sugestao) => {
-                            descField.onChange(sugestao.description);
-                            setValue(`items.${index}.unit`, sugestao.unit, {
-                              shouldDirty: true,
-                            });
-                          }}
+                          // SÓ o nome. Unidade, quantidade e observação são
+                          // decisões daquele pedido, não do material, e ficam
+                          // como estão.
+                          onPick={(sugestao) => descField.onChange(sugestao.description)}
                           data-row={index}
                           data-column="description"
                           aria-label={`Item da linha ${rowNumber}`}

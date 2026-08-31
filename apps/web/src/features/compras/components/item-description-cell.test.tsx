@@ -10,8 +10,8 @@ vi.mock('../item-suggestions');
 const mocked = vi.mocked(api);
 
 const SUGESTOES = [
-  { description: 'Cimento CPII 50kg', unit: 'SC', timesUsed: 12 },
-  { description: 'Cimento CPIV 50kg', unit: 'SC', timesUsed: 3 },
+  { description: 'Cimento CPII 50kg', timesUsed: 12 },
+  { description: 'Cimento CPIV 50kg', timesUsed: 3 },
 ];
 
 function montar(valorInicial = '') {
@@ -54,19 +54,18 @@ describe('sugestão de material', () => {
     expect(mocked.searchItemSuggestions).not.toHaveBeenCalled();
   });
 
-  it('mostra o que já foi pedido, com a unidade', async () => {
+  it('mostra o que já foi pedido, e quantas vezes', async () => {
     mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
     const { campo } = montar('cimento');
 
     await userEvent.setup().click(campo);
 
     expect(await screen.findByText('Cimento CPII 50kg')).toBeDefined();
-    expect(screen.getAllByText('SC').length).toBeGreaterThan(0);
     // O contador separa o material do dia a dia do que foi pedido uma vez.
     expect(screen.getByText('12×')).toBeDefined();
   });
 
-  it('escolher preenche descrição E unidade', async () => {
+  it('escolher preenche SÓ o nome', async () => {
     const usuario = userEvent.setup();
     mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
     const { onPick, campo } = montar('cimento');
@@ -74,11 +73,9 @@ describe('sugestão de material', () => {
     await usuario.click(campo);
     await usuario.click(await screen.findByText('Cimento CPII 50kg'));
 
-    // A unidade é o segundo campo que a pessoa deixaria de digitar; sugerir só
-    // o nome resolveria metade do problema.
-    expect(onPick).toHaveBeenCalledWith(
-      expect.objectContaining({ description: 'Cimento CPII 50kg', unit: 'SC' }),
-    );
+    // Unidade, quantidade e observação são decisões daquele pedido, não do
+    // material: a mesma tinta vem em lata numa compra e em galão na outra.
+    expect(onPick).toHaveBeenCalledWith({ description: 'Cimento CPII 50kg', timesUsed: 12 });
   });
 
   it('não sugere exatamente o que já está escrito', async () => {

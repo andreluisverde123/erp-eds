@@ -17,6 +17,8 @@ import { searchItemSuggestions, type ItemSuggestion } from '../item-suggestions'
 /// **Sugere, não obriga.** Não há catálogo de materiais no ERP e isto não cria
 /// um: quem precisa de algo inédito digita e segue. A lista some ao sair do
 /// campo, e ignorá-la não custa nada.
+///
+/// **Só o nome.** Os demais campos da linha ficam intactos.
 export function ItemDescriptionCell({
   value,
   onChange,
@@ -26,8 +28,13 @@ export function ItemDescriptionCell({
 }: {
   value: string;
   onChange: (valor: string) => void;
-  /// Chamado quando a pessoa ESCOLHE uma sugestão — traz a unidade junto, que
-  /// é o outro campo que ela deixaria de digitar.
+  /// Chamado quando a pessoa ESCOLHE uma sugestão.
+  ///
+  /// Só o NOME é preenchido. Unidade, quantidade e observação continuam
+  /// digitadas: são decisões daquele pedido, não do material — a mesma tinta
+  /// vem em lata numa compra e em galão na outra, e herdar a unidade da vez
+  /// anterior colocaria um valor plausível e errado num campo que ninguém
+  /// olharia de novo.
   onPick: (sugestao: ItemSuggestion) => void;
   className?: string;
 } & Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange' | 'className'>) {
@@ -127,7 +134,6 @@ export function ItemDescriptionCell({
                 onClick={() => escolher(sugestao)}
               >
                 <span className="min-w-0 flex-1 truncate">{sugestao.description}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{sugestao.unit}</span>
                 {sugestao.timesUsed > 1 && (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {sugestao.timesUsed}×
