@@ -6,6 +6,7 @@ import { SiteAccessService } from './access/site-access.service';
 import { DiarioController } from './diario.controller';
 import { DailyReportsController } from './reports/daily-reports.controller';
 import { DailyReportsService } from './reports/daily-reports.service';
+import { RdoPdfService } from './reports/pdf/rdo-pdf.service';
 import { DailyReportItemsController } from './reports/items/daily-report-items.controller';
 import { DailyReportItemsService } from './reports/items/daily-report-items.service';
 import { DailyReportMediaController } from './reports/media/daily-report-media.controller';
@@ -36,6 +37,7 @@ import { DiarioSitesService } from './sites/diario-sites.service';
     SiteAccessService,
     DiarioSitesService,
     DailyReportsService,
+    RdoPdfService,
     DailyReportItemsService,
     DailyReportMediaService,
     SiteAccessAdminService,

@@ -456,6 +456,72 @@ explícito. A migration marcou `true` para quem já tinha vínculo com obra: ess
 pessoas estavam usando o Diário, e deixá-las de fora teria sido uma remoção de
 acesso disfarçada de recurso novo.
 
+### Exportar em PDF
+
+`GET /diario/relatorios/:id/pdf`, exigindo apenas `diario.access` — exportar é
+LEITURA. Pedir `diario.report.manage` impediria quem acompanha a obra sem
+preenchê-la de levar o documento para uma reunião, e não protegeria nada: essa
+pessoa já abre o relatório inteiro na tela.
+
+A rota começa por `DailyReportsService.findOne`, o mesmo caminho da tela.
+Existência, vínculo com a obra e o 404 indistinguível para relatório de outra
+obra vêm de lá — uma checagem paralela seria uma segunda verdade sobre quem lê
+o quê, e a que fica desatualizada é sempre a cópia.
+
+**Não escreve nada**: nenhuma linha no banco, nenhum arquivo no storage,
+nenhuma mudança de situação. Exportar um rascunho o mantém rascunho.
+
+Nome do arquivo: `RDO-OBR-001-024-2026-08-30.pdf`. O número vai com três
+dígitos para os arquivos ordenarem certo numa pasta — sem o zero à esquerda, o
+RDO 10 aparece antes do 2.
+
+**Estrutura.** Página 1 é o resumo técnico inteiro: identificação da obra e
+metadados à direita (número, data, dia da semana, contrato, os três prazos),
+condição climática, jornada, mão de obra e equipamentos em grade de contagem,
+atividades, ocorrências, materiais recebidos e utilizados lado a lado, e
+observações quando houver. Da página 2 em diante, a galeria de fotos em grade
+2×2 — quatro por página, sem exceção: a quinta abre página nova em vez de a
+grade encolher. Ao fim, os vídeos como registro de evidência e a área de
+assinaturas. Rodapé `n / N` em todas as páginas, e um cabeçalho corrido
+discreto com data, número e a SITUAÇÃO do relatório — um rascunho impresso se
+identifica como tal.
+
+**Biblioteca: `pdfkit`, que o ERP já usava.** Nenhuma dependência nova. O que
+NÃO foi reaproveitado é o `common/pdf/pdf-renderer.ts`: ele é um documento
+linear de uma coluna (cabeçalho, blocos, tabela de itens, total), desenhado
+para ordem de compra. O RDO tem cabeçalho de duas colunas, grades de células,
+blocos lado a lado e galeria paginada; forçá-lo naquele modelo deformaria o
+layout ou incharia um renderizador que serve bem a outros três consumidores.
+
+**Fotos.** A galeria usa o arquivo ORIGINAL, não a miniatura. A miniatura tem
+320 px de maior lado — suficiente para a grade de três colunas do celular, e
+cerca de 90 DPI numa célula de meia página A4. O original já chega limitado a
+1920 px pelo navegador antes do upload, o que imprime bem. São lidas UMA A UMA:
+cinquenta originais carregados juntos seriam dezenas de MB parados na memória
+do processo; sequencial, o pico é o PDF em construção mais uma imagem. Uma foto
+ilegível não derruba a exportação — a célula sai da grade e o motivo vai para o
+log.
+
+**Vídeos** não são incorporados: o PDF não os reproduz. Eles aparecem numa
+seção própria com nome do arquivo, duração quando registrada e a indicação
+"Vídeo anexado ao RDO". Sem essa seção, um RDO com dez vídeos e nenhuma foto
+exportaria como se nada tivesse sido filmado.
+
+**Limitações conhecidas**, todas por ausência de dado no domínio e não por
+decisão de layout:
+
+| Campo do modelo de referência | Por que sai com `—` |
+| --- | --- |
+| Número do contrato | A obra não guarda esse dado. `ContractorContract` existe, mas é contrato com terceirizado — outro conceito, e usá-lo aqui encheria o campo com um número errado. |
+| "Condição" do clima (praticável / impraticável) | Não existe no modelo. A coluna fica visível com travessão: célula vazia parece falha de geração. |
+| "Situação" da atividade | A atividade tem descrição, local, observação e posição — não tem status. A coluna estreita mostra o LOCAL, que é dado real, em vez de uma coluna sempre vazia. |
+| Distinção mão de obra própria / terceiros | `DailyReportLabor` tem só função e quantidade. A coluna lateral do modelo de referência não tem origem e ficou de fora. |
+| Legenda descritiva das fotos | A mídia não tem campo de legenda; a legenda impressa é o nome do arquivo. |
+| Logo | A empresa não tem `logoUrl` gravado, e o SVG do app o `pdfkit` não renderiza sem dependência nova. A marca sai em tipografia, como manda a regra de não recriar o logo. |
+
+Nenhuma dessas exige migration para o PDF funcionar. Se algum campo passar a
+importar, ele entra no modelo primeiro e no documento depois.
+
 ### Excluir rascunho
 
 `DELETE /diario/relatorios/:id`, exigindo `diario.report.manage` — a mesma

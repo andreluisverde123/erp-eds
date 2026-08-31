@@ -1,3 +1,4 @@
+import { downloadFile } from '@/lib/download-file';
 import { apiClient } from '@/lib/api-client';
 import { toQueryString } from '@/lib/query-string';
 
@@ -236,6 +237,27 @@ export function copyReport(
   input: { reportDate: string },
 ): Promise<DiarioReportDetail> {
   return apiClient.post(`/diario/relatorios/${sourceId}/copia`, input);
+}
+
+/// Baixa o RDO em PDF.
+///
+/// Passa pelo `downloadFile`, e não por um `<a href>`: a rota exige o header
+/// Authorization, e o token vive em memória — um link simples chegaria à API
+/// sem credencial e receberia 401.
+///
+/// O nome do arquivo é montado aqui, e não lido do `Content-Disposition`: o
+/// `fetch` só expõe esse header com CORS configurado para tal, e a informação
+/// para montá-lo (obra, número, data) a tela já tem.
+export function exportReportPdf(report: {
+  id: string;
+  number: number;
+  reportDate: string;
+  constructionSite: { code: string };
+}): Promise<void> {
+  const data = report.reportDate.slice(0, 10);
+  const nome = `RDO-${report.constructionSite.code}-${String(report.number).padStart(3, '0')}-${data}.pdf`;
+
+  return downloadFile(`/diario/relatorios/${report.id}/pdf`, nome);
 }
 
 /// Exclui um rascunho, definitivamente.

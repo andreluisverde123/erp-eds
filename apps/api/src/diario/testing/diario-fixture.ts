@@ -605,6 +605,10 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       findFirst: async ({ where }: { where: { id: string; companyId: string } }) =>
         obraVisivel(where.id, where.companyId) ?? null,
     },
+    /// A exportação em PDF lê o nome da empresa para a marca do cabeçalho.
+    company: {
+      findUniqueOrThrow: async () => ({ tradeName: 'EDS Construtora', legalName: 'EDS LTDA' }),
+    },
     user: { count: async () => 0, findMany: async () => [] },
     $transaction: async (arg: unknown) => {
       if (Array.isArray(arg)) return Promise.all(arg);

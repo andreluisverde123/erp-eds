@@ -10,6 +10,7 @@ import { REPORT_STATUS_CLASS, formatReportDate } from '../components/report-stat
 import { AutosaveIndicator } from '../components/autosave-indicator';
 import { ReportSectionCard } from '../components/report-section-card';
 import { DeleteReport } from '../components/delete-report';
+import { ExportReportPdf } from '../components/export-report-pdf';
 import { FinalizeReport } from '../components/finalize-report';
 import { SiteDataSection } from '../components/site-data-section';
 import { ActivitiesSection } from '../components/sections/activities-section';
@@ -111,18 +112,22 @@ function RdoEditor({ relatorio }: { relatorio: DiarioReportDetail }) {
       <VoltarParaRelatorios />
 
       <header>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold tabular-nums text-foreground">
-            RDO #{relatorio.number}
-          </h1>
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-[10px] font-medium',
-              REPORT_STATUS_CLASS[relatorio.status],
-            )}
-          >
-            {relatorio.statusLabel}
-          </span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold tabular-nums text-foreground">
+              RDO #{relatorio.number}
+            </h1>
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                REPORT_STATUS_CLASS[relatorio.status],
+              )}
+            >
+              {relatorio.statusLabel}
+            </span>
+          </div>
+
+          <ExportReportPdf report={relatorio} />
         </div>
 
         <p className="mt-1 truncate text-sm font-medium text-foreground">

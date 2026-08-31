@@ -9,12 +9,16 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   Query,
 } from '@nestjs/common';
+
+import type { Response } from 'express';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { DailyReportsService } from './daily-reports.service';
+import { RdoPdfService } from './pdf/rdo-pdf.service';
 import { CopyDailyReportDto } from './dto/copy-daily-report.dto';
 import { CreateDailyReportDto } from './dto/create-daily-report.dto';
 import { QueryDailyReportDto } from './dto/query-daily-report.dto';
@@ -35,7 +39,10 @@ import { UpdateDailyReportDto } from './dto/update-daily-report.dto';
 @RequirePermissions('diario.access')
 @Controller('diario/relatorios')
 export class DailyReportsController {
-  constructor(private readonly reports: DailyReportsService) {}
+  constructor(
+    private readonly reports: DailyReportsService,
+    private readonly pdf: RdoPdfService,
+  ) {}
 
   @Get()
   findAll(
@@ -113,6 +120,39 @@ export class DailyReportsController {
     @CurrentUser('sub') userId: string,
   ) {
     return this.reports.copy(companyId, userId, id, dto);
+  }
+
+  /// Exporta o RDO em PDF.
+  ///
+  /// Só `diario.access`: exportar é LEITURA. Exigir `diario.report.manage` aqui
+  /// impediria quem acompanha a obra sem preenchê-la de levar o documento para
+  /// uma reunião — e não protegeria nada, porque essa pessoa já pode abrir o
+  /// relatório inteiro na tela.
+  ///
+  /// Vale para rascunho e para finalizado. O que muda é o carimbo de situação
+  /// impresso no documento, nunca a permissão de gerá-lo: um rascunho impresso
+  /// é justamente o que se leva para conferir em campo antes de fechar o dia.
+  @Get(':id/pdf')
+  async exportPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Res() res: Response,
+  ) {
+    const { bytes, nomeArquivo } = await this.pdf.export(companyId, userId, id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    // `attachment`: o RDO é para guardar, não para navegar. E o nome vai entre
+    // aspas porque ele contém hífens e pontos que um cliente HTTP pode tratar
+    // como fim do valor.
+    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+    res.setHeader('Content-Length', String(bytes.length));
+    // Documento gerado sob autorização: nenhum cache compartilhado pode
+    // guardá-lo. E nada de `max-age` — o rascunho muda a cada edição.
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    res.end(bytes);
   }
 
   /// Exclui um rascunho, definitivamente.
