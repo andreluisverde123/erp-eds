@@ -31,13 +31,16 @@ import { usePurchaseRequest } from '../hooks/use-purchase-request';
 import { useCostCenters } from '@/features/engenharia/hooks/use-cost-centers';
 import { useSuppliers } from '../hooks/use-suppliers';
 import {
+  calculateFormTotals,
   itemsFromPurchaseRequest,
   PURCHASE_ORDER_FORM_DEFAULTS,
   purchaseOrderFormSchema,
-  selectedItemsSubtotal,
   type PurchaseOrderFormValues,
 } from '../purchase-order-form-schema';
 import { PurchaseOrderItemsPicker } from './purchase-order-items-picker';
+
+const moeda = (valor: number) =>
+  valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface GeneratePurchaseOrderDrawerProps {
   open: boolean;
@@ -105,6 +108,11 @@ function GeneratePurchaseOrderBody({
       // atribuição que o solicitante não soube dar.
       costCenterId: request.costCenter?.id ?? '',
       items: itemsFromPurchaseRequest(request.items),
+      // O desconto GERAL negociado na cotação vem junto. Sem isto a ordem
+      // nascia com o preço de tabela e saía acima do que o setor acordou, sem
+      // nada na tela explicando a diferença.
+      discountType: request.discountType,
+      discountValue: Number(request.discountValue) > 0 ? String(Number(request.discountValue)) : '',
     }));
   }, [request, reset]);
 
@@ -120,7 +128,13 @@ function GeneratePurchaseOrderBody({
   // função devolvida pelo `watch` e pula a otimização do componente inteiro
   // (o lint recusa o aviso). Mesmo padrão da grade de itens da solicitação.
   const items = useWatch({ control: form.control, name: 'items' });
-  const subtotal = selectedItemsSubtotal(items ?? []);
+  const discountType = useWatch({ control: form.control, name: 'discountType' });
+  const discountValue = useWatch({ control: form.control, name: 'discountValue' });
+  const totais = calculateFormTotals({
+    items: items ?? [],
+    discountType: discountType ?? 'AMOUNT',
+    discountValue: discountValue ?? '',
+  });
 
   async function onSubmit(values: PurchaseOrderFormValues) {
     setSubmitError(null);
@@ -139,7 +153,18 @@ function GeneratePurchaseOrderBody({
             purchaseRequestItemId: item.purchaseRequestItemId,
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
+            // Só envia o desconto quando existe: ausente significa sem
+            // desconto, e mandar `{type, value: 0}` sujaria o corpo com um
+            // objeto que não diz nada.
+            discount:
+              Number(item.discountValue || 0) > 0
+                ? { type: item.discountType, value: Number(item.discountValue) }
+                : undefined,
           })),
+        discount:
+          Number(values.discountValue || 0) > 0
+            ? { type: values.discountType, value: Number(values.discountValue) }
+            : undefined,
       });
       onCreated();
     } catch (error) {
@@ -239,16 +264,88 @@ function GeneratePurchaseOrderBody({
               {form.formState.errors.items?.message && (
                 <p className="text-sm text-destructive">{form.formState.errors.items.message}</p>
               )}
-              <div className="flex items-baseline justify-between rounded-md bg-muted/50 px-3 py-2">
-                <span className="text-sm font-medium text-foreground">
-                  Total da ordem de compra
-                </span>
-                <span className="text-lg font-semibold tabular-nums text-foreground">
-                  {subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </span>
+              {/* O desconto é EXIBIDO em linha própria, e não embutido no
+                  total. O comprador precisa ver o abatimento para conferir com
+                  o que foi negociado — um total menor sem explicação é o tipo
+                  de número que ninguém confere e todo mundo desconfia. */}
+              <div className="flex flex-col gap-1.5 rounded-md bg-muted/50 px-3 py-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal dos itens</span>
+                  <span className="tabular-nums text-foreground">{moeda(totais.itemsSubtotal)}</span>
+                </div>
+
+                {totais.itemsDiscount > 0 && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-muted-foreground">Descontos dos itens</span>
+                    <span className="tabular-nums text-foreground">
+                      − {moeda(totais.itemsDiscount)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="shrink-0 text-muted-foreground">Desconto geral</span>
+                  <div className="flex items-center gap-2">
+                    <FormField
+                      control={form.control}
+                      name="discountType"
+                      render={({ field }) => (
+                        <FormItem className="w-0 flex-none">
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="h-8 w-[72px]" aria-label="Tipo do desconto geral">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="AMOUNT">R$</SelectItem>
+                              <SelectItem value="PERCENT">%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="discountValue"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              className="h-8 w-28 text-right tabular-nums"
+                              aria-label="Valor do desconto geral"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {totais.generalDiscount > 0 && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-muted-foreground">Desconto geral aplicado</span>
+                    <span className="tabular-nums text-foreground">
+                      − {moeda(totais.generalDiscount)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="mt-1 flex items-baseline justify-between border-t border-border pt-2">
+                  <span className="text-sm font-medium text-foreground">
+                    Total da ordem de compra
+                  </span>
+                  <span className="text-lg font-semibold tabular-nums text-foreground">
+                    {moeda(totais.total)}
+                  </span>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Calculado automaticamente a partir dos itens acima.
+                O desconto vem da cotação e pode ser ajustado. O desconto geral incide sobre o
+                subtotal já líquido dos descontos de item.
               </p>
             </div>
 

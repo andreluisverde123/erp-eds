@@ -52,9 +52,13 @@ export const PURCHASE_ORDER_COLUMNS: readonly DocumentColumn[] = [
   { key: 'description', label: 'Descrição', width: 0.4, align: 'left' },
   { key: 'quantity', label: 'Qtd.', width: 0.09, align: 'right' },
   { key: 'unit', label: 'Un.', width: 0.07, align: 'left' },
-  { key: 'unitPrice', label: 'Valor Unit.', width: 0.14, align: 'right' },
-  { key: 'totalPrice', label: 'Valor Total', width: 0.15, align: 'right' },
-  { key: 'origin', label: 'Origem', width: 0.15, align: 'left', muted: true },
+  { key: 'unitPrice', label: 'Valor Unit.', width: 0.13, align: 'right' },
+  /// O desconto da LINHA é impresso. O fornecedor confere o total contra o
+  /// preço unitário; sem esta coluna, `10 × 25,50 = 229,50` parece erro de
+  /// conta no documento que vai para ele.
+  { key: 'discount', label: 'Desc.', width: 0.09, align: 'right' },
+  { key: 'totalPrice', label: 'Valor Total', width: 0.14, align: 'right' },
+  { key: 'origin', label: 'Origem', width: 0.14, align: 'left', muted: true },
 ];
 
 /// Formato mínimo que o documento precisa da ordem. Declarado à parte do tipo
@@ -65,6 +69,8 @@ export interface PurchaseOrderSource {
   status: string;
   issueDate: Date;
   expectedDeliveryDate: Date | null;
+  discountType: 'AMOUNT' | 'PERCENT';
+  discountValue: Prisma.Decimal;
   totalAmount: Prisma.Decimal;
   supplier: {
     legalName: string;
@@ -89,6 +95,8 @@ export interface PurchaseOrderSource {
     unit: string;
     quantity: Prisma.Decimal;
     unitPrice: Prisma.Decimal;
+    discountType: 'AMOUNT' | 'PERCENT';
+    discountValue: Prisma.Decimal;
     totalPrice: Prisma.Decimal;
     notes: string | null;
     purchaseRequestItem: {
@@ -154,6 +162,7 @@ export function buildPurchaseOrderDocument(
         quantity: formatQuantity(item.quantity),
         unit: item.unit,
         unitPrice: formatCurrency(item.unitPrice),
+        discount: formatDiscount(item.discountType, item.discountValue),
         totalPrice: formatCurrency(item.totalPrice),
         // A divergência entre pedido e comprado é impressa: é a informação
         // que o fornecedor e o almoxarife vão conferir na entrega.
@@ -167,7 +176,10 @@ export function buildPurchaseOrderDocument(
     total: {
       label: 'TOTAL DA ORDEM DE COMPRA',
       value: formatCurrency(order.totalAmount),
-      caption: 'Total calculado automaticamente a partir dos itens desta ordem.',
+      // O desconto geral é DITO no documento. Um total menor que a soma da
+      // coluna acima, sem explicação impressa, é o tipo de número que o
+      // fornecedor contesta — e com razão.
+      caption: descreverDescontoGeral(order.discountType, order.discountValue),
     },
     /// Observações da solicitação de origem. A ordem de compra NÃO tem campo
     /// próprio de observação no modelo atual.
@@ -188,4 +200,22 @@ export function buildPurchaseOrderDocument(
       ],
     },
   };
+}
+
+/// Desconto de uma linha, como ele aparece na coluna estreita. Vazio quando não
+/// há: um "R$ 0,00" repetido em toda linha só polui a tabela.
+function formatDiscount(tipo: 'AMOUNT' | 'PERCENT', valor: Prisma.Decimal): string {
+  if (Number(valor) <= 0) return '';
+  return tipo === 'PERCENT' ? `${Number(valor)}%` : formatCurrency(valor);
+}
+
+/// A legenda abaixo do total. Diz de onde veio o abatimento quando ele existe,
+/// e volta à explicação genérica quando não.
+function descreverDescontoGeral(tipo: 'AMOUNT' | 'PERCENT', valor: Prisma.Decimal): string {
+  if (Number(valor) <= 0) {
+    return 'Total calculado automaticamente a partir dos itens desta ordem.';
+  }
+
+  const descrito = tipo === 'PERCENT' ? `${Number(valor)}%` : formatCurrency(valor);
+  return `Inclui desconto geral de ${descrito} sobre o subtotal dos itens já líquido dos descontos de linha.`;
 }

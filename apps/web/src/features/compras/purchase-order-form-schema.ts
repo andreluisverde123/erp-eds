@@ -22,6 +22,12 @@ const purchaseOrderItemSchema = z.object({
   selected: z.boolean(),
   quantity: z.string(),
   unitPrice: z.string(),
+  /// Desconto DESTA linha, copiado da cotação e editável. Guardado como texto,
+  /// como os demais campos numéricos do formulário: o `<input>` devolve string,
+  /// e converter a cada tecla faria "1," virar 1 e apagar a vírgula que a
+  /// pessoa acabou de digitar.
+  discountType: z.enum(['AMOUNT', 'PERCENT']),
+  discountValue: z.string(),
 });
 
 export const purchaseOrderFormSchema = z
@@ -34,6 +40,11 @@ export const purchaseOrderFormSchema = z
     issueDate: z.string().min(1, 'Informe a data de emissão.'),
     expectedDeliveryDate: z.string().optional(),
     items: z.array(purchaseOrderItemSchema),
+    /// Desconto GERAL, sobre o subtotal já líquido dos descontos de item.
+    /// Copiado da solicitação: foi ele que o setor negociou, e a ordem que
+    /// nascesse sem ele sairia acima do acordado.
+    discountType: z.enum(['AMOUNT', 'PERCENT']),
+    discountValue: z.string(),
   })
   .superRefine((values, ctx) => {
     const selecionados = values.items.filter((item) => item.selected);
@@ -79,6 +90,8 @@ export const PURCHASE_ORDER_FORM_DEFAULTS: PurchaseOrderFormValues = {
   issueDate: new Date().toISOString().slice(0, 10),
   expectedDeliveryDate: '',
   items: [],
+  discountType: 'AMOUNT',
+  discountValue: '',
 };
 
 /// Converte os itens da solicitação nas linhas iniciais do formulário.
@@ -93,6 +106,8 @@ export function itemsFromPurchaseRequest(
     quantity: string;
     estimatedUnitPrice: string | null;
     unavailable: boolean;
+    discountType: 'AMOUNT' | 'PERCENT';
+    discountValue: string;
   }[],
 ): PurchaseOrderItemFormValues[] {
   return items.map((item) => ({
@@ -114,14 +129,74 @@ export function itemsFromPurchaseRequest(
     // Sem cotação o campo nasce vazio, para o comprador informar o negociado
     // em vez de partir de um zero que parece preço.
     unitPrice: item.estimatedUnitPrice ? String(Number(item.estimatedUnitPrice)) : '',
+    // O desconto negociado na cotação vem junto. É editável: a ordem é
+    // documento próprio e o comprador pode ter renegociado — copiar sem deixar
+    // editar transformaria a cotação em contrato.
+    discountType: item.discountType,
+    discountValue: Number(item.discountValue) > 0 ? String(Number(item.discountValue)) : '',
   }));
 }
 
-/// Soma das linhas selecionadas. INFORMATIVA: nesta etapa o total da ordem
-/// continua sendo digitado (ver `PurchaseOrder.totalAmount`); mostrar a soma
-/// só evita que o comprador digite um número que não fecha com os itens.
-export function selectedItemsSubtotal(items: PurchaseOrderItemFormValues[]): number {
-  return items
-    .filter((item) => item.selected)
-    .reduce((total, item) => total + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+/// Um desconto informado no formulário, resolvido em reais sobre uma base.
+///
+/// ESPELHA `resolveDiscount` do backend, inclusive o clamp em `[0, base]`. A
+/// tela precisa da conta para MOSTRAR o total enquanto a pessoa digita; quem
+/// grava é o servidor, e é lá que ela vale. Duas contas, um resultado — se
+/// divergirem, o número que a pessoa viu não é o que foi salvo.
+function resolveDiscount(base: number, type: 'AMOUNT' | 'PERCENT', value: string): number {
+  const valor = Number(value || 0);
+  if (valor <= 0) return 0;
+
+  const resolvido = type === 'PERCENT' ? (base * valor) / 100 : valor;
+  return Math.min(Math.max(resolvido, 0), base);
+}
+
+export interface PurchaseOrderTotals {
+  /// Soma de `quantidade × preço` das linhas selecionadas, antes de descontos.
+  itemsSubtotal: number;
+  itemsDiscount: number;
+  /// Base do desconto geral.
+  subtotalAfterItemDiscounts: number;
+  generalDiscount: number;
+  total: number;
+}
+
+/// A conta da ordem como a tela a mostra.
+///
+/// A ORDEM DAS OPERAÇÕES é a mesma do backend: desconto de linha primeiro, e o
+/// geral por cima do subtotal JÁ LÍQUIDO. Aplicá-lo sobre o bruto contaria o
+/// abatimento do item duas vezes.
+export function calculateFormTotals(values: {
+  items: PurchaseOrderItemFormValues[];
+  discountType: 'AMOUNT' | 'PERCENT';
+  discountValue: string;
+}): PurchaseOrderTotals {
+  const selecionadas = values.items.filter((item) => item.selected);
+
+  const linhas = selecionadas.map((item) => {
+    const bruto = round2(Number(item.quantity || 0) * Number(item.unitPrice || 0));
+    const desconto = round2(resolveDiscount(bruto, item.discountType, item.discountValue));
+    return { bruto, desconto };
+  });
+
+  const itemsSubtotal = linhas.reduce((soma, linha) => soma + linha.bruto, 0);
+  const itemsDiscount = linhas.reduce((soma, linha) => soma + linha.desconto, 0);
+  const subtotalAfterItemDiscounts = itemsSubtotal - itemsDiscount;
+  const generalDiscount = round2(
+    resolveDiscount(subtotalAfterItemDiscounts, values.discountType, values.discountValue),
+  );
+
+  return {
+    itemsSubtotal,
+    itemsDiscount,
+    subtotalAfterItemDiscounts,
+    generalDiscount,
+    total: subtotalAfterItemDiscounts - generalDiscount,
+  };
+}
+
+/// Arredonda por linha, como o backend: somar os produtos brutos e arredondar
+/// no fim daria um centavo diferente do que a coluna mostra.
+function round2(valor: number): number {
+  return Math.round((valor + Number.EPSILON) * 100) / 100;
 }

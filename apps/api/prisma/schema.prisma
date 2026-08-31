@@ -884,6 +884,22 @@ model PurchaseOrder {
   costCenterId         String              @db.Uuid
   code                 String
   status               PurchaseOrderStatus @default(OPEN)
+  /// DESCONTO GERAL DA ORDEM, sobre o subtotal já líquido dos descontos de
+  /// item — a mesma ordem de operações da cotação (ver `discount.ts`).
+  ///
+  /// Existe porque o desconto NEGOCIADO na solicitação precisa chegar ao
+  /// documento que vai ao fornecedor. Antes, a ordem nascia com o preço bruto
+  /// e ficava acima do que foi acordado, sem nada na tela explicando a
+  /// diferença.
+  ///
+  /// É COPIADO da solicitação ao gerar, e editável depois: a ordem é um
+  /// documento próprio, e o comprador pode ter renegociado. Copiar sem deixar
+  /// editar transformaria a cotação em contrato.
+  discountType         DiscountType        @default(AMOUNT)
+  discountValue        Decimal             @default(0) @db.Decimal(14, 2)
+  /// LÍQUIDO: Σ(líquido das linhas) − desconto geral. Continua sendo o número
+  /// que a alçada e o financeiro usam — o que mudou é que agora ele reflete o
+  /// negociado, e não o de tabela.
   totalAmount          Decimal             @db.Decimal(14, 2)
   issueDate            DateTime
   expectedDeliveryDate DateTime?
@@ -947,10 +963,23 @@ model PurchaseOrderItem {
   /// (`PurchaseRequestItem.estimatedUnitPrice`) e pode divergir dela — a
   /// cotação é estimativa, esta é a compra.
   unitPrice  Decimal @db.Decimal(14, 2)
-  /// SEMPRE `quantity × unitPrice`, calculado pelo backend e nunca aceito do
-  /// cliente. Materializado (em vez de calculado na leitura) porque é o que
-  /// os relatórios somam; se fosse derivado na consulta, cada soma pagaria a
-  /// multiplicação de novo e o arredondamento poderia divergir entre telas.
+  /// DESCONTO DESTA LINHA, sobre `quantity × unitPrice`. Copiado da linha
+  /// correspondente da solicitação ao gerar a ordem, e editável depois.
+  ///
+  /// Guardado como o usuário informou (reais ou percentual) em vez de já
+  /// resolvido em reais: o documento precisa poder dizer "10% de desconto",
+  /// e um percentual convertido na gravação vira um valor que ninguém
+  /// reconhece se a quantidade mudar depois.
+  discountType  DiscountType @default(AMOUNT)
+  discountValue Decimal      @default(0) @db.Decimal(14, 2)
+  /// `quantity × unitPrice − desconto da linha`, calculado pelo backend e
+  /// nunca aceito do cliente. Materializado (em vez de calculado na leitura)
+  /// porque é o que os relatórios somam; se fosse derivado na consulta, cada
+  /// soma pagaria a conta de novo e o arredondamento poderia divergir entre
+  /// telas.
+  ///
+  /// Era `quantity × unitPrice` puro antes de a ordem ter desconto. As linhas
+  /// antigas continuam corretas: desconto zero deixa a conta idêntica.
   totalPrice Decimal @db.Decimal(14, 2)
 
   notes String?

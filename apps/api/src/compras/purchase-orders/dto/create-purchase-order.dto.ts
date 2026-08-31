@@ -12,6 +12,8 @@ import {
 import { PurchaseOrderStatus } from '../../../../generated/prisma/client';
 import { PurchaseOrderItemInputDto } from './purchase-order-item-input.dto';
 
+import { DiscountDto } from '../../dto/discount.dto';
+
 export class CreatePurchaseOrderDto {
   @IsUUID(undefined, { message: 'Solicitação inválida.' })
   purchaseRequestId!: string;
@@ -47,6 +49,13 @@ export class CreatePurchaseOrderDto {
   ///
   /// As ordens JÁ EMITIDAS antes desta mudança continuam sem itens — a regra
   /// vale para o que nasce daqui em diante, não retroage.
+  /// Desconto GERAL da ordem, sobre o subtotal já líquido dos descontos de
+  /// item. Copiado da solicitação ao gerar, e editável.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'Selecione ao menos um item da solicitação.' })
   @ValidateNested({ each: true })

@@ -204,6 +204,10 @@ export interface PurchaseOrderItem {
   unit: string;
   quantity: string;
   unitPrice: string;
+  /// Desconto DESTA linha, copiado da cotação ao gerar a ordem.
+  discountType: DiscountType;
+  discountValue: string;
+  /// `quantidade × preço − desconto da linha`.
   totalPrice: string;
   notes: string | null;
   purchaseRequestItem: {
@@ -221,6 +225,10 @@ export interface PurchaseOrder {
   id: string;
   code: string;
   status: PurchaseOrderStatus;
+  /// Desconto GERAL da ordem, sobre o subtotal já líquido dos descontos de
+  /// item. Copiado da solicitação ao gerar.
+  discountType: DiscountType;
+  discountValue: string;
   totalAmount: string;
   issueDate: string;
   expectedDeliveryDate: string | null;
@@ -266,6 +274,9 @@ export interface PurchaseOrderItemInput {
   purchaseRequestItemId: string;
   quantity: number;
   unitPrice: number;
+  /// Ausente significa SEM desconto — a ordem não consulta a cotação para
+  /// preencher lacuna; quem copia o valor é a tela, ao montar o formulário.
+  discount?: DiscountInput;
   notes?: string;
 }
 
@@ -275,6 +286,8 @@ export interface PurchaseOrderInput {
   /// A atribuição de custo da ordem. A solicitação pode ter vindo sem uma, e é
   /// na emissão que ela deixa de ser opcional.
   costCenterId: string;
+  /// Desconto geral, copiado da cotação pela tela e editável antes de gerar.
+  discount?: DiscountInput;
   /// Sem `totalAmount`: o total da ordem é a soma dos itens, calculada pelo
   /// backend. A tela mostra a soma enquanto o usuário digita, mas o número
   /// que vale é o que volta do servidor.

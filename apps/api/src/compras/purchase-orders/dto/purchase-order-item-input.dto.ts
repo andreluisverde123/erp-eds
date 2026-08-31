@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsNumber,
   IsOptional,
@@ -7,7 +8,10 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+import { DiscountDto } from '../../dto/discount.dto';
 
 /// Uma linha da ordem de compra, como o cliente a envia.
 ///
@@ -38,6 +42,15 @@ export class PurchaseOrderItemInputDto {
   @Min(0, { message: 'O valor unitário não pode ser negativo.' })
   @Max(999_999_999.99, { message: 'Valor unitário excede o limite permitido.' })
   unitPrice!: number;
+
+  /// Desconto DESTA linha. Nasce copiado da linha correspondente da
+  /// solicitação e é editável: a ordem é documento próprio, e o comprador pode
+  /// ter renegociado. Ausente significa sem desconto, não "mantenha o da
+  /// cotação" — a ordem não consulta a solicitação para preencher lacuna.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto;
 
   @IsOptional()
   @IsString()

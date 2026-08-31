@@ -364,13 +364,17 @@ describe('buildPurchaseOrderDocument', () => {
 });
 
 describe('measureRowHeight — regressão da sobreposição de linhas', () => {
-  const LARGURAS = [200, 45, 35, 70, 75, 75];
+  // Uma largura por coluna, DERIVADA da lista real: cravar o array à mão fez
+  // este teste virar NaN quando a coluna de desconto entrou, e o sintoma
+  // ("expected > NaN") não dizia que faltava uma largura.
+  const LARGURAS = PURCHASE_ORDER_COLUMNS.map((coluna) => coluna.width * 500);
   const COLUNAS = PURCHASE_ORDER_COLUMNS;
   const linha = {
     description: 'Cimento',
     quantity: '1',
     unit: 'SC',
     unitPrice: 'R$ 1,00',
+    discount: '',
     totalPrice: 'R$ 1,00',
     origin: 'SOL-0004',
   };

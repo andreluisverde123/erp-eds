@@ -1,36 +1,22 @@
 import { Prisma } from '../../../generated/prisma/client';
 
-/// A conta da cotação, de ponta a ponta — e o único lugar em que ela existe.
-///
-/// Tudo em `Prisma.Decimal`, nunca em `number`: quantidade tem 3 casas e preço
-/// tem 2, então o produto pode ter 5, e `0.1 * 3` em ponto flutuante devolve
-/// `0.30000000000000004`. Num campo de dinheiro isso vira centavo errado.
-/// Mesma estratégia de `calculateItemTotal` em `purchase-orders.service.ts`,
-/// inclusive o HALF_UP — arredondamento comercial brasileiro (0,005 sobe) e o
-/// mesmo que o Postgres aplica ao gravar em `DECIMAL(14,2)`.
-///
-/// A ORDEM DAS OPERAÇÕES é a regra que este arquivo existe para não deixar
-/// ninguém errar:
-///
-///   1. quantidade × preço unitário          → bruto da linha
-///   2. − desconto do item                   → líquido da linha
-///   3. Σ linhas                             → subtotal da cotação
-///   4. − desconto geral, sobre o SUBTOTAL   → total
-///
-/// O desconto geral incide sobre o subtotal JÁ LÍQUIDO. Aplicá-lo sobre o
-/// bruto faria o abatimento do item ser contado duas vezes.
+import { ZERO, money, resolveDiscount, round, type Discount, type DiscountType } from '../discount';
 
-const ZERO = new Prisma.Decimal(0);
-const CEM = new Prisma.Decimal(100);
+/// Reexportados para não quebrar quem já importava daqui — e porque, do ponto
+/// de vista da cotação, este continua sendo o módulo da conta dela.
+export { resolveDiscount, type Discount, type DiscountType };
 
-export type DiscountType = 'AMOUNT' | 'PERCENT';
-
-/// Um desconto como o usuário o informou. `AMOUNT` é em reais, `PERCENT` é a
-/// porcentagem (10 = 10%).
-export interface Discount {
-  type: DiscountType;
-  value: Prisma.Decimal | number | string;
-}
+/// A conta da COTAÇÃO, montada sobre a aritmética compartilhada de
+/// `../discount.ts`.
+///
+/// As primitivas (arredondamento, resolução de percentual, clamp) saíram daqui
+/// quando a ORDEM DE COMPRA passou a ter desconto também: duas cópias da mesma
+/// conta divergiriam no primeiro arredondamento, e divergência de centavo entre
+/// a cotação e a ordem é o que faz o fornecedor contestar a nota.
+///
+/// O que ficou é o que é específico da cotação: a regra de qual item ENTRA na
+/// conta. A ordem de compra não tem essa regra — lá toda linha existe porque o
+/// comprador a escolheu.
 
 /// O que a conta precisa saber de uma linha. Aceita o que vem do Prisma sem
 /// conversão, e também literais nos testes.
@@ -64,37 +50,11 @@ export interface QuoteTotals {
   total: Prisma.Decimal;
 }
 
-function money(value: Prisma.Decimal | number | string | null | undefined): Prisma.Decimal {
-  if (value === null || value === undefined) return ZERO;
-  return new Prisma.Decimal(value);
-}
-
-function round(value: Prisma.Decimal): Prisma.Decimal {
-  return value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-}
-
 /// Um item entra na conta quando o fornecedor TEM o produto e alguém já
 /// informou o preço. As duas ausências têm significados diferentes e nenhuma
 /// delas é zero — ver a regra C-16.
 export function isQuoted(item: QuoteItem): boolean {
   return !item.unavailable && item.estimatedUnitPrice !== null;
-}
-
-/// Converte um desconto informado em reais, sobre uma base.
-///
-/// CLAMPA em `[0, base]`. Não é a validação — o service recusa antes, com
-/// mensagem, um desconto maior que a base (ver `assertDiscountsAreValid`).
-/// É a última linha de defesa: nenhuma combinação de dados legados ou de
-/// corrida entre duas edições pode produzir total negativo aqui.
-export function resolveDiscount(base: Prisma.Decimal, discount: Discount): Prisma.Decimal {
-  const value = money(discount.value);
-  if (value.lessThanOrEqualTo(0)) return ZERO;
-
-  const resolved =
-    discount.type === 'PERCENT' ? round(base.times(value).dividedBy(CEM)) : round(value);
-
-  if (resolved.greaterThan(base)) return base;
-  return resolved;
 }
 
 /// A conta de UMA linha. Item fora da cotação (indisponível ou sem preço) vale
@@ -117,8 +77,7 @@ export function calculateItemTotals(item: QuoteItem): QuoteItemTotals {
 ///
 /// Soma os valores JÁ ARREDONDADOS de cada linha, e não o produto bruto de
 /// cada uma. É a diferença entre o total bater com a coluna que o usuário lê e
-/// ele divergir por centavos de algo que ninguém consegue conferir na tela —
-/// mesma decisão de `sumItemTotals` na ordem de compra.
+/// ele divergir por centavos de algo que ninguém consegue conferir na tela.
 export function calculateQuoteTotals(items: QuoteItem[], generalDiscount: Discount): QuoteTotals {
   const linhas = items.map(calculateItemTotals);
 

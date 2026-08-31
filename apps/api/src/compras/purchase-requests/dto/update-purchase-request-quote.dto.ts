@@ -3,7 +3,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
-  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -15,7 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import type { DiscountType } from '../quote-totals';
+import { DiscountDto } from '../../dto/discount.dto';
 
 /// Um desconto como o usuário informou: em reais (`AMOUNT`) ou em porcentagem
 /// (`PERCENT`, 10 = 10%).
@@ -23,15 +22,10 @@ import type { DiscountType } from '../quote-totals';
 /// O TETO de 100 aqui só barra o percentual absurdo. Que o desconto não passe
 /// da base sobre a qual incide — que é o que realmente importa e depende de
 /// preço e quantidade — é checado no service, onde a base existe.
-export class DiscountDto {
-  @IsIn(['AMOUNT', 'PERCENT'], { message: 'Tipo de desconto inválido.' })
-  type!: DiscountType;
-
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Valor de desconto inválido.' })
-  @Min(0, { message: 'O desconto não pode ser negativo.' })
-  @Max(999_999_999.99, { message: 'Valor de desconto excede o limite permitido.' })
-  value!: number;
-}
+/// Reexportado: o DTO passou a morar em `compras/dto/discount.dto.ts` quando a
+/// ordem de compra também ganhou desconto. Quem já importava daqui continua
+/// funcionando.
+export { DiscountDto };
 
 /// Uma linha da cotação.
 ///

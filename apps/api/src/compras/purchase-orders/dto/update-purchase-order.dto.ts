@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 
 import { PurchaseOrderStatus } from '../../../../generated/prisma/client';
+import { DiscountDto } from '../../dto/discount.dto';
 import { PurchaseOrderItemInputDto } from './purchase-order-item-input.dto';
 
 /// Sem `purchaseRequestId` aqui de propósito: a ordem nasce vinculada a uma
@@ -18,6 +19,14 @@ export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsUUID(undefined, { message: 'Fornecedor inválido.' })
   supplierId?: string;
+
+  /// Desconto geral da ordem. Só é aplicado quando `items` também vem: o total
+  /// é derivado dos dois juntos, e mudar um sem o outro produziria um
+  /// `totalAmount` que não corresponde às linhas gravadas.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto;
 
   @IsOptional()
   @IsISO8601(undefined, { message: 'Data de emissão inválida.' })

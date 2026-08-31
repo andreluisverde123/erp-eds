@@ -1,5 +1,14 @@
 import { Controller, useWatch, type Control, type FieldErrors } from 'react-hook-form';
-import { Checkbox, NumberInput, cn } from '@repo/ui';
+import {
+  Checkbox,
+  NumberInput,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  cn,
+} from '@repo/ui';
 
 import type { PurchaseOrderFormValues } from '../purchase-order-form-schema';
 
@@ -49,6 +58,10 @@ export function PurchaseOrderItemsPicker({
             <th className="min-w-[180px] px-2 py-2 text-left font-medium">Item</th>
             <th className="w-24 px-2 py-2 text-right font-medium">Qtd.</th>
             <th className="w-28 px-2 py-2 text-right font-medium">Valor Unit.</th>
+            {/* Desconto por LINHA, copiado da cotação. Precisa estar visível:
+                aplicado em silêncio, o comprador veria o total da ordem menor
+                que a soma dos itens e não teria como conferir de onde veio. */}
+            <th className="w-32 px-2 py-2 text-right font-medium">Desconto</th>
           </tr>
         </thead>
         <tbody>
@@ -141,6 +154,46 @@ export function PurchaseOrderItemsPicker({
                       {rowError.unitPrice.message}
                     </span>
                   )}
+                </td>
+                <td className="px-2 py-2 align-top">
+                  <div className="flex items-center gap-1">
+                    <Controller
+                      control={control}
+                      name={`items.${index}.discountType`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          disabled={!item.selected}
+                        >
+                          <SelectTrigger
+                            className="h-9 w-[58px] shrink-0"
+                            aria-label={`Tipo do desconto de ${item.description}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="AMOUNT">R$</SelectItem>
+                            <SelectItem value="PERCENT">%</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <Controller
+                      control={control}
+                      name={`items.${index}.discountValue`}
+                      render={({ field }) => (
+                        <NumberInput
+                          {...field}
+                          value={field.value ?? ''}
+                          placeholder="0,00"
+                          disabled={!item.selected}
+                          aria-label={`Desconto de ${item.description}`}
+                          className={cellInputClass}
+                        />
+                      )}
+                    />
+                  </div>
                 </td>
               </tr>
             );

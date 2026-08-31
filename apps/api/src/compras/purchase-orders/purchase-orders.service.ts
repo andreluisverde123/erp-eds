@@ -4,6 +4,11 @@ import { Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
+import {
+  calculateOrderItemTotals,
+  calculateOrderTotals,
+  type Discount,
+} from './purchase-order-totals';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { buildFinancialStatus, type PurchaseOrderFinancialStatus } from './financial-status.util';
@@ -137,6 +142,8 @@ export class PurchaseOrdersService {
     // Resolve ANTES de criar a ordem: um item inválido tem de recusar a
     // requisição inteira, não deixar uma ordem sem linhas para trás.
     const items = await this.resolveItems(companyId, request.id, dto.items);
+    const desconto: Discount = dto.discount ?? { type: 'AMOUNT', value: 0 };
+    this.assertGeneralDiscountFits(items, desconto);
 
     const created = await this.prisma.purchaseOrder.create({
       data: {
@@ -146,9 +153,11 @@ export class PurchaseOrdersService {
         constructionSiteId: request.constructionSiteId,
         costCenterId,
         code,
-        // DERIVADO dos itens, nunca informado pelo cliente — o campo saiu do
-        // DTO. Ver `sumItemTotals`.
-        totalAmount: sumItemTotals(items),
+        discountType: desconto.type,
+        discountValue: desconto.value,
+        // DERIVADO dos itens e do desconto geral, nunca informado pelo cliente
+        // — o campo saiu do DTO. Ver `calculateOrderTotals`.
+        totalAmount: calculateOrderTotals(items, desconto).total,
         issueDate: new Date(dto.issueDate),
         expectedDeliveryDate: dto.expectedDeliveryDate
           ? new Date(dto.expectedDeliveryDate)
@@ -175,6 +184,30 @@ export class PurchaseOrdersService {
   ///  2. COPIA descrição e unidade da linha de origem, em vez de aceitá-las
   ///     do cliente.
   ///  3. CALCULA `totalPrice`. Ver `calculateItemTotal`.
+  /// O desconto geral não pode passar do subtotal já líquido dos itens.
+  ///
+  /// Mesma regra da cotação, e pelo mesmo motivo: o clamp de `resolveDiscount`
+  /// impediria o total negativo, mas em silêncio — o comprador digitaria 500 de
+  /// desconto num subtotal de 300 e veria zero, sem entender por quê.
+  private assertGeneralDiscountFits(
+    items: { quantity: number; unitPrice: number; discountType: 'AMOUNT' | 'PERCENT'; discountValue: number }[],
+    desconto: Discount,
+  ): void {
+    if (desconto.type === 'PERCENT') {
+      if (Number(desconto.value) > 100) {
+        throw new BadRequestException('O desconto geral não pode passar de 100%.');
+      }
+      return;
+    }
+
+    const { subtotalAfterItemDiscounts } = calculateOrderTotals(items, { type: 'AMOUNT', value: 0 });
+    if (new Prisma.Decimal(desconto.value).greaterThan(subtotalAfterItemDiscounts)) {
+      throw new BadRequestException(
+        'O desconto geral não pode ser maior que o subtotal da ordem depois dos descontos dos itens.',
+      );
+    }
+  }
+
   private async resolveItems(
     companyId: string,
     purchaseRequestId: string,
@@ -212,13 +245,36 @@ export class PurchaseOrdersService {
 
     return items.map((item) => {
       const source = byId.get(item.purchaseRequestItemId)!;
+      const desconto = item.discount ?? { type: 'AMOUNT' as const, value: 0 };
+      const { gross, net } = calculateOrderItemTotals({
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discountType: desconto.type,
+        discountValue: desconto.value,
+      });
+
+      // Recusa ANTES de gravar, com mensagem — o clamp de `resolveDiscount` é
+      // rede de segurança, não validação. Sem isto, um desconto maior que a
+      // linha seria silenciosamente reduzido e o comprador veria um total que
+      // não corresponde ao que digitou.
+      if (desconto.type === 'PERCENT' && desconto.value > 100) {
+        throw new BadRequestException('O desconto de um item não pode passar de 100%.');
+      }
+      if (desconto.type === 'AMOUNT' && new Prisma.Decimal(desconto.value).greaterThan(gross)) {
+        throw new BadRequestException(
+          `O desconto do item "${source.description}" não pode ser maior que o valor do próprio item.`,
+        );
+      }
+
       return {
         purchaseRequestItemId: source.id,
         description: source.description,
         unit: source.unit,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
-        totalPrice: calculateItemTotal(item.quantity, item.unitPrice),
+        discountType: desconto.type,
+        discountValue: desconto.value,
+        totalPrice: net,
         notes: item.notes,
       };
     });
@@ -356,7 +412,11 @@ export class PurchaseOrdersService {
           // data de uma ordem antiga (emitida antes de existirem itens) não
           // pode zerar o valor dela — ver a nota sobre ordens legadas em
           // `docs/plano-evolucoes.md`.
-          totalAmount: items ? sumItemTotals(items) : undefined,
+          discountType: dto.discount?.type,
+          discountValue: dto.discount?.value,
+          totalAmount: items
+            ? calculateOrderTotals(items, dto.discount ?? { type: 'AMOUNT', value: 0 }).total
+            : undefined,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
           expectedDeliveryDate: dto.expectedDeliveryDate
             ? new Date(dto.expectedDeliveryDate)
