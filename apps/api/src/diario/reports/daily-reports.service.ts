@@ -3,6 +3,7 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 import { Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
+import { uniqueConstraintText } from '../../common/utils/prisma-error.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SiteAccessService, diarioSiteSelect } from '../access/site-access.service';
 import {
@@ -201,16 +202,14 @@ const COPYABLE_FIELDS = [
 /// da alocação sob lock e deve subir como erro de verdade, não ser convertido
 /// numa mensagem amigável que esconderia o defeito.
 function isDuplicateReportDate(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
-    return false;
-  }
-
-  // O formato de `meta.target` varia conforme o driver (string com o nome da
-  // constraint no adapter `pg`, array de colunas no engine binário), então a
-  // checagem cobre os dois em vez de apostar num.
-  const target = (error.meta as { target?: string | string[] } | undefined)?.target;
-  const texto = Array.isArray(target) ? target.join(',') : (target ?? '');
-  return texto.includes('reportDate');
+  // `uniqueConstraintText` junta TODOS os lugares onde o Prisma pode ter posto
+  // as colunas violadas, porque eles mudam conforme o driver. A versão anterior
+  // lia só `meta.target` — que o adapter `pg`, o que esta API usa, nunca
+  // preenche. O efeito era o pior possível: a data duplicada, que é erro comum
+  // do usuário, subia como 500 "Erro interno do servidor" em vez do 409 com a
+  // explicação. Os testes não pegaram porque o dublê montava o erro na forma
+  // que o código esperava, e não na que o Postgres realmente devolve.
+  return uniqueConstraintText(error).includes('reportDate');
 }
 
 /// Relatórios diários.

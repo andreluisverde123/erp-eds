@@ -216,11 +216,32 @@ class Mutex {
   }
 }
 
+/// Violação de unicidade na forma EXATA que o `@prisma/adapter-pg` devolve.
+///
+/// Este objeto foi copiado de um erro real do Postgres, não imaginado. A versão
+/// anterior punha o nome da constraint em `meta.target` — plausível, e errado:
+/// o adapter `pg` não preenche `target`, e a informação vem em
+/// `driverAdapterError.cause`. Com o dublê mentindo, a suíte inteira passava
+/// enquanto criar um RDO em data já usada devolvia 500 no ar.
+///
+/// Os nomes das colunas vêm entre aspas de propósito: é assim que o Postgres
+/// os reporta, e quem lê isso procura substring.
 export function uniqueError(campo: string) {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
-    meta: { target: `DailyReport_constructionSiteId_${campo}_key` },
+    meta: {
+      modelName: 'DailyReport',
+      driverAdapterError: {
+        name: 'DriverAdapterError',
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          originalCode: '23505',
+          originalMessage: `duplicate key value violates unique constraint "DailyReport_constructionSiteId_${campo}_key"`,
+          constraint: { fields: ['"constructionSiteId"', `"${campo}"`] },
+        },
+      },
+    },
   });
 }
 

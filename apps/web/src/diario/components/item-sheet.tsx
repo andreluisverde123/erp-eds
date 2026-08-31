@@ -53,7 +53,12 @@ export function ItemSheet({
   function aoFocarCampo(evento: React.FocusEvent<HTMLFormElement>) {
     const alvo = evento.target;
     if (!(alvo instanceof HTMLElement)) return;
-    window.setTimeout(() => alvo.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+    window.setTimeout(() => {
+      // `scrollIntoView` não existe no jsdom, e o timer dispara depois do fim
+      // do teste — a exceção subia como erro não tratado, fora de qualquer
+      // asserção, e deixava a suíte vermelha com todos os testes passando.
+      alvo.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    }, 250);
   }
 
   // Três origens possíveis, uma mensagem: a validação antecipada da tela manda
