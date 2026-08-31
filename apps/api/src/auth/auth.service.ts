@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { StringValue } from 'ms';
 
+import { effectivePermissions } from './effective-permissions';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_ACCESS_TOKEN_TTL, DEFAULT_REFRESH_TOKEN_TTL } from './constants';
@@ -30,6 +31,7 @@ const userAccessArgs = Prisma.validator<Prisma.UserDefaultArgs>()({
     isActive: true,
     deletedAt: true,
     mustChangePassword: true,
+    diarioEnabled: true,
     // O tenant também precisa estar de pé: um usuário ativo dentro de uma
     // empresa suspensa/cancelada não pode entrar (ver `assertCompanyActive`).
     // `tradeName`/`legalName`/`logoUrl` viajam junto porque a interface exibe
@@ -286,12 +288,14 @@ export class AuthService {
 
   private toPublicUser(user: UserWithAccess): PublicUser {
     const roles = user.userRoles.map((userRole) => userRole.role.name);
-    const permissions = Array.from(
-      new Set(
-        user.userRoles.flatMap((userRole) =>
-          userRole.role.rolePermissions.map((rolePermission) => rolePermission.permission.code),
-        ),
+    // O interruptor por pessoa é aplicado AQUI, e não num guard próprio: este é
+    // o único lugar onde o conjunto efetivo é montado, e ele alimenta o token E
+    // o objeto que a interface recebe. Ver `effectivePermissions`.
+    const permissions = effectivePermissions(
+      user.userRoles.flatMap((userRole) =>
+        userRole.role.rolePermissions.map((rolePermission) => rolePermission.permission.code),
       ),
+      user,
     );
 
     return {

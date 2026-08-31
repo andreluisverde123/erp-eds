@@ -16,6 +16,7 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { CreateSystemUserDto } from './dto/create-system-user.dto';
 import { QuerySystemUserDto } from './dto/query-system-user.dto';
+import { UpdateUserDiarioDto } from './dto/update-user-diario.dto';
 import { UpdateSystemUserStatusDto } from './dto/update-system-user-status.dto';
 import { UpdateSystemUserDto } from './dto/update-system-user.dto';
 import { SystemUsersService } from './system-users.service';
@@ -70,6 +71,17 @@ export class SystemUsersController {
     @Ip() ip: string,
   ) {
     return this.systemUsers.resetPassword(companyId, actingUserId, ip, id);
+  }
+
+  @Patch(':id/diario')
+  updateDiarioAccess(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUserDiarioDto,
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Ip() ip: string,
+  ) {
+    return this.systemUsers.updateDiarioAccess(companyId, userId, ip, id, dto.diarioEnabled);
   }
 
   @Patch(':id/status')

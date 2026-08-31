@@ -42,6 +42,15 @@ export function updateSystemUserStatus(id: string, isActive: boolean): Promise<S
   return apiClient.patch(`/admin/users/${id}/status`, { isActive });
 }
 
+/// Liga ou desliga o Diário de Obras para um usuário.
+///
+/// Envia o estado desejado, e não "inverta": dois toques rápidos no mesmo
+/// botão não se cancelam, e uma resposta que chegue fora de ordem não desfaz
+/// a decisão mais recente.
+export function updateSystemUserDiarioAccess(id: string, diarioEnabled: boolean) {
+  return apiClient.patch<SystemUser>(`/admin/users/${id}/diario`, { diarioEnabled });
+}
+
 /// Perfis vêm do endpoint já existente de Configurações > Perfis: este módulo
 /// consome o cadastro, não mantém um paralelo.
 export function listRoleOptions(): Promise<PaginatedResult<RoleOption>> {

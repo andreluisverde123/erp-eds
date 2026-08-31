@@ -419,6 +419,43 @@ segunda pessoa a preencher só descobre quando o dia já passou.
 > derrubando esta garantia em silêncio. Por isso a exclusão de rascunho é
 > **definitiva**.
 
+### Quem entra no Diário
+
+Duas portas independentes, e as duas precisam estar abertas:
+
+1. **A permissão `diario.access`**, que vem do PAPEL (Configurações → Perfis).
+   É coletiva: marcá-la em "Engenharia" vale para toda a engenharia.
+2. **O interruptor por pessoa** (Administração → Usuários → *pessoa* → Diário de
+   Obras). Existe porque o papel é de time: todo engenheiro precisa das
+   permissões do ERP, mas nem todo engenheiro vai a campo preencher RDO. Sem
+   ele, o único ajuste possível seria tirar a permissão do papel — derrubando
+   quem depende dela.
+
+O interruptor **só tira**. Ligado, não concede `diario.access` a quem o papel
+não deu; ele apenas deixa de retirar. A direção única mantém o papel como fonte
+da verdade e impede que o campo vire uma segunda tabela de permissões,
+invisível na tela de perfis.
+
+Onde isso é aplicado: `effectivePermissions`, chamado por
+`AuthService.toPublicUser` — o único lugar onde o conjunto efetivo é montado, e
+que alimenta tanto o token quanto o objeto que a interface recebe. Por isso o
+`PermissionsGuard` e o frontend não sabem que o campo existe: para eles a
+permissão simplesmente não está lá.
+
+Duas consequências práticas:
+
+- **O efeito não é instantâneo para quem já está logado.** As permissões viajam
+  no token de acesso, que vale 15 minutos; desligar alcança a pessoa na próxima
+  renovação. É o mesmo comportamento de qualquer mudança de permissão de papel.
+- **Entrar não é ver.** Quem passa pelas duas portas e não tem vínculo com obra
+  nenhuma (`UserConstructionSite`) entra numa tela vazia. Os vínculos são
+  definidos dentro do Diário, obra a obra, por quem tem `diario.manage_access`.
+
+A coluna `User.diarioEnabled` nasceu `false` — liberar passou a ser um ato
+explícito. A migration marcou `true` para quem já tinha vínculo com obra: essas
+pessoas estavam usando o Diário, e deixá-las de fora teria sido uma remoção de
+acesso disfarçada de recurso novo.
+
 ### Excluir rascunho
 
 `DELETE /diario/relatorios/:id`, exigindo `diario.report.manage` — a mesma

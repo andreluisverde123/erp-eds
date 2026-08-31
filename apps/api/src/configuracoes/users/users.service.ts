@@ -30,6 +30,7 @@ const selectArgs = Prisma.validator<Prisma.UserDefaultArgs>()({
     phone: true,
     position: true,
     isActive: true,
+    diarioEnabled: true,
     createdAt: true,
     updatedAt: true,
     deletedAt: true,

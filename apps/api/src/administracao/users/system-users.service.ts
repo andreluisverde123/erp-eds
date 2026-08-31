@@ -31,6 +31,7 @@ const selectArgs = Prisma.validator<Prisma.UserDefaultArgs>()({
     name: true,
     email: true,
     isActive: true,
+    diarioEnabled: true,
     mustChangePassword: true,
     createdAt: true,
     updatedAt: true,
@@ -83,6 +84,10 @@ export interface SystemUser {
   /// Senha ainda é a temporária gerada por um admin: o usuário nunca entrou,
   /// ou entrou e não concluiu a troca obrigatória.
   mustChangePassword: boolean;
+  /// Interruptor do Diário de Obras para ESTA pessoa. Sobrepõe o perfil apenas
+  /// para menos: desligado, as permissões `diario.*` que o papel concede não
+  /// entram no token nem chegam à interface.
+  diarioEnabled: boolean;
   status: SystemUserStatus;
   roles: UserRef[];
   /// Último login/refresh de sessão do usuário, `null` se ele nunca entrou.
@@ -292,6 +297,51 @@ export class SystemUsersService {
       entityId: id,
       ipAddress,
       changes: { isActive },
+    });
+
+    return this.findOne(companyId, id);
+  }
+
+  /// Liga ou desliga o Diário de Obras para UMA pessoa.
+  ///
+  /// Existe porque "Engenharia" é um papel coletivo: a equipe inteira precisa
+  /// das permissões do ERP, mas nem todo engenheiro vai a campo preencher RDO.
+  /// Sem este interruptor, liberar o Diário para um significa liberar para
+  /// todos — e o único ajuste possível seria tirar a permissão do papel, o que
+  /// derruba quem depende dela.
+  ///
+  /// Rota própria, como `:id/status`: liberar um módulo é decisão de acesso e
+  /// merece uma entrada distinta na auditoria, em vez de sumir dentro de um
+  /// PATCH que também mudou o telefone.
+  ///
+  /// Não exige que o papel conceda `diario.access`: ligar o interruptor de
+  /// quem não tem a permissão é inofensivo (o filtro em `toPublicUser` só
+  /// retira, nunca concede) e recusar obrigaria o admin a fazer as duas coisas
+  /// na ordem certa, sem ganho nenhum.
+  ///
+  /// **O efeito não é instantâneo para quem já está logado.** As permissões
+  /// viajam no token de acesso, que vale 15 minutos; desligar o interruptor
+  /// alcança a pessoa na próxima renovação. É o mesmo comportamento de
+  /// qualquer mudança de permissão de papel neste sistema.
+  async updateDiarioAccess(
+    companyId: string,
+    actingUserId: string,
+    ipAddress: string | undefined,
+    id: string,
+    diarioEnabled: boolean,
+  ): Promise<SystemUser> {
+    await this.assertExists(companyId, id);
+
+    await this.prisma.user.update({ where: { id, companyId }, data: { diarioEnabled } });
+
+    await this.auditLogger.log({
+      companyId,
+      userId: actingUserId,
+      action: 'UPDATE',
+      entityType: 'User',
+      entityId: id,
+      ipAddress,
+      changes: { diarioEnabled },
     });
 
     return this.findOne(companyId, id);

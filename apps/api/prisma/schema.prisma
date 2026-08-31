@@ -441,6 +441,21 @@ model User {
   /// Nasce `false` no cadastro self-service — ali a senha foi escolhida pelo
   /// próprio dono da conta.
   mustChangePassword Boolean   @default(false)
+  /// Interruptor do Diário de Obras POR PESSOA, sobrepondo o perfil.
+  ///
+  /// Existe porque "Engenharia" é um papel coletivo: a equipe inteira precisa
+  /// das permissões do ERP, mas nem todo engenheiro vai a campo preencher RDO.
+  /// Sem isto, liberar o Diário para um significa liberar para todos.
+  ///
+  /// Sobrepõe apenas para MENOS: as permissões `diario.*` continuam vindo do
+  /// papel, e este campo pode retirá-las de uma pessoa — nunca conceder a quem
+  /// o papel não deu. Aplicado em `toPublicUser`, o ponto único onde o conjunto
+  /// efetivo é montado, para que guard e frontend não precisem de caso especial.
+  ///
+  /// Nasce `false` (ninguém entra sem alguém liberar), mas a migration marca
+  /// `true` para quem JÁ tinha vínculo com obra — essas pessoas estavam usando
+  /// o Diário, e tirá-las sem aviso seria uma regressão disfarçada de recurso.
+  diarioEnabled      Boolean   @default(false)
   /// Aceite dos termos de uso, registrado no cadastro self-service. A VERSÃO
   /// importa tanto quanto a data: sem ela, um aceite antigo não prova o que
   /// foi aceito depois que o texto mudar. Fica em branco para os usuários

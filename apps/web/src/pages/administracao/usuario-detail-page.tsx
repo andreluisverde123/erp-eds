@@ -6,6 +6,7 @@ import { Button, Card, CardContent, LoadingState } from '@repo/ui';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 import { BankAccountsSection } from '@/features/administracao/components/bank-accounts-section';
+import { DiarioAccessCard } from '@/features/administracao/components/diario-access-card';
 import { SystemUserStatusBadge } from '@/features/administracao/components/system-user-status-badge';
 import { TemporaryPasswordDialog } from '@/features/administracao/components/temporary-password-dialog';
 import { useSystemUser } from '@/features/administracao/hooks/use-system-user';
@@ -150,6 +151,8 @@ export function UsuarioDetailPage() {
           <InfoRow label="Criado por" value={user.createdBy?.name ?? '—'} />
         </CardContent>
       </Card>
+
+      <DiarioAccessCard user={user} />
 
       {/* Some por inteiro para quem não tem `dados_bancarios.view` — chegar
           até esta tela (admin.manage_users) não dá acesso ao destino de

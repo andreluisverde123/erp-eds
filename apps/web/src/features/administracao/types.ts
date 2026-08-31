@@ -25,6 +25,10 @@ export interface SystemUser {
   isActive: boolean;
   /// Senha ainda é a temporária gerada por um admin.
   mustChangePassword: boolean;
+  /// Interruptor do Diário de Obras para esta pessoa. Sobrepõe o perfil apenas
+  /// para menos: desligado, as permissões `diario.*` do papel não chegam nem
+  /// ao token nem a esta interface.
+  diarioEnabled: boolean;
   status: UserStatus;
   roles: UserRef[];
   lastAccessAt: string | null;

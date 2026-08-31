@@ -4,6 +4,7 @@ import {
   createSystemUser,
   resetSystemUserPassword,
   updateSystemUser,
+  updateSystemUserDiarioAccess,
   updateSystemUserStatus,
 } from '../api';
 import type { SystemUserInput } from '../types';
@@ -52,6 +53,17 @@ export function useUpdateSystemUserStatus() {
   return useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       updateSystemUserStatus(id, isActive),
+    onSuccess: () => invalidateUsers(queryClient),
+  });
+}
+
+/// Interruptor do Diário de Obras, por pessoa.
+export function useUpdateSystemUserDiarioAccess() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, diarioEnabled }: { id: string; diarioEnabled: boolean }) =>
+      updateSystemUserDiarioAccess(id, diarioEnabled),
     onSuccess: () => invalidateUsers(queryClient),
   });
 }
