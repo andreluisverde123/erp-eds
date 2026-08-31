@@ -208,6 +208,7 @@ export function PurchaseRequestForm({
           <PurchaseRequestItemsGrid
             control={form.control}
             register={form.register}
+            setValue={form.setValue}
             errors={form.formState.errors}
           />
         </div>

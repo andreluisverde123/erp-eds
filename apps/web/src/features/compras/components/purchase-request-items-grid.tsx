@@ -6,6 +6,7 @@ import {
   type Control,
   type FieldErrors,
   type UseFormRegister,
+  type UseFormSetValue,
 } from 'react-hook-form';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -28,6 +29,8 @@ import {
 
 import { unitOptionsFor } from '@/lib/measurement-units';
 
+import { ItemDescriptionCell } from './item-description-cell';
+
 import {
   EMPTY_ITEM_ROW,
   isBlankItemRow,
@@ -48,12 +51,16 @@ interface PurchaseRequestItemsGridProps {
   control: Control<PurchaseRequestFormValues>;
   register: UseFormRegister<PurchaseRequestFormValues>;
   errors: FieldErrors<PurchaseRequestFormValues>;
+  /// Necessário porque escolher uma sugestão preenche a UNIDADE, que é outro
+  /// campo da mesma linha — o `Controller` da descrição não a alcança.
+  setValue: UseFormSetValue<PurchaseRequestFormValues>;
 }
 
 export function PurchaseRequestItemsGrid({
   control,
   register,
   errors,
+  setValue,
 }: PurchaseRequestItemsGridProps) {
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
   const items = useWatch({ control, name: 'items' }) as PurchaseRequestItemFormValues[] | undefined;
@@ -139,7 +146,10 @@ export function PurchaseRequestItemsGrid({
               const rowError = errors.items?.[index];
               const rowNumber = index + 1;
 
-              const description = register(`items.${index}.description`);
+              // `Controller` no lugar de `register` para a descrição: o campo
+              // deixou de ser um `<input>` simples e passa a ter sugestão, que
+              // escreve no formulário sem passar por um evento de digitação.
+              const descriptionName = `items.${index}.description` as const;
               const notes = register(`items.${index}.notes`);
 
               return (
@@ -149,14 +159,32 @@ export function PurchaseRequestItemsGrid({
                   onBlur={(event) => handleRowBlur(index, event)}
                 >
                   <TableCell className="border-r border-border/60 p-0">
-                    <Input
-                      {...description}
-                      data-row={index}
-                      data-column="description"
-                      aria-label={`Item da linha ${rowNumber}`}
-                      placeholder="Cimento CPII 50kg"
-                      aria-invalid={Boolean(rowError?.description)}
-                      className={cellInputClass}
+                    <Controller
+                      control={control}
+                      name={descriptionName}
+                      render={({ field: descField }) => (
+                        <ItemDescriptionCell
+                          value={descField.value ?? ''}
+                          onChange={descField.onChange}
+                          onBlur={descField.onBlur}
+                          // Escolher a sugestão preenche a UNIDADE também: quem
+                          // digita "cimento" quase nunca quer trocar de saco
+                          // para quilo, e é o segundo campo que ela deixaria
+                          // de digitar.
+                          onPick={(sugestao) => {
+                            descField.onChange(sugestao.description);
+                            setValue(`items.${index}.unit`, sugestao.unit, {
+                              shouldDirty: true,
+                            });
+                          }}
+                          data-row={index}
+                          data-column="description"
+                          aria-label={`Item da linha ${rowNumber}`}
+                          placeholder="Cimento CPII 50kg"
+                          aria-invalid={Boolean(rowError?.description)}
+                          className={cellInputClass}
+                        />
+                      )}
                     />
                     <CellError message={rowError?.description?.message} />
                   </TableCell>

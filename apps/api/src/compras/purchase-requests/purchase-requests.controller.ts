@@ -17,6 +17,8 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
+import { ItemSuggestionsService } from './item-suggestions.service';
+import { QueryItemSuggestionDto } from './dto/query-item-suggestion.dto';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
@@ -27,11 +29,29 @@ import { PurchaseRequestsService } from './purchase-requests.service';
 @Controller('purchase-requests')
 @RequirePermissions('compras.view')
 export class PurchaseRequestsController {
-  constructor(private readonly purchaseRequestsService: PurchaseRequestsService) {}
+  constructor(
+    private readonly purchaseRequestsService: PurchaseRequestsService,
+    private readonly itemSuggestions: ItemSuggestionsService,
+  ) {}
 
   @Get()
   findAll(@Query() query: QueryPurchaseRequestDto, @CurrentUser('companyId') companyId: string) {
     return this.purchaseRequestsService.findAll(companyId, query);
+  }
+
+  /// Materiais já pedidos que casam com o que está sendo digitado.
+  ///
+  /// Antes de `:id` de propósito: uma rota literal declarada depois de um
+  /// parâmetro nunca é alcançada — "item-suggestions" viraria um id inválido.
+  ///
+  /// `compras.view` basta: é leitura do histórico da própria empresa, e quem
+  /// preenche uma solicitação já enxerga as solicitações anteriores.
+  @Get('item-suggestions')
+  suggestItems(
+    @Query() query: QueryItemSuggestionDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.itemSuggestions.search(companyId, query.search, query.limit);
   }
 
   @Get(':id')
