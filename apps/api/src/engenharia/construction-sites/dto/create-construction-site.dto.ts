@@ -1,4 +1,5 @@
 import {
+  IsUUID,
   IsEnum,
   IsISO8601,
   IsNotEmpty,
@@ -50,6 +51,18 @@ export class CreateConstructionSiteDto {
   @IsEnum(ConstructionStatus, { message: 'Status inválido.' })
   status?: ConstructionStatus;
 
+  /// O responsável como USUÁRIO. Escolhê-lo dá a ele esta obra no Diário —
+  /// o vínculo nasce junto, sem uma segunda tela.
+  ///
+  /// Quando vem, o `responsibleName` é gravado a partir do nome do usuário e o
+  /// que o cliente tiver mandado nesse campo é ignorado: dois nomes para a
+  /// mesma pessoa divergiriam no primeiro que fosse editado.
+  @IsOptional()
+  @IsUUID(undefined, { message: 'Responsável inválido.' })
+  responsibleId?: string;
+
+  /// Nome digitado à mão. Continua aceito para as obras cujo responsável não é
+  /// usuário do sistema — um preposto do cliente, por exemplo.
   @IsOptional()
   @IsString()
   @MaxLength(150)

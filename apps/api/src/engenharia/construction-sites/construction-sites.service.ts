@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
@@ -15,6 +15,9 @@ const listArgs = Prisma.validator<Prisma.ConstructionSiteDefaultArgs>()({
 
 const detailArgs = Prisma.validator<Prisma.ConstructionSiteDefaultArgs>()({
   include: {
+    /// O responsável como USUÁRIO — é ele que a tela pré-seleciona no
+    /// dropdown ao abrir a obra para edição.
+    responsible: { select: { id: true, name: true, email: true } },
     costCenters: { where: { deletedAt: null }, orderBy: { code: 'asc' } },
     _count: { select: { costCenters: { where: { deletedAt: null } } } },
   },
@@ -29,7 +32,67 @@ const DUPLICATE_CODE_MESSAGE = 'Já existe uma obra com este código.';
 export class ConstructionSitesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /// Resolve o responsável e, quando ele é usuário, GARANTE o acesso dele a
+  /// esta obra no Diário.
+  ///
+  /// **É aqui que o vínculo nasce.** Antes disto, cadastrar uma obra e escolher
+  /// um responsável não dava a ele nada: a obra não aparecia no Diário de
+  /// ninguém, e o vínculo só existia por script. Escolher o responsável passa a
+  /// ser o ato que concede.
+  ///
+  /// O vínculo é criado, nunca REMOVIDO ao trocar de responsável. Quem era
+  /// responsável antes continua enxergando a obra — tirar o acesso de alguém
+  /// como efeito colateral de editar um cadastro é o tipo de surpresa que
+  /// ninguém relaciona com a causa. Remover é ato explícito, na tela de acessos
+  /// do Diário.
+  ///
+  /// O NOME é gravado a partir do usuário, e o que vier no `responsibleName` é
+  /// ignorado nesse caso: dois nomes para a mesma pessoa divergiriam no
+  /// primeiro que fosse editado.
+  private async resolveResponsible(
+    companyId: string,
+    siteId: string | null,
+    dto: { responsibleId?: string; responsibleName?: string },
+  ): Promise<{ responsibleId: string | null; responsibleName: string | undefined }> {
+    if (!dto.responsibleId) {
+      return { responsibleId: null, responsibleName: dto.responsibleName };
+    }
+
+    const usuario = await this.prisma.user.findFirst({
+      where: { id: dto.responsibleId, companyId, deletedAt: null, isActive: true },
+      select: { id: true, name: true },
+    });
+
+    if (!usuario) {
+      throw new BadRequestException('Responsável informado não existe ou está inativo.');
+    }
+
+    if (siteId) await this.grantDiarioAccess(usuario.id, siteId);
+
+    return { responsibleId: usuario.id, responsibleName: usuario.name };
+  }
+
+  /// `ENGINEER` como papel do vínculo: é o que "responsável pela obra"
+  /// significa no Diário. Fiscal é outro papel, escolhido na tela de acessos.
+  ///
+  /// Idempotente por `upsert` — salvar a mesma obra duas vezes não duplica o
+  /// vínculo nem estoura o índice único de `(usuário, obra)`.
+  private async grantDiarioAccess(userId: string, constructionSiteId: string): Promise<void> {
+    await this.prisma.userConstructionSite.upsert({
+      where: { userId_constructionSiteId: { userId, constructionSiteId } },
+      create: { userId, constructionSiteId, role: 'ENGINEER' },
+      // Vínculo que já existe fica como está: se alguém o marcou como fiscal
+      // na tela de acessos, ser escolhido responsável não deve rebaixá-lo.
+      update: {},
+    });
+  }
+
+
   async create(companyId: string, dto: CreateConstructionSiteDto): Promise<ConstructionSiteDetail> {
+    // Antes de criar: um responsável inválido tem de recusar a requisição
+    // inteira, e não deixar a obra gravada sem o vínculo que a justifica.
+    const responsavel = await this.resolveResponsible(companyId, null, dto);
+
     try {
       const created = await this.prisma.constructionSite.create({
         data: {
@@ -42,10 +105,16 @@ export class ConstructionSitesService {
           startDate: dto.startDate ? new Date(dto.startDate) : undefined,
           expectedEndDate: dto.expectedEndDate ? new Date(dto.expectedEndDate) : undefined,
           status: dto.status,
-          responsibleName: dto.responsibleName,
+          responsibleId: responsavel.responsibleId,
+          responsibleName: responsavel.responsibleName,
           description: dto.description,
         },
       });
+
+      // O vínculo depois da criação: a obra precisa existir para ser vinculada.
+      if (responsavel.responsibleId) {
+        await this.grantDiarioAccess(responsavel.responsibleId, created.id);
+      }
 
       return this.findOne(companyId, created.id);
     } catch (error) {
@@ -109,6 +178,7 @@ export class ConstructionSitesService {
     dto: UpdateConstructionSiteDto,
   ): Promise<ConstructionSiteDetail> {
     await this.findOne(companyId, id);
+    const responsavel = await this.resolveResponsible(companyId, id, dto);
 
     try {
       await this.prisma.constructionSite.update({
@@ -122,7 +192,10 @@ export class ConstructionSitesService {
           startDate: dto.startDate ? new Date(dto.startDate) : undefined,
           expectedEndDate: dto.expectedEndDate ? new Date(dto.expectedEndDate) : undefined,
           status: dto.status,
-          responsibleName: dto.responsibleName,
+          // `undefined` mantém o valor atual; a troca só acontece quando o
+          // cliente manda o campo.
+          responsibleId: dto.responsibleId ? responsavel.responsibleId : undefined,
+          responsibleName: responsavel.responsibleName,
           description: dto.description,
         },
       });

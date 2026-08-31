@@ -14,6 +14,11 @@ export const constructionSiteFormSchema = z.object({
   startDate: z.string().optional(),
   expectedEndDate: z.string().optional(),
   status: z.enum(['PLANNING', 'IN_PROGRESS', 'PAUSED', 'COMPLETED', 'CANCELLED']),
+  /// O responsável é escolhido entre os USUÁRIOS. Selecioná-lo é o que dá a
+  /// ele esta obra no Diário — o vínculo nasce junto, no servidor.
+  responsibleId: z.string().optional(),
+  /// Nome herdado das obras cadastradas antes de o responsável virar usuário.
+  /// Só é exibido; a tela não deixa mais digitá-lo.
   responsibleName: z.string().trim().max(150, 'Máximo de 150 caracteres.').optional(),
   description: z.string().trim().max(2000, 'Máximo de 2000 caracteres.').optional(),
 });
@@ -29,6 +34,7 @@ export const CONSTRUCTION_SITE_FORM_DEFAULTS: ConstructionSiteFormValues = {
   startDate: '',
   expectedEndDate: '',
   status: 'PLANNING',
+  responsibleId: '',
   responsibleName: '',
   description: '',
 };

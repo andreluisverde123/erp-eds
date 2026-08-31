@@ -473,6 +473,8 @@ model User {
   purchaseRequests          PurchaseRequest[]
   /// Ordens que este usuário emitiu — é o nome que assina o PDF da ordem.
   purchaseOrders            PurchaseOrder[]        @relation("PurchaseOrderCreatedBy")
+  /// Obras das quais este usuário é o responsável.
+  responsibleForSites       ConstructionSite[]     @relation("ConstructionSiteResponsible")
   attachments               Attachment[]
   auditLogs                 AuditLog[]
   workflowComments          WorkflowComment[]
@@ -627,6 +629,21 @@ model ConstructionSite {
   code            String
   name            String
   clientName      String?
+  /// O RESPONSÁVEL pela obra, como USUÁRIO do sistema.
+  ///
+  /// Escolhê-lo aqui é o que dá a ele a obra no Diário: o vínculo em
+  /// `UserConstructionSite` nasce junto, sem uma segunda tela. Era a lacuna
+  /// que fazia uma obra recém-cadastrada não aparecer para ninguém.
+  responsibleId   String?            @db.Uuid
+  /// O nome, mantido ao lado do vínculo e não derivado dele.
+  ///
+  /// Duas razões: as obras cadastradas antes disto têm um nome digitado e
+  /// nenhum usuário, e apagá-lo perderia informação; e os documentos já
+  /// emitidos (RDO, ordem de compra) citam o responsável pelo nome que valia
+  /// na época — buscar o nome do usuário na hora de imprimir faria um PDF
+  /// antigo mudar de conteúdo quando a pessoa trocasse de sobrenome.
+  ///
+  /// Quando um usuário é escolhido, o nome é gravado a partir dele.
   responsibleName String?
   description     String?
   status          ConstructionStatus @default(PLANNING)
@@ -643,6 +660,7 @@ model ConstructionSite {
   deletedAt       DateTime?
 
   company             Company                @relation(fields: [companyId], references: [id])
+  responsible         User?                  @relation("ConstructionSiteResponsible", fields: [responsibleId], references: [id])
   costCenters         CostCenter[]
   employeeAllocations EmployeeAllocation[]
   timeEntries         TimeEntry[]

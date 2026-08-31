@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import {
@@ -13,7 +12,6 @@ import {
   SheetTitle,
 } from '@repo/ui';
 
-import { useAuth } from '@/features/auth/context';
 import { ApiError } from '@/lib/api-client';
 
 import {
@@ -28,8 +26,6 @@ import {
 } from '../hooks/use-construction-site-mutations';
 import type { ConstructionSite } from '../types';
 import { ConstructionSiteFormFields } from './construction-site-form-fields';
-import { SiteTeamField, type SiteTeamEntry } from './site-team-field';
-import { getSiteTeam, replaceSiteTeam } from '../site-team';
 
 function toDateInputValue(iso: string | null): string {
   return iso ? iso.slice(0, 10) : '';
@@ -45,6 +41,7 @@ function siteToFormValues(site: ConstructionSite): ConstructionSiteFormValues {
     startDate: toDateInputValue(site.startDate),
     expectedEndDate: toDateInputValue(site.expectedEndDate),
     status: site.status,
+    responsibleId: site.responsibleId ?? '',
     responsibleName: site.responsibleName ?? '',
     description: site.description ?? '',
   };
@@ -113,29 +110,6 @@ function ConstructionSiteFormBody({
   onDone: () => void;
 }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-
-  // A equipe é gerida pela API do Diário, que exige `diario.manage_access`.
-  // Sem essa permissão a seção nem aparece — um campo que sempre falha ao
-  // salvar é pior que campo nenhum.
-  const podeGerirEquipe = Boolean(user?.permissions.includes('diario.manage_access'));
-
-  const [equipe, setEquipe] = useState<SiteTeamEntry[]>([]);
-  const { data: equipeAtual } = useQuery({
-    queryKey: ['diario', 'acessos', 'obra', site?.id],
-    queryFn: () => getSiteTeam(site!.id),
-    enabled: podeGerirEquipe && Boolean(site?.id),
-  });
-
-  // A equipe carregada vira o estado inicial UMA vez. Depois disso quem manda
-  // é o que a pessoa mexeu na tela — sem esta guarda, um refetch em segundo
-  // plano descartaria as alterações não salvas.
-  const [equipeCarregada, setEquipeCarregada] = useState(false);
-  if (equipeAtual && !equipeCarregada) {
-    setEquipe(equipeAtual.map(({ userId, role }) => ({ userId, role })));
-    setEquipeCarregada(true);
-  }
 
   const createMutation = useCreateConstructionSite();
   const updateMutation = useUpdateConstructionSite(site?.id ?? '');
@@ -155,19 +129,10 @@ function ConstructionSiteFormBody({
   async function onSubmit(values: ConstructionSiteFormValues) {
     setSubmitError(null);
     try {
-      const salva = await mutation.mutateAsync(toConstructionSiteInput(values));
-
-      // A equipe é gravada DEPOIS, e não junto: na criação a obra ainda não
-      // tem id quando o formulário é enviado, e a rota de acesso é por obra.
-      // Duas chamadas, nesta ordem, é o que a API permite hoje.
-      if (podeGerirEquipe) {
-        const alvo = site?.id ?? salva?.id;
-        if (alvo) {
-          await replaceSiteTeam(alvo, equipe);
-          void queryClient.invalidateQueries({ queryKey: ['diario', 'acessos'] });
-        }
-      }
-
+      // O vínculo do responsável com o Diário é criado pelo SERVIDOR, junto
+      // com a obra — não há segunda chamada aqui. Escolher o responsável é o
+      // ato que concede.
+      await mutation.mutateAsync(toConstructionSiteInput(values));
       onDone();
     } catch (error) {
       setSubmitError(
@@ -189,16 +154,6 @@ function ConstructionSiteFormBody({
               </Alert>
             )}
             <ConstructionSiteFormFields control={form.control} />
-
-            {podeGerirEquipe && (
-              <div className="mt-5 border-t border-border pt-5">
-                <SiteTeamField
-                  value={equipe}
-                  onChange={setEquipe}
-                  disabled={mutation.isPending}
-                />
-              </div>
-            )}
           </form>
         </Form>
       </div>

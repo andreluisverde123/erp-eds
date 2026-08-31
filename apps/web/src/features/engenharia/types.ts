@@ -18,6 +18,10 @@ export interface ConstructionSite {
   code: string;
   name: string;
   clientName: string | null;
+  responsibleId: string | null;
+  /// O responsável como usuário, quando houver. `null` nas obras antigas, que
+  /// só têm o nome digitado.
+  responsible: { id: string; name: string; email: string } | null;
   responsibleName: string | null;
   description: string | null;
   status: ConstructionStatus;
@@ -56,6 +60,8 @@ export interface ConstructionSiteInput {
   startDate?: string;
   expectedEndDate?: string;
   status?: ConstructionStatus;
+  /// Escolher o responsável concede a ele a obra no Diário.
+  responsibleId?: string;
   responsibleName?: string;
   description?: string;
 }
