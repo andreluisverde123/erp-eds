@@ -115,8 +115,18 @@ COPY --from=build --chown=node:node /app/apps/api/generated ./apps/api/generated
 # declaração vive na plataforma, não na imagem.
 RUN mkdir -p /app/apps/api/uploads && chown -R node:node /app/apps/api/uploads
 
+# O `chown` acima cobre a imagem SEM volume. Com volume montado ele deixa de
+# valer: o mount entra por cima, com o dono do host. Por isso o entrypoint
+# refaz o ajuste no boot, quando a pasta já é a definitiva, e só então baixa o
+# privilégio — ver docker/api-entrypoint.sh.
+COPY --chmod=755 docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+
 WORKDIR /app/apps/api
-USER node
+
+# Sem `USER node` de propósito: o container PRECISA começar como root para
+# ajustar o dono do volume, e o entrypoint troca para `node` antes de executar
+# a aplicação. O processo Node nunca roda como root — confira com
+# `docker exec <container> ps -o user= -p 1`.
 EXPOSE 3000
 
 # Liveness (só o processo Node), NÃO readiness. Sem curl na imagem, o fetch
@@ -141,4 +151,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Use `--init` no `docker run` (ou `init: true` no compose) para o SIGTERM
 # chegar ao Node como PID 1 e o `enableShutdownHooks()` fechar o Prisma limpo.
+ENTRYPOINT ["/usr/local/bin/api-entrypoint.sh"]
 CMD ["node", "dist/main.js"]
