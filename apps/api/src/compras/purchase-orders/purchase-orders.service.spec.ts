@@ -59,9 +59,15 @@ function makeService(
     requestStatus?: string;
     requestCompanyId?: string;
     supplierExists?: boolean;
+    /// Situação atual da ordem devolvida pelo dublê — usada pelas guardas de
+    /// cancelamento.
+    orderStatus?: string;
     financeiro?: {
       invoices: Record<string, unknown>[];
       inboundInvoices: Record<string, unknown>[];
+      /// Contas a pagar já pagas ou parcialmente pagas — o que impede
+      /// cancelar, porque dinheiro que saiu não se desfaz cancelando o pedido.
+      paidPayables?: number;
     };
   } = {},
 ) {
@@ -69,6 +75,7 @@ function makeService(
     requestStatus = 'APPROVED',
     requestCompanyId = EMPRESA_A,
     supplierExists = true,
+    orderStatus = 'OPEN',
     financeiro = { invoices: [], inboundInvoices: [] },
   } = overrides;
 
@@ -147,7 +154,7 @@ function makeService(
               code: 'OC-0001',
               companyId: EMPRESA_A,
               purchaseRequestId: SOLICITACAO,
-              status: 'OPEN',
+              status: orderStatus,
               items: [],
             }
           : null,
@@ -158,8 +165,18 @@ function makeService(
     /// `withFinancialStatus`). Vazias por padrão: uma ordem recém-criada não
     /// tem nota nem parcela, que é justamente o estado `WITHOUT_INVOICE`.
     /// Os testes que exercitam os estágios sobrescrevem via `financeiro`.
-    invoice: { findMany: jest.fn(async () => financeiro.invoices) },
-    inboundInvoice: { findMany: jest.fn(async () => financeiro.inboundInvoices) },
+    /// `count` alimenta as GUARDAS de cancelar e excluir; `findMany`, a
+    /// situação financeira derivada. As duas leem as mesmas listas, então um
+    /// teste que declara uma nota vinculada a vê nos dois lugares.
+    invoice: {
+      findMany: jest.fn(async () => financeiro.invoices),
+      count: jest.fn(async () => financeiro.invoices.length),
+    },
+    inboundInvoice: {
+      findMany: jest.fn(async () => financeiro.inboundInvoices),
+      count: jest.fn(async () => financeiro.inboundInvoices.length),
+    },
+    accountPayable: { count: jest.fn(async () => financeiro.paidPayables ?? 0) },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
@@ -907,5 +924,67 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
       expect(itensCriados(criados)).toHaveLength(1);
       expect(totalGravado(criados)).toBe('450');
     });
+  });
+});
+
+describe('Cancelar e excluir ordem de compra', () => {
+  it('cancelar marca a ordem, sem apagá-la', async () => {
+    const { service, prisma } = makeService();
+
+    await service.cancel(EMPRESA_A, 'oc-1');
+
+    // Cancelar mantém o documento na lista: o fornecedor recebeu um pedido, e
+    // precisa haver registro de que ele foi desfeito.
+    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'CANCELLED' } }),
+    );
+  });
+
+  it('não cancela duas vezes', async () => {
+    const { service } = makeService({ orderStatus: 'CANCELLED' });
+
+    await expect(service.cancel(EMPRESA_A, 'oc-1')).rejects.toThrow(/já está cancelada/);
+  });
+
+  it('não cancela ordem com pagamento efetuado', async () => {
+    const { service } = makeService({
+      financeiro: { invoices: [], inboundInvoices: [], paidPayables: 1 },
+    });
+
+    // Dinheiro que saiu não se desfaz cancelando o pedido; permitir criaria
+    // uma ordem cancelada com conta paga, estado que nenhum relatório explica.
+    await expect(service.cancel(EMPRESA_A, 'oc-1')).rejects.toThrow(/pagamento efetuado/);
+  });
+
+  it('exclui a ordem sem vínculo, embaralhando o código', async () => {
+    const { service, prisma } = makeService();
+
+    await service.remove(EMPRESA_A, 'oc-1');
+
+    const dados = (prisma.purchaseOrder.update.mock.calls.at(-1)![0] as { data: Record<string, unknown> }).data;
+    expect(dados.deletedAt).toBeInstanceOf(Date);
+    // Sem embaralhar, a unique de (empresa, código) — que não ignora
+    // `deletedAt` — travaria aquele número para sempre.
+    expect(String(dados.code)).toContain('__deleted__');
+  });
+
+  it('NÃO exclui ordem com nota fiscal vinculada', async () => {
+    const { service, prisma } = makeService({
+      financeiro: { invoices: [{ id: 'nf-1' }], inboundInvoices: [] },
+    });
+
+    // Sem esta guarda, a fatura e a conta a pagar ficariam apontando para um
+    // documento que sumiu — e ninguém relacionaria o buraco no relatório com
+    // este clique.
+    await expect(service.remove(EMPRESA_A, 'oc-1')).rejects.toThrow(/nota fiscal vinculada/);
+    expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
+  });
+
+  it('a recusa da exclusão aponta a saída: cancelar', async () => {
+    const { service } = makeService({
+      financeiro: { invoices: [], inboundInvoices: [{ id: 'ii-1' }] },
+    });
+
+    await expect(service.remove(EMPRESA_A, 'oc-1')).rejects.toThrow(/Cancele-a/);
   });
 });

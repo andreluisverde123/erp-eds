@@ -473,8 +473,70 @@ export class PurchaseOrdersService {
     return { ...rendered, code: order.code };
   }
 
+  /// CANCELA a ordem: ela continua existindo, marcada como cancelada.
+  ///
+  /// É a ação para "a compra não vai mais acontecer". O documento fica na
+  /// lista, com o histórico, porque o fornecedor recebeu um pedido e precisa
+  /// haver registro de que ele foi desfeito.
+  ///
+  /// Recusada quando já existe pagamento efetuado: dinheiro que saiu não se
+  /// desfaz cancelando o pedido, e deixar cancelar criaria uma ordem cancelada
+  /// com conta paga — um estado que nenhum relatório sabe explicar.
+  async cancel(companyId: string, id: string) {
+    const order = await this.assertExists(companyId, id);
+
+    if (order.status === 'CANCELLED') {
+      throw new BadRequestException('Esta ordem de compra já está cancelada.');
+    }
+
+    const pagas = await this.prisma.accountPayable.count({
+      where: {
+        deletedAt: null,
+        status: { in: ['PAID', 'PARTIAL'] },
+        invoice: { purchaseOrderId: id },
+      },
+    });
+
+    if (pagas > 0) {
+      throw new BadRequestException(
+        'Esta ordem já tem pagamento efetuado e não pode ser cancelada. Trate a devolução pelo Financeiro.',
+      );
+    }
+
+    await this.prisma.purchaseOrder.update({
+      where: { id, companyId },
+      data: { status: 'CANCELLED' },
+    });
+
+    return this.findOne(companyId, id);
+  }
+
+  /// EXCLUI a ordem — para o caso de ter sido gerada por engano.
+  ///
+  /// Diferente de cancelar: aqui a ordem some da lista, como se não tivesse
+  /// existido. Por isso só é permitida enquanto NADA depende dela.
+  ///
+  /// Sem esta verificação, excluir uma ordem que já tem nota conciliada
+  /// deixaria a fatura e a conta a pagar apontando para um documento que
+  /// sumiu — e ninguém relacionaria o buraco no relatório com este clique.
+  /// Quem quer desfazer uma compra que já andou usa CANCELAR.
   async remove(companyId: string, id: string): Promise<void> {
     const existing = await this.assertExists(companyId, id);
+
+    const [faturas, notas] = await this.prisma.$transaction([
+      this.prisma.invoice.count({ where: { purchaseOrderId: id, deletedAt: null } }),
+      this.prisma.inboundInvoice.count({ where: { purchaseOrderId: id } }),
+    ]);
+
+    if (faturas > 0 || notas > 0) {
+      throw new BadRequestException(
+        'Esta ordem já tem nota fiscal vinculada e não pode ser excluída. Cancele-a se a compra não vai mais acontecer.',
+      );
+    }
+
+    // Soft delete com o código embaralhado: a unique de `(empresa, código)`
+    // não ignora `deletedAt`, então sem isso o número da ordem excluída
+    // bloquearia para sempre — e a sequência não reaproveita números.
     await this.prisma.purchaseOrder.update({
       where: { id, companyId },
       data: { deletedAt: new Date(), code: mangleDeletedCode(existing.code, existing.id) },

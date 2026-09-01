@@ -110,3 +110,9 @@ export interface PurchaseRequestsPendingSummary {
 export function getPurchaseRequestsPendingSummary(): Promise<PurchaseRequestsPendingSummary> {
   return apiClient.get('/purchase-requests/pending-summary');
 }
+
+/// CANCELA a ordem: ela continua na lista, marcada como cancelada. Diferente
+/// de excluir, que a faz sumir e só vale enquanto nada depende dela.
+export function cancelPurchaseOrder(id: string): Promise<PurchaseOrder> {
+  return apiClient.post(`/purchase-orders/${id}/cancel`);
+}

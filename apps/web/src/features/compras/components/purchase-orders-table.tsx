@@ -1,9 +1,21 @@
 import { Fragment, memo, useState } from 'react';
 
-import { ChevronDown, ChevronRight, FileText, ShoppingCart } from 'lucide-react';
+import {
+  Ban,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  MoreHorizontal,
+  ShoppingCart,
+  Trash2,
+} from 'lucide-react';
 import { Link } from 'react-router';
 import {
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   EmptyState,
   Table,
   TableBody,
@@ -17,6 +29,8 @@ import { downloadPurchaseOrderPdf } from '../api';
 import { PurchaseOrderFinancialStatusPanel } from './purchase-order-financial-status';
 import { PurchaseOrderItemsTable } from './purchase-order-items-table';
 import { PurchaseOrderStatusBadge } from './purchase-order-status-badge';
+import { useAuth } from '@/features/auth/context';
+
 import type { PurchaseOrder } from '../types';
 
 function formatCurrency(value: number): string {
@@ -29,9 +43,18 @@ function formatDate(iso: string): string {
 
 export const PurchaseOrdersTable = memo(function PurchaseOrdersTable({
   orders,
+  onCancel,
+  onDelete,
 }: {
   orders: PurchaseOrder[];
+  /// A confirmação e a chamada ficam na PÁGINA, não aqui: a tabela desenha e
+  /// avisa, quem decide o que fazer é quem a usa.
+  onCancel?: (order: PurchaseOrder) => void;
+  onDelete?: (order: PurchaseOrder) => void;
 }) {
+  const { user } = useAuth();
+  const podeGerir = Boolean(user?.permissions.includes('compras.manage'));
+
   // Expandir em vez de abrir uma tela nova: a listagem já é a tela da Ordem
   // de Compra, e o detalhamento por item é justamente o que faltava nela.
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
@@ -123,16 +146,50 @@ export const PurchaseOrdersTable = memo(function PurchaseOrdersTable({
                   {formatDate(order.issueDate)}
                 </TableCell>
                 <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={() => void downloadPurchaseOrderPdf(order.id, order.code)}
-                    aria-label={`Baixar PDF da ${order.code}`}
-                    title="Baixar PDF"
-                  >
-                    <FileText className="size-4" />
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => void downloadPurchaseOrderPdf(order.id, order.code)}
+                      aria-label={`Baixar PDF da ${order.code}`}
+                      title="Baixar PDF"
+                    >
+                      <FileText className="size-4" />
+                    </Button>
+
+                    {/* Cancelar e excluir só existem enquanto fazem sentido: a
+                        ordem já cancelada não tem o que cancelar, e o menu
+                        inteiro some para quem não pode gerir compras — um item
+                        que sempre falha ao ser clicado é pior que item nenhum. */}
+                    {podeGerir && order.status !== 'CANCELLED' && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label={`Ações da ${order.code}`}
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => onCancel?.(order)}>
+                            <Ban />
+                            Cancelar ordem
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => onDelete?.(order)}
+                          >
+                            <Trash2 />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
 

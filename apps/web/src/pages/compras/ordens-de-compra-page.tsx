@@ -17,10 +17,16 @@ import {
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ApiError } from '@/lib/api-client';
 import { PurchaseOrdersTable } from '@/features/compras/components/purchase-orders-table';
+import {
+  useCancelPurchaseOrder,
+  useDeletePurchaseOrder,
+} from '@/features/compras/hooks/use-purchase-order-mutations';
 import { usePurchaseOrders } from '@/features/compras/hooks/use-purchase-orders';
 import { PURCHASE_ORDER_STATUS_OPTIONS } from '@/features/compras/purchase-order-status';
-import type { PurchaseOrderStatus } from '@/features/compras/types';
+import type { PurchaseOrder, PurchaseOrderStatus } from '@/features/compras/types';
 
 const PAGE_SIZE = 10;
 const ALL_STATUS = 'ALL';
@@ -38,6 +44,31 @@ export function OrdensDeCompraPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState(() => searchParams.get(SEARCH_PARAM) ?? '');
   const [status, setStatus] = useState<PurchaseOrderStatus | typeof ALL_STATUS>(ALL_STATUS);
+
+  // Uma ação por vez, guardando a ORDEM inteira: a confirmação precisa citar o
+  // número, e um diálogo que diz "tem certeza?" sem dizer de quê é onde o erro
+  // acontece.
+  const [cancelando, setCancelando] = useState<PurchaseOrder | null>(null);
+  const [excluindo, setExcluindo] = useState<PurchaseOrder | null>(null);
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
+
+  const cancelMutation = useCancelPurchaseOrder();
+  const deleteMutation = useDeletePurchaseOrder();
+
+  async function executar(acao: () => Promise<unknown>, fechar: () => void) {
+    setErroAcao(null);
+    try {
+      await acao();
+      fechar();
+    } catch (erro) {
+      // A mensagem do servidor é a que explica: "já tem nota fiscal
+      // vinculada", "já tem pagamento efetuado". Um texto genérico aqui
+      // esconderia justamente o motivo e a saída.
+      setErroAcao(
+        erro instanceof ApiError ? erro.message : 'Não foi possível concluir. Tente novamente.',
+      );
+    }
+  }
   const debouncedSearch = useDebouncedValue(search);
 
   function handleSearchChange(value: string) {
@@ -120,7 +151,17 @@ export function OrdensDeCompraPage() {
 
       {data && (
         <>
-          <PurchaseOrdersTable orders={data.data} />
+          <PurchaseOrdersTable
+            orders={data.data}
+            onCancel={(order) => {
+              setErroAcao(null);
+              setCancelando(order);
+            }}
+            onDelete={(order) => {
+              setErroAcao(null);
+              setExcluindo(order);
+            }}
+          />
 
           {meta && meta.total > 0 && (
             <Pagination>
@@ -141,6 +182,45 @@ export function OrdensDeCompraPage() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={Boolean(cancelando)}
+        onOpenChange={(aberto) => !aberto && setCancelando(null)}
+        title={`Cancelar a ${cancelando?.code ?? 'ordem'}?`}
+        description={
+          erroAcao ??
+          'A ordem continua na lista, marcada como cancelada — o fornecedor recebeu um pedido, e precisa haver registro de que ele foi desfeito.'
+        }
+        confirmLabel="Cancelar ordem"
+        loadingLabel="Cancelando..."
+        isLoading={cancelMutation.isPending}
+        onConfirm={() =>
+          void executar(
+            () => cancelMutation.mutateAsync(cancelando!.id),
+            () => setCancelando(null),
+          )
+        }
+      />
+
+      <ConfirmDialog
+        open={Boolean(excluindo)}
+        onOpenChange={(aberto) => !aberto && setExcluindo(null)}
+        variant="destructive"
+        title={`Excluir a ${excluindo?.code ?? 'ordem'}?`}
+        description={
+          erroAcao ??
+          'A ordem some da lista, como se não tivesse existido. Só é possível enquanto nenhuma nota fiscal estiver vinculada a ela — se a compra já andou, cancele em vez de excluir.'
+        }
+        confirmLabel="Excluir"
+        loadingLabel="Excluindo..."
+        isLoading={deleteMutation.isPending}
+        onConfirm={() =>
+          void executar(
+            () => deleteMutation.mutateAsync(excluindo!.id),
+            () => setExcluindo(null),
+          )
+        }
+      />
     </div>
   );
 }

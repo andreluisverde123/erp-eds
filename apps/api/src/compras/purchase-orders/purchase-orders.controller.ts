@@ -84,6 +84,16 @@ export class PurchaseOrdersController {
     return this.purchaseOrdersService.update(companyId, id, dto);
   }
 
+  /// Cancelar é DIFERENTE de excluir, e as duas existem de propósito:
+  /// cancelar mantém o documento na lista, marcado; excluir o faz sumir e só
+  /// vale enquanto nada depender dele.
+  @RequirePermissions('compras.manage')
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('companyId') companyId: string) {
+    return this.purchaseOrdersService.cancel(companyId, id);
+  }
+
   @RequirePermissions('compras.manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
