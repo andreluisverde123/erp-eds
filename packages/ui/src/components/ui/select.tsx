@@ -87,7 +87,19 @@ function SelectItem({
           <CheckIcon className="size-4" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {/* Flex com `gap` AQUI, e não no item.
+          
+          O padrão usado em várias telas é dar dois filhos à opção — um rótulo
+          e um dado secundário ("Ana" + o e-mail, "SC" + "Saco"). Os dois caem
+          dentro deste `ItemText`, que é UM nó: o `gap-2` do item, que fica um
+          nível acima, não os separa, e eles saíam colados ("Anaana@eds.com.br")
+          tanto na lista quanto espelhados no gatilho.
+          
+          `min-w-0` para o rótulo longo truncar em vez de empurrar o segundo
+          filho para fora da caixa. Opção de um filho só não muda em nada. */}
+      <SelectPrimitive.ItemText>
+        <span className="flex min-w-0 items-baseline gap-2">{children}</span>
+      </SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

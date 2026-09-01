@@ -82,6 +82,12 @@ function SiteResponsibleField({ control }: { control: Control<ConstructionSiteFo
           <Select value={field.value || ''} onValueChange={field.onChange} disabled={isLoading}>
             <FormControl>
               <SelectTrigger className="w-full">
+                {/* Filho explícito: sem ele o Radix espelha no gatilho o
+                    conteúdo INTEIRO da opção — nome e e-mail —, e o campo é
+                    estreito demais para os dois. Aqui fica só o nome; o
+                    e-mail, que serve para distinguir homônimos, continua na
+                    lista aberta. Mesma decisão do seletor de unidade na grade
+                    de itens. */}
                 <SelectValue
                   placeholder={
                     isLoading
@@ -90,7 +96,9 @@ function SiteResponsibleField({ control }: { control: Control<ConstructionSiteFo
                         ? 'Ninguém com acesso ao Diário'
                         : 'Selecione o responsável'
                   }
-                />
+                >
+                  {(candidatos ?? []).find((p) => p.id === field.value)?.name}
+                </SelectValue>
               </SelectTrigger>
             </FormControl>
             <SelectContent>

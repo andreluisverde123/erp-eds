@@ -120,7 +120,15 @@ export function PurchaseRequestForm({
                     >
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Selecione a obra" />
+                          {/* Filho explícito: o Radix espelharia no gatilho o
+                              nome E o código da obra, e o campo não comporta
+                              os dois. O código continua na lista aberta. */}
+                          <SelectValue placeholder="Selecione a obra">
+                            {
+                              (constructionSitesData?.data ?? []).find((s) => s.id === field.value)
+                                ?.name
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -162,7 +170,11 @@ export function PurchaseRequestForm({
                             placeholder={
                               constructionSiteId ? 'Sem centro de custo' : 'Escolha a obra primeiro'
                             }
-                          />
+                          >
+                            {
+                              (costCentersData?.data ?? []).find((c) => c.id === field.value)?.name
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>

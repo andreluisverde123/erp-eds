@@ -231,7 +231,9 @@ function GeneratePurchaseOrderBody({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Selecione o centro de custo" />
+                        <SelectValue placeholder="Selecione o centro de custo">
+                                {(costCentersData?.data ?? []).find((c) => c.id === field.value)?.name}
+                              </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
