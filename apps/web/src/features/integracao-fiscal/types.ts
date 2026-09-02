@@ -87,3 +87,18 @@ export interface SyncResult {
   message: string | null;
   durationMs: number;
 }
+
+/// O aviso de vencimento do certificado, para o bloco de pendências da Home.
+///
+/// Enxuto de propósito: a Home é aberta por toda pessoa que entra no sistema, e
+/// não deve trafegar titular, emissor e serial do certificado para desenhar uma
+/// linha de aviso. O painel de Administração continua usando `CertificateInfo`.
+export interface CertificateAlert {
+  /// `EXPIRED` — venceu, e a sincronização fiscal está PARADA agora.
+  /// `EXPIRING` — vence dentro de 30 dias; ainda funciona.
+  /// `OK` — nada a avisar (inclui empresa sem certificado configurado).
+  status: 'OK' | 'EXPIRING' | 'EXPIRED';
+  notAfter: string | null;
+  /// Negativo quando já venceu — é o que permite dizer "vencido há 8 dias".
+  diasParaExpirar: number | null;
+}

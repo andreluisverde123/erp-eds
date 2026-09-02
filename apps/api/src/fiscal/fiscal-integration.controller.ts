@@ -52,6 +52,21 @@ export class FiscalIntegrationController {
     return this.integration.status(companyId);
   }
 
+  /// O aviso de vencimento do certificado, para o bloco de pendências da Home.
+  ///
+  /// Rota PRÓPRIA e enxuta em vez de reaproveitar `/status`: aquela faz cinco
+  /// consultas e um `groupBy` para montar o painel inteiro, e a Home é a tela
+  /// que toda pessoa abre ao entrar. Mesmo desenho de
+  /// `/purchase-requests/pending-summary` e `/contracts/expiring-summary`.
+  ///
+  /// Herda `admin.fiscal_integration` da classe, e é o que se quer: o aviso vai
+  /// só para quem pode resolvê-lo subindo o certificado novo. Avisar quem não
+  /// tem como agir é ruído.
+  @Get('certificate-alert')
+  certificateAlert(@CurrentUser('companyId') companyId: string) {
+    return this.certificates.alertSummary(companyId);
+  }
+
   @Get('runs')
   runs(@Query() query: PaginationQueryDto, @CurrentUser('companyId') companyId: string) {
     return this.integration.historico(companyId, query.page, query.limit);

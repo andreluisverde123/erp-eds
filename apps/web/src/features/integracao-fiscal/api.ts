@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/api-client';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
+  CertificateAlert,
   CertificateInfo,
   IntegrationStatus,
   PaginatedResult,
@@ -12,6 +13,12 @@ import type {
 
 export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return apiClient.get('/admin/fiscal-integration/status');
+}
+
+/// Só o que a Home precisa. Rota separada do `/status`, que faz cinco
+/// consultas para montar o painel inteiro.
+export function getCertificateAlert(): Promise<CertificateAlert> {
+  return apiClient.get('/admin/fiscal-integration/certificate-alert');
 }
 
 export function listSyncRuns(page: number, limit: number): Promise<PaginatedResult<SyncRun>> {

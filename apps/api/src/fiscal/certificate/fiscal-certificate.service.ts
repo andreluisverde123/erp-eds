@@ -27,6 +27,29 @@ export interface CertificateMaterial {
   cnpj: string;
 }
 
+/// Quantos dias antes do vencimento o alerta da Home começa a aparecer.
+///
+/// 30 dias é a mesma antecedência que o alerta de contrato vencendo já usa, e
+/// cabe no processo real: renovar um A1 exige agendar validação presencial ou
+/// por vídeo com a autoridade certificadora, o que não se resolve na véspera.
+const DIAS_DE_ANTECEDENCIA = 30;
+
+/// O que a Home precisa saber sobre o certificado — e só isso.
+///
+/// Separado de `CertificateInfo` de propósito: aquele é o painel de
+/// Administração e carrega titular, emissor e serial. A Home é consultada por
+/// toda pessoa que entra no sistema, e não deve trafegar a identidade
+/// jurídica da empresa para desenhar uma linha de aviso.
+export interface CertificateAlert {
+  /// `EXPIRED` — venceu, e a sincronização fiscal ESTÁ PARADA agora.
+  /// `EXPIRING` — vence dentro da janela; ainda funciona.
+  /// `OK` — nada a avisar.
+  status: 'OK' | 'EXPIRING' | 'EXPIRED';
+  notAfter: Date | null;
+  /// Negativo quando já venceu — é o que permite dizer "vencido há 8 dias".
+  diasParaExpirar: number | null;
+}
+
 export interface CertificateInfo {
   cnpj: string;
   subjectName: string;
@@ -155,6 +178,50 @@ export class FiscalCertificateService {
       expirado: row.notAfter < agora,
       diasParaExpirar: Math.floor((row.notAfter.getTime() - agora.getTime()) / 86_400_000),
       uploadedAt: row.createdAt,
+    };
+  }
+
+  /// O aviso de vencimento para a Home.
+  ///
+  /// **Por que existe.** A sincronização fiscal para SOZINHA e EM SILÊNCIO
+  /// quando o certificado vence: o job filtra por `notAfter > agora`, não
+  /// encontra empresa elegível e retorna sem gravar execução nem erro (ver
+  /// `fiscal-sync.job.ts`). O painel de Administração sabe dizer
+  /// `CERTIFICADO_EXPIRADO`, mas ninguém abre aquele painel todo dia — foram
+  /// oito dias até alguém notar a parada de 25/08/2026.
+  ///
+  /// **Ausência de certificado NÃO alerta.** Empresa que nunca configurou a
+  /// integração fiscal não tem uma pendência: tem uma funcionalidade que não
+  /// usa. Um aviso permanente e sem ação possível treina a pessoa a ignorar o
+  /// bloco inteiro — inclusive as linhas que importam.
+  ///
+  /// **Certificado desativado (`isActive: false`) também não alerta**: desligar
+  /// é ato deliberado de quem administra. A lacuna é conhecida — a
+  /// sincronização também para nesse caso — e fica registrada aqui em vez de
+  /// virar um aviso que ninguém pediu.
+  async alertSummary(companyId: string): Promise<CertificateAlert> {
+    const row = await this.prisma.fiscalCertificate.findUnique({
+      where: { companyId },
+      select: { notAfter: true, isActive: true },
+    });
+
+    if (!row || !row.isActive) {
+      return { status: 'OK', notAfter: null, diasParaExpirar: null };
+    }
+
+    // Mesma conta do `findInfo`, para o painel e a Home nunca discordarem em
+    // um dia por arredondarem diferente.
+    const diasParaExpirar = Math.floor((row.notAfter.getTime() - Date.now()) / 86_400_000);
+
+    return {
+      status:
+        row.notAfter < new Date()
+          ? 'EXPIRED'
+          : diasParaExpirar <= DIAS_DE_ANTECEDENCIA
+            ? 'EXPIRING'
+            : 'OK',
+      notAfter: row.notAfter,
+      diasParaExpirar,
     };
   }
 
