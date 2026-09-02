@@ -1138,6 +1138,31 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
   });
 
   describe('12. RBAC e janela de edição', () => {
+    /// A permissão EFETIVA de uma rota. O guard usa `getAllAndOverride`, então
+    /// o decorator do MÉTODO vence o da classe; sem decorator próprio, a rota
+    /// herda o da classe (`compras.view`).
+    const permissaoDe = (metodo: keyof typeof PurchaseRequestsController.prototype) =>
+      Reflect.getMetadata(PERMISSIONS_KEY, PurchaseRequestsController.prototype[metodo]) as
+        | string[]
+        | undefined;
+
+    it('a sugestão de material exige a MESMA permissão do formulário que ela serve', () => {
+      // O defeito que isto trava: a rota herdava `compras.view` da classe
+      // enquanto `create`/`update` exigiam `compras.request`. Um perfil com
+      // "pode solicitar" e sem "pode visualizar" abria o formulário, salvava, e
+      // levava 403 só no autocomplete — que falha em silêncio, então ninguém
+      // conseguia dizer por que "funciona para uns e para outros não".
+      expect(permissaoDe('suggestItems')).toEqual(['compras.request']);
+      expect(permissaoDe('create')).toEqual(['compras.request']);
+      expect(permissaoDe('update')).toEqual(['compras.request']);
+    });
+
+    it('a sugestão não passou a exigir `compras.manage` — quem pede não compra', () => {
+      // Alinhar a permissão não pode ter virado promoção: o solicitante da
+      // Engenharia continua sem nada do setor de Compras.
+      expect(permissaoDe('suggestItems')).not.toContain('compras.manage');
+    });
+
     it('cotar exige `compras.manage` — quem só abre solicitação não cota', () => {
       const permissoes = Reflect.getMetadata(
         PERMISSIONS_KEY,

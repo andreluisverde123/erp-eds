@@ -39,13 +39,6 @@ export class PurchaseRequestsController {
     return this.purchaseRequestsService.findAll(companyId, query);
   }
 
-  /// Materiais já pedidos que casam com o que está sendo digitado.
-  ///
-  /// Antes de `:id` de propósito: uma rota literal declarada depois de um
-  /// parâmetro nunca é alcançada — "item-suggestions" viraria um id inválido.
-  ///
-  /// `compras.view` basta: é leitura do histórico da própria empresa, e quem
-  /// preenche uma solicitação já enxerga as solicitações anteriores.
   /// Contagem do que está parado esperando alguém — alimenta o alerta da Home.
   ///
   /// Antes de `:id`, como a de sugestões: rota literal declarada depois de um
@@ -55,6 +48,26 @@ export class PurchaseRequestsController {
     return this.purchaseRequestsService.getPendingSummary(companyId);
   }
 
+  /// Materiais já pedidos que casam com o que está sendo digitado.
+  ///
+  /// Antes de `:id` de propósito: uma rota literal declarada depois de um
+  /// parâmetro nunca é alcançada — "item-suggestions" viraria um id inválido.
+  ///
+  /// `compras.request`, e NÃO `compras.view`, que era o que a classe impunha
+  /// por herança.
+  ///
+  /// A sugestão é auxiliar do FORMULÁRIO de solicitação, e o formulário exige
+  /// `compras.request` (`create` e `update` abaixo). Como o guard usa
+  /// `getAllAndOverride`, a permissão do método vence a da classe — então
+  /// `create` pedia `compras.request` e esta rota continuava pedindo
+  /// `compras.view`. Um perfil personalizado com "pode solicitar" e sem "pode
+  /// visualizar" abria o formulário, salvava normalmente e levava 403 só aqui:
+  /// o autocomplete morria sozinho, sem nada na tela dizendo por quê.
+  ///
+  /// Não é permissão nova nem afrouxamento: quem pode ABRIR uma solicitação já
+  /// enxerga o histórico de solicitações da própria empresa — que é exatamente
+  /// o dado devolvido aqui, escopado por `companyId`.
+  @RequirePermissions('compras.request')
   @Get('item-suggestions')
   suggestItems(
     @Query() query: QueryItemSuggestionDto,
