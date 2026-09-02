@@ -30,7 +30,21 @@ function FormItem({ className, ...props }: React.ComponentProps<'div'>) {
 
   return (
     <FormItemContext.Provider value={{ id }}>
-      <div data-slot="form-item" className={cn('grid gap-2', className)} {...props} />
+      {/* `content-start` não é enfeite: sem ele, dois campos lado a lado no
+          mesmo `grid grid-cols-2` saem DESALINHADOS.
+
+          O caminho: o campo é filho de um grid, então ganha a altura da
+          célula mais alta da linha (`align-self: stretch`). Como o próprio
+          `FormItem` também é um grid, e `align-content` é `stretch` por
+          padrão, essa altura sobrando é REPARTIDA entre as linhas dele —
+          rótulo, controle e mensagem. O rótulo cresce, o `Label` é
+          `flex items-center`, e o texto desce até o meio da linha inflada.
+
+          O efeito aparecia sempre que o campo vizinho era mais alto por ter
+          texto de apoio: "Cliente" começava um degrau abaixo de "Responsável"
+          na mesma linha do formulário de obra. `content-start` prende as
+          linhas no topo, e a altura que sobra fica embaixo, onde ninguém vê. */}
+      <div data-slot="form-item" className={cn('grid content-start gap-2', className)} {...props} />
     </FormItemContext.Provider>
   );
 }

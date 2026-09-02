@@ -81,3 +81,26 @@ describe('campo Responsável', () => {
     expect(await screen.findByText(/Libere em Administração/)).toBeDefined();
   });
 });
+
+/// O desalinhamento entre "Cliente" e "Responsável" é de LAYOUT, e o jsdom não
+/// calcula layout — não há como medir a posição do rótulo aqui. O que dá para
+/// travar é a decisão que o corrige, e ela vive no design system: `FormItem`
+/// não pode repartir entre suas linhas a altura que sobra da célula vizinha.
+///
+/// Sem `content-start`, o campo mais baixo do par ganha a altura do mais alto
+/// (`align-self: stretch`), o `align-content: stretch` padrão infla as linhas
+/// dele, e o rótulo — um `Label` com `items-center` — desce até o meio. Era o
+/// degrau entre os dois campos no formulário de obra.
+describe('alinhamento de campos lado a lado', () => {
+  it('FormItem prende as linhas no topo', async () => {
+    mocked.listSiteTeamCandidates.mockResolvedValue([ANA]);
+    montar('u1');
+
+    const campos = document.querySelectorAll('[data-slot="form-item"]');
+
+    expect(campos.length).toBeGreaterThan(0);
+    campos.forEach((campo) => {
+      expect(campo.className).toContain('content-start');
+    });
+  });
+});

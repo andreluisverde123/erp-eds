@@ -75,6 +75,18 @@ export function PurchaseRequestItemsGrid({
     append({ ...EMPTY_ITEM_ROW });
   }
 
+  /// As descrições das OUTRAS linhas desta solicitação, para a célula sugerir
+  /// o que a pessoa acabou de digitar acima.
+  ///
+  /// A própria linha fica de fora: sugerir a si mesma seria propor o que já
+  /// está no campo. Linha em branco também — a grade sempre mantém uma no fim.
+  function descricoesDigitadasExceto(index: number): string[] {
+    return (items ?? [])
+      .filter((_, i) => i !== index)
+      .map((item) => item?.description ?? '')
+      .filter((descricao) => descricao.trim().length > 0);
+  }
+
   // Estilo planilha: quando o usuário SAI da última linha já preenchida, uma
   // nova linha em branco nasce embaixo. Três detalhes que já custaram bug:
   //
@@ -162,6 +174,12 @@ export function PurchaseRequestItemsGrid({
                           value={descField.value ?? ''}
                           onChange={descField.onChange}
                           onBlur={descField.onBlur}
+                          // O que já foi digitado NESTA solicitação, fora a
+                          // própria linha. A sugestão do servidor só conhece o
+                          // que está gravado, e a repetição mais cara acontece
+                          // antes de salvar: digitar "Telha fosca" na linha 2
+                          // e ter de redigitá-la inteira na linha 3.
+                          localSuggestions={descricoesDigitadasExceto(index)}
                           // SÓ o nome. Unidade, quantidade e observação são
                           // decisões daquele pedido, não do material, e ficam
                           // como estão.
