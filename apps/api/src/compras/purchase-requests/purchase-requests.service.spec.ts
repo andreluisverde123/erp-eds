@@ -7,6 +7,7 @@ import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
 import { auditContextStorage } from '../../common/audit-context';
 import { ApprovalThresholdService } from '../../common/approval/approval-threshold.service';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
+import { FulfillmentService } from '../fulfillment.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PurchaseRequestsController } from './purchase-requests.controller';
 import { UpdatePurchaseRequestQuoteDto } from './dto/update-purchase-request-quote.dto';
@@ -85,6 +86,19 @@ function makeService(
     itens?: ItemLinha[];
     threshold?: number;
     descontoGeral?: { discountType: 'AMOUNT' | 'PERCENT'; discountValue: Prisma.Decimal };
+    /// As COMPRAS já feitas desta solicitação — as linhas de ordem de compra
+    /// que apontam para os itens dela. Vazio (o padrão) é a solicitação que
+    /// ninguém comprou ainda, que é o estado da maioria destes testes.
+    compras?: {
+      purchaseRequestItemId: string;
+      quantity: Prisma.Decimal;
+      purchaseOrder: {
+        id: string;
+        code: string;
+        createdAt: Date;
+        supplier: { legalName: string; tradeName: string | null };
+      };
+    }[];
   } = {},
 ) {
   const {
@@ -92,6 +106,7 @@ function makeService(
     itens = itensIniciais(),
     threshold = 0,
     descontoGeral = { discountType: 'AMOUNT' as const, discountValue: new Prisma.Decimal(0) },
+    compras = [],
   } = overrides;
 
   const store = itens.map((item) => ({ ...item }));
@@ -178,6 +193,22 @@ function makeService(
       })),
     },
     auditLog: { findMany: jest.fn(async () => []) },
+    /// A fonte do ATENDIMENTO: não existe coluna de "quantidade atendida", o
+    /// saldo sai daqui somando as compras que apontam para cada linha pedida.
+    purchaseOrderItem: {
+      findMany: jest.fn(async () => compras.map((compra) => ({ ...compra }))),
+      groupBy: jest.fn(async () => {
+        const soma = new Map<string, Prisma.Decimal>();
+        for (const compra of compras) {
+          const anterior = soma.get(compra.purchaseRequestItemId) ?? new Prisma.Decimal(0);
+          soma.set(compra.purchaseRequestItemId, anterior.plus(compra.quantity));
+        }
+        return [...soma].map(([purchaseRequestItemId, quantity]) => ({
+          purchaseRequestItemId,
+          _sum: { quantity },
+        }));
+      }),
+    },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: unknown) => Promise<unknown>)(prisma)
@@ -197,7 +228,12 @@ function makeService(
   });
 
   return {
-    service: new PurchaseRequestsService(prisma, approvalThreshold, auditLogger),
+    service: new PurchaseRequestsService(
+      prisma,
+      approvalThreshold,
+      auditLogger,
+      new FulfillmentService(prisma),
+    ),
     auditado,
     prisma,
     store,

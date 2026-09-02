@@ -46,6 +46,9 @@ interface GeneratePurchaseOrderDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   purchaseRequestId: string;
+  /// Já existe ordem para esta solicitação. Muda só o TEXTO — o fluxo, o
+  /// endpoint e a permissão são exatamente os mesmos da primeira.
+  hasPreviousOrders?: boolean;
   onCreated: () => void;
 }
 
@@ -53,21 +56,27 @@ export function GeneratePurchaseOrderDrawer({
   open,
   onOpenChange,
   purchaseRequestId,
+  hasPreviousOrders = false,
   onCreated,
 }: GeneratePurchaseOrderDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-2xl">
         <div className="border-b border-border px-6 py-5">
-          <SheetTitle>Gerar Ordem de Compra</SheetTitle>
+          <SheetTitle>
+            {hasPreviousOrders ? 'Gerar nova Ordem de Compra' : 'Gerar Ordem de Compra'}
+          </SheetTitle>
           <SheetDescription>
-            Os itens vêm da solicitação. Ajuste o que foi negociado e escolha o fornecedor.
+            {hasPreviousOrders
+              ? 'Só os itens com saldo pendente aparecem aqui. Escolha a loja e ajuste as quantidades.'
+              : 'Os itens vêm da solicitação. Ajuste o que foi negociado e escolha o fornecedor.'}
           </SheetDescription>
         </div>
 
         <GeneratePurchaseOrderBody
           key={open ? purchaseRequestId : 'closed'}
           purchaseRequestId={purchaseRequestId}
+          hasPreviousOrders={hasPreviousOrders}
           onDone={() => onOpenChange(false)}
           onCreated={onCreated}
         />
@@ -78,10 +87,12 @@ export function GeneratePurchaseOrderDrawer({
 
 function GeneratePurchaseOrderBody({
   purchaseRequestId,
+  hasPreviousOrders,
   onDone,
   onCreated,
 }: {
   purchaseRequestId: string;
+  hasPreviousOrders: boolean;
   onDone: () => void;
   onCreated: () => void;
 }) {
@@ -262,7 +273,7 @@ function GeneratePurchaseOrderBody({
                   encontra — e como o erro sobe durante a renderização, ele não
                   quebrava só o rótulo: derrubava a tela inteira de gerar a
                   ordem de compra. */}
-              <Label>Itens da solicitação</Label>
+              <Label>{hasPreviousOrders ? 'Itens pendentes' : 'Itens da solicitação'}</Label>
               {loadingRequest ? (
                 <p className="text-sm text-muted-foreground">Carregando itens...</p>
               ) : (
@@ -394,7 +405,11 @@ function GeneratePurchaseOrderBody({
           Cancelar
         </Button>
         <Button type="submit" form="purchase-order-form" disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? 'Gerando...' : 'Gerar Ordem de Compra'}
+          {form.formState.isSubmitting
+            ? 'Gerando...'
+            : hasPreviousOrders
+              ? 'Gerar nova Ordem'
+              : 'Gerar Ordem de Compra'}
         </Button>
       </div>
     </>

@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { Prisma } from '../../../generated/prisma/client';
+import { auditContextStorage } from '../../common/audit-context';
+import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
+import { pendingOf } from '../fulfillment';
+import { FulfillmentService } from '../fulfillment.service';
 import {
   calculateOrderItemTotals,
   calculateOrderTotals,
@@ -104,9 +108,23 @@ export function sumItemTotals(items: { totalPrice: Prisma.Decimal }[]): Prisma.D
   return items.reduce((total, item) => total.plus(item.totalPrice), new Prisma.Decimal(0));
 }
 
+/// Quantidade como a mensagem de erro e o histórico devem mostrá-la: sem os
+/// zeros à direita que o `Decimal(12,3)` carrega. "10" e não "10,000" — o
+/// segundo faz a pessoa procurar uma casa decimal que ela nunca digitou.
+function formatQuantity(value: Prisma.Decimal | number | string): string {
+  return new Prisma.Decimal(value)
+    .toDecimalPlaces(3)
+    .toNumber()
+    .toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+}
+
 @Injectable()
 export class PurchaseOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fulfillment: FulfillmentService,
+    private readonly auditLogger: AuditLoggerService,
+  ) {}
 
   async create(companyId: string, createdById: string, dto: CreatePurchaseOrderDto) {
     const request = await this.prisma.purchaseRequest.findFirst({
@@ -138,41 +156,57 @@ export class PurchaseOrdersService {
       dto.costCenterId,
     );
 
-    const code = await nextSequentialCode(
-      () => this.prisma.purchaseOrder.count({ where: { companyId } }),
-      'OC',
-    );
-
     // Resolve ANTES de criar a ordem: um item inválido tem de recusar a
     // requisição inteira, não deixar uma ordem sem linhas para trás.
     const items = await this.resolveItems(companyId, request.id, dto.items);
     const desconto: Discount = dto.discount ?? { type: 'AMOUNT', value: 0 };
     this.assertGeneralDiscountFits(items, desconto);
 
-    const created = await this.prisma.purchaseOrder.create({
-      data: {
-        companyId,
-        purchaseRequestId: request.id,
-        supplierId: dto.supplierId,
-        constructionSiteId: request.constructionSiteId,
-        costCenterId,
-        code,
-        createdById,
-        discountType: desconto.type,
-        discountValue: desconto.value,
-        // DERIVADO dos itens e do desconto geral, nunca informado pelo cliente
-        // — o campo saiu do DTO. Ver `calculateOrderTotals`.
-        totalAmount: calculateOrderTotals(items, desconto).total,
-        issueDate: new Date(dto.issueDate),
-        expectedDeliveryDate: dto.expectedDeliveryDate
-          ? new Date(dto.expectedDeliveryDate)
-          : undefined,
-        status: dto.status,
-        // Aninhado, e não em duas chamadas: ordem e itens nascem juntos ou
-        // não nascem — o Prisma envolve o create aninhado numa transação.
-        items: { create: items },
-      },
+    // O SALDO é lido e consumido dentro da MESMA transação, depois de travar a
+    // solicitação. Ver `assertWithinPending`: fora dela, dois compradores
+    // olhando as mesmas 10 unidades pendentes comprariam 7 cada um.
+    const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockRequest(tx, request.id);
+      await this.assertWithinPending(tx, request.id, items);
+
+      // Numerado DENTRO do lock: duas ordens nascendo ao mesmo tempo contavam
+      // o mesmo total e recebiam o mesmo código, e a unique de
+      // `(empresa, código)` derrubava a segunda com erro de banco.
+      const code = await nextSequentialCode(
+        () => tx.purchaseOrder.count({ where: { companyId } }),
+        'OC',
+      );
+
+      return tx.purchaseOrder.create({
+        data: {
+          companyId,
+          purchaseRequestId: request.id,
+          supplierId: dto.supplierId,
+          constructionSiteId: request.constructionSiteId,
+          costCenterId,
+          code,
+          createdById,
+          discountType: desconto.type,
+          discountValue: desconto.value,
+          // DERIVADO dos itens e do desconto geral, nunca informado pelo
+          // cliente — o campo saiu do DTO. Ver `calculateOrderTotals`.
+          totalAmount: calculateOrderTotals(items, desconto).total,
+          issueDate: new Date(dto.issueDate),
+          expectedDeliveryDate: dto.expectedDeliveryDate
+            ? new Date(dto.expectedDeliveryDate)
+            : undefined,
+          status: dto.status,
+          // Aninhado, e não em duas chamadas: ordem e itens nascem juntos ou
+          // não nascem.
+          items: { create: items },
+        },
+      });
     });
+
+    // Fora da transação de propósito: a auditoria não pode derrubar a compra.
+    // Uma ordem emitida e um log perdido é ruim; uma ordem recusada porque o
+    // log falhou é pior.
+    await this.logFulfillment(companyId, request.id, created, items);
 
     return this.findOne(companyId, created.id);
   }
@@ -210,6 +244,148 @@ export class PurchaseOrdersService {
       throw new BadRequestException(
         'O desconto geral não pode ser maior que o subtotal da ordem depois dos descontos dos itens.',
       );
+    }
+  }
+
+  /// TRAVA a solicitação até o fim da transação.
+  ///
+  /// É o que impede a corrida da compra parcial: dois compradores abrem a
+  /// mesma solicitação com 10 unidades pendentes, cada um pede 7, e sem lock
+  /// os dois leem "10 pendentes" antes de qualquer um gravar — o banco aceita
+  /// as duas ordens e a obra compra 14 do que precisava de 10.
+  ///
+  /// Lock PESSIMISTA e na LINHA DA SOLICITAÇÃO, e não isolamento
+  /// `Serializable`: a solicitação é o documento-mãe e o ponto por onde toda
+  /// ordem dela passa, então travá-la serializa exatamente as operações
+  /// concorrentes e nada mais. `Serializable` valeria para o banco inteiro e
+  /// devolveria erro de serialização para o usuário conferir sozinho.
+  ///
+  /// `FOR UPDATE` sem `NOWAIT`: o segundo comprador ESPERA o primeiro terminar
+  /// e então lê o saldo já atualizado — que é como ele descobre que restam 3,
+  /// e não 10. Falhar na hora só transferiria o problema para a tela.
+  private async lockRequest(tx: Prisma.TransactionClient, purchaseRequestId: string) {
+    await tx.$queryRaw`SELECT id FROM "PurchaseRequest" WHERE id = ${purchaseRequestId}::uuid FOR UPDATE`;
+  }
+
+  /// Recusa a ordem que compraria mais do que ainda falta.
+  ///
+  /// A regra é uma só, e é a razão de existir desta etapa:
+  ///
+  ///     Σ(quantidades compradas em todas as ordens) ≤ quantidade solicitada
+  ///
+  /// Conferida por LINHA, nunca pelo documento: comprar 100 sacos de cimento e
+  /// zero latas de tinta numa solicitação de 100 + 10 não pode passar só
+  /// porque o total de unidades fecha.
+  ///
+  /// PRECISA rodar dentro da transação que já travou a solicitação — o
+  /// parâmetro `tx` não é conveniência, é a condição de a conta valer.
+  private async assertWithinPending(
+    tx: Prisma.TransactionClient,
+    purchaseRequestId: string,
+    items: { purchaseRequestItemId: string; description: string; quantity: number }[],
+    excludePurchaseOrderId?: string,
+  ): Promise<void> {
+    const comprado = await this.fulfillment.entriesByItem(purchaseRequestId, {
+      excludePurchaseOrderId,
+      client: tx,
+    });
+
+    const solicitados = await tx.purchaseRequestItem.findMany({
+      where: { purchaseRequestId },
+      select: { id: true, quantity: true, unit: true },
+    });
+    const origemPorId = new Map(solicitados.map((item) => [item.id, item]));
+
+    for (const item of items) {
+      const origem = origemPorId.get(item.purchaseRequestItemId);
+      // `resolveItems` já garantiu a procedência de cada linha; isto é a rede
+      // para quem chamar este método de outro lugar no futuro.
+      if (!origem) continue;
+
+      const jaComprado = (comprado.get(item.purchaseRequestItemId) ?? []).reduce(
+        (total, entrada) => total.plus(entrada.quantity),
+        new Prisma.Decimal(0),
+      );
+      const pendente = pendingOf(origem.quantity, jaComprado);
+
+      if (new Prisma.Decimal(item.quantity).greaterThan(pendente)) {
+        // A mensagem abre a conta inteira: sem os três números, quem recebe
+        // "quantidade inválida" não tem como saber quanto pode comprar.
+        throw new BadRequestException(
+          pendente.isZero()
+            ? `O item "${item.description}" já foi totalmente comprado (${formatQuantity(origem.quantity)} ${origem.unit}). Não há saldo pendente.`
+            : `O item "${item.description}" tem apenas ${formatQuantity(pendente)} ${origem.unit} em aberto (${formatQuantity(jaComprado)} de ${formatQuantity(origem.quantity)} já comprados). Você tentou comprar ${formatQuantity(item.quantity)}.`,
+        );
+      }
+    }
+  }
+
+  /// Registra na SOLICITAÇÃO que uma ordem atendeu parte dela.
+  ///
+  /// `entityType` é `PurchaseRequest`, e não `PurchaseOrder`, de propósito: a
+  /// pergunta que este log responde ("quem comprou o quê, e quanto ainda
+  /// falta?") é feita na tela da solicitação, e é lá que o painel de histórico
+  /// consulta. A ordem já tem o log próprio da extensão genérica do Prisma.
+  ///
+  /// Mesmo padrão — e mesmos motivos — de `logDiscountChanges` na solicitação:
+  /// uma entrada por evento, com a descrição do item no VALOR e nunca na
+  /// chave (o painel insere espaço antes de cada maiúscula do nome do campo, e
+  /// "Cimento CP-II" viraria " Cimento  C P- I I").
+  private async logFulfillment(
+    companyId: string,
+    purchaseRequestId: string,
+    order: { id: string; code: string },
+    items: { purchaseRequestItemId: string; description: string; quantity: number }[],
+  ): Promise<void> {
+    const store = auditContextStorage.getStore();
+
+    try {
+      const solicitados = await this.prisma.purchaseRequestItem.findMany({
+        where: { purchaseRequestId },
+        select: { id: true, quantity: true, unit: true },
+      });
+      const origemPorId = new Map(solicitados.map((item) => [item.id, item]));
+
+      // Lido DEPOIS do commit: é o saldo que passou a valer, que é o que
+      // interessa a quem abre o histórico.
+      const comprado = await this.fulfillment.entriesByItem(purchaseRequestId);
+
+      const comprados: string[] = [];
+      const restantes: string[] = [];
+
+      for (const item of items) {
+        const origem = origemPorId.get(item.purchaseRequestItemId);
+        if (!origem) continue;
+
+        const total = (comprado.get(item.purchaseRequestItemId) ?? []).reduce(
+          (soma, entrada) => soma.plus(entrada.quantity),
+          new Prisma.Decimal(0),
+        );
+        const pendente = pendingOf(origem.quantity, total);
+
+        comprados.push(`${item.description}: ${formatQuantity(item.quantity)} ${origem.unit}`);
+        restantes.push(
+          `${item.description}: ${formatQuantity(total)} de ${formatQuantity(origem.quantity)}${
+            pendente.isZero() ? ' (atendido)' : ` (faltam ${formatQuantity(pendente)})`
+          }`,
+        );
+      }
+
+      await this.auditLogger.log({
+        companyId,
+        userId: store?.userId,
+        action: 'UPDATE',
+        entityType: 'PurchaseRequest',
+        entityId: purchaseRequestId,
+        changes: {
+          ordemGerada: { from: '—', to: order.code },
+          itensComprados: { from: '—', to: comprados.join(' · ') },
+          atendimentoDaSolicitacao: { from: '—', to: restantes.join(' · ') },
+        },
+      });
+    } catch {
+      // A compra já está gravada. Derrubar a resposta agora faria o comprador
+      // reemitir uma ordem que existe — e aí sim o saldo ficaria errado.
     }
   }
 
@@ -409,6 +585,17 @@ export class PurchaseOrdersService {
       : undefined;
 
     await this.prisma.$transaction(async (tx) => {
+      // Mesma trava da criação, e pelo mesmo motivo: editar a quantidade de
+      // uma ordem consome saldo tanto quanto emitir uma nova.
+      if (items) {
+        await this.lockRequest(tx, existing.purchaseRequestId);
+        // `excludePurchaseOrderId` é o detalhe que faz a edição funcionar: as
+        // linhas DESTA ordem não podem contar como já compradas contra ela
+        // mesma, senão trocar 40 por 41 seria recusado pelos 40 que ela já
+        // consome.
+        await this.assertWithinPending(tx, existing.purchaseRequestId, items, id);
+      }
+
       await tx.purchaseOrder.update({
         where: { id, companyId },
         data: {

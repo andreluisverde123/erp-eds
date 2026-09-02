@@ -35,6 +35,13 @@ export function useDeletePurchaseOrder() {
 
   return useMutation({
     mutationFn: (id: string) => deletePurchaseOrder(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-orders'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+      // Excluir a ordem DEVOLVE o saldo dela à solicitação — os itens voltam a
+      // ser compráveis. Sem esta invalidação a tela continuaria mostrando o
+      // pendente antigo até alguém recarregar, e o botão de nova ordem seguiria
+      // escondido numa solicitação que voltou a ter o que comprar.
+      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+    },
   });
 }

@@ -7,6 +7,7 @@ import { ItemSuggestionsService } from './purchase-requests/item-suggestions.ser
 import { PurchaseRequestsService } from './purchase-requests/purchase-requests.service';
 import { SuppliersController } from './suppliers/suppliers.controller';
 import { SuppliersService } from './suppliers/suppliers.service';
+import { FulfillmentService } from './fulfillment.service';
 
 @Module({
   controllers: [SuppliersController, PurchaseRequestsController, PurchaseOrdersController],
@@ -15,6 +16,10 @@ import { SuppliersService } from './suppliers/suppliers.service';
     PurchaseRequestsService,
     ItemSuggestionsService,
     PurchaseOrdersService,
+    /// Compartilhado pelos dois lados: a solicitação mostra o saldo, a ordem
+    /// de compra o consome. Uma cópia em cada um divergiria na primeira
+    /// mudança de regra.
+    FulfillmentService,
   ],
 })
 export class ComprasModule {}

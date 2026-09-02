@@ -15,6 +15,14 @@ const purchaseOrderItemSchema = z.object({
   description: z.string(),
   unit: z.string(),
   requestedQuantity: z.string(),
+  /// O SALDO desta linha: `solicitada − já comprada em outras ordens`. É o
+  /// TETO desta compra, e o backend confere de novo dentro de uma transação
+  /// que trava a solicitação — aqui é só para a pessoa ver o limite enquanto
+  /// digita, em vez de descobri-lo num erro depois de salvar.
+  pendingQuantity: z.string(),
+  /// Quanto já foi comprado em ordens anteriores. Só EXIBE, para explicar de
+  /// onde saiu um pendente menor que o solicitado.
+  fulfilledQuantity: z.string(),
   /// A cotação disse que o fornecedor dela não tinha este item. Também só
   /// EXIBE: não bloqueia nada, porque a ordem pode ser para OUTRO fornecedor
   /// — que é justamente como o item volta a ser comprado.
@@ -73,6 +81,17 @@ export const purchaseOrderFormSchema = z
           path: ['items', index, 'quantity'],
           message: 'Quantidade deve ser maior que zero.',
         });
+      } else if (Number(item.quantity) > Number(item.pendingQuantity)) {
+        // A soma de TODAS as ordens de uma solicitação nunca pode passar do
+        // que foi pedido. O servidor é quem garante isso (e é o único que
+        // pode, porque só ele enxerga as ordens que nasceram no meio-tempo);
+        // esta checagem existe para a pessoa não digitar 41 num saldo de 40 e
+        // só descobrir ao salvar.
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', index, 'quantity'],
+          message: `Restam apenas ${Number(item.pendingQuantity).toLocaleString('pt-BR')} em aberto.`,
+        });
       }
       // Zero é válido (brinde/bonificação); negativo não.
       if (!isValidNumber(item.unitPrice) || Number(item.unitPrice) < 0) {
@@ -112,33 +131,48 @@ export function itemsFromPurchaseRequest(
     unavailable: boolean;
     discountType: 'AMOUNT' | 'PERCENT';
     discountValue: string;
+    fulfillment: { fulfilledQuantity: string; pendingQuantity: string };
   }[],
 ): PurchaseOrderItemFormValues[] {
-  return items.map((item) => ({
-    purchaseRequestItemId: item.id,
-    description: item.description,
-    unit: item.unit,
-    requestedQuantity: item.quantity,
-    unavailableInQuote: item.unavailable,
-    // Todas marcadas por padrão: comprar a solicitação inteira é o caso
-    // comum; desmarcar é o que faz a compra parcial.
-    //
-    // Exceto o que a cotação não achou — esse nasce DESMARCADO, porque não
-    // tem preço e não foi negociado. Nasce desmarcado, não bloqueado: se
-    // esta ordem for para outro fornecedor, o comprador remarca e digita o
-    // valor. É assim que a torneira que o fornecedor A não tinha vira compra
-    // do fornecedor B.
-    selected: !item.unavailable,
-    quantity: String(Number(item.quantity)),
-    // Sem cotação o campo nasce vazio, para o comprador informar o negociado
-    // em vez de partir de um zero que parece preço.
-    unitPrice: item.estimatedUnitPrice ? String(Number(item.estimatedUnitPrice)) : '',
-    // O desconto negociado na cotação vem junto. É editável: a ordem é
-    // documento próprio e o comprador pode ter renegociado — copiar sem deixar
-    // editar transformaria a cotação em contrato.
-    discountType: item.discountType,
-    discountValue: Number(item.discountValue) > 0 ? String(Number(item.discountValue)) : '',
-  }));
+  return (
+    items
+      // SÓ O QUE AINDA FALTA COMPRAR. Uma linha já atendida não tem o que
+      // fazer aqui: oferecê-la convidaria a comprar de novo o que já foi
+      // comprado, e o servidor recusaria — depois de a pessoa ter preenchido.
+      //
+      // Na PRIMEIRA ordem isto não muda nada: nada foi comprado, então todas
+      // as linhas estão pendentes e a lista é a de sempre.
+      .filter((item) => Number(item.fulfillment.pendingQuantity) > 0)
+      .map((item) => ({
+        purchaseRequestItemId: item.id,
+        description: item.description,
+        unit: item.unit,
+        requestedQuantity: item.quantity,
+        pendingQuantity: item.fulfillment.pendingQuantity,
+        fulfilledQuantity: item.fulfillment.fulfilledQuantity,
+        unavailableInQuote: item.unavailable,
+        // Todas marcadas por padrão: comprar a solicitação inteira é o caso
+        // comum; desmarcar é o que faz a compra parcial.
+        //
+        // Exceto o que a cotação não achou — esse nasce DESMARCADO, porque não
+        // tem preço e não foi negociado. Nasce desmarcado, não bloqueado: se
+        // esta ordem for para outro fornecedor, o comprador remarca e digita o
+        // valor. É assim que a torneira que o fornecedor A não tinha vira compra
+        // do fornecedor B.
+        selected: !item.unavailable,
+        // Nasce com o SALDO, não com a quantidade original: na segunda ordem, o
+        // que se compra é o que falta. Na primeira os dois números são iguais.
+        quantity: String(Number(item.fulfillment.pendingQuantity)),
+        // Sem cotação o campo nasce vazio, para o comprador informar o negociado
+        // em vez de partir de um zero que parece preço.
+        unitPrice: item.estimatedUnitPrice ? String(Number(item.estimatedUnitPrice)) : '',
+        // O desconto negociado na cotação vem junto. É editável: a ordem é
+        // documento próprio e o comprador pode ter renegociado — copiar sem deixar
+        // editar transformaria a cotação em contrato.
+        discountType: item.discountType,
+        discountValue: Number(item.discountValue) > 0 ? String(Number(item.discountValue)) : '',
+      }))
+  );
 }
 
 /// Um desconto informado no formulário, resolvido em reais sobre uma base.

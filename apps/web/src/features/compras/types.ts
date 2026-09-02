@@ -57,6 +57,42 @@ export interface SupplierQuery {
   search?: string;
 }
 
+/// Em que pé está o ATENDIMENTO de uma linha (ou da solicitação inteira).
+///
+/// Eixo SEPARADO do `status`, que continua sendo o fluxo de aprovação: uma
+/// solicitação aprovada pode estar pendente, parcial ou atendida. Ver
+/// `compras/fulfillment.ts` na API.
+export type FulfillmentStatus = 'PENDING' | 'PARTIAL' | 'FULFILLED';
+
+/// Uma compra que atendeu (parte de) uma linha da solicitação.
+export interface FulfillmentEntry {
+  purchaseOrderId: string;
+  purchaseOrderCode: string;
+  supplierName: string;
+  quantity: string;
+}
+
+/// O saldo de uma linha. Nada disto é gravado: o servidor deriva de
+/// `PurchaseOrderItem` a cada leitura.
+export interface ItemFulfillment {
+  requestedQuantity: string;
+  fulfilledQuantity: string;
+  /// `solicitada − atendida`, com piso em zero.
+  pendingQuantity: string;
+  status: FulfillmentStatus;
+  /// Quais ordens atenderam esta linha, na ordem em que foram emitidas.
+  entries: FulfillmentEntry[];
+}
+
+/// O agregado da solicitação. Contagem de LINHAS, não de unidades nem de
+/// reais: é o número que responde "quanto ainda falta comprar?" numa olhada.
+export interface RequestFulfillment {
+  status: FulfillmentStatus;
+  totalItems: number;
+  fulfilledItems: number;
+  pendingItems: number;
+}
+
 /// Campos Decimal do Prisma (quantity, estimatedUnitPrice, totalAmount) vêm
 /// serializados como string no JSON — nunca number. Parsear com Number()/
 /// parseFloat() antes de usar em cálculos ou formatação.
@@ -79,6 +115,9 @@ export interface PurchaseRequestItem {
   /// valor `"0"` é a ausência de desconto.
   discountType: DiscountType;
   discountValue: string;
+  /// Quanto desta linha já foi comprado, quanto falta, e por quais ordens.
+  /// Vem do detalhe da solicitação (`GET /purchase-requests/:id`).
+  fulfillment: ItemFulfillment;
 }
 
 export interface PurchaseRequestItemInput {
@@ -125,6 +164,9 @@ export interface PurchaseRequestListItem {
   /// enquanto o usuário digita (ver `quote-totals.ts`), mas o que ela EXIBE
   /// depois de salvar é isto.
   totals: PurchaseRequestTotals;
+  /// O ATENDIMENTO agregado — quantas linhas já foram compradas. Ao lado do
+  /// `status`, nunca dentro dele.
+  fulfillment: RequestFulfillment;
 }
 
 export interface PurchaseRequestTotals {

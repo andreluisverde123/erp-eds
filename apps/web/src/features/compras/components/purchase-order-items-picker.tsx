@@ -37,9 +37,14 @@ export function PurchaseOrderItemsPicker({
   const items = useWatch({ control, name: 'items' }) ?? [];
 
   if (items.length === 0) {
+    // A lista só traz o que AINDA FALTA COMPRAR, então vazia quer dizer uma de
+    // duas coisas — e confundi-las faria o comprador procurar um defeito onde
+    // não há. A distinção sai do formulário: nenhuma linha significa
+    // solicitação sem itens; nenhuma PENDENTE significa tudo já comprado.
     return (
       <p className="rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
-        Esta solicitação não tem itens.
+        Todos os itens desta solicitação já foram comprados. Não há saldo pendente para uma nova
+        ordem.
       </p>
     );
   }
@@ -69,7 +74,12 @@ export function PurchaseOrderItemsPicker({
             const rowError = errors.items?.[index];
             const comprada = Number(item.quantity || 0);
             const solicitada = Number(item.requestedQuantity);
-            const parcial = item.selected && comprada > 0 && comprada !== solicitada;
+            const pendente = Number(item.pendingQuantity);
+            const jaComprada = Number(item.fulfilledQuantity);
+            // "Parcial" agora se mede contra o SALDO, não contra o solicitado:
+            // numa segunda ordem, comprar os 40 que faltam de 100 é compra
+            // COMPLETA do que restava, e chamá-la de parcial seria mentira.
+            const parcial = item.selected && comprada > 0 && comprada < pendente;
 
             return (
               <tr
@@ -94,12 +104,26 @@ export function PurchaseOrderItemsPicker({
                 </td>
                 <td className="px-2 py-2">
                   <span className="text-foreground">{item.description}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    solicitados {Number(item.requestedQuantity).toLocaleString('pt-BR')} {item.unit}
-                  </span>
+                  {/* Com compra anterior, o número que importa é o SALDO — e
+                      ele precisa vir acompanhado da conta que o produziu,
+                      senão "pendentes 40" numa solicitação de 100 parece
+                      erro. Sem compra anterior, a linha antiga continua
+                      valendo e nada muda para quem emite a primeira ordem. */}
+                  {jaComprada > 0 ? (
+                    <span className="block text-xs text-muted-foreground">
+                      pendentes {pendente.toLocaleString('pt-BR')} {item.unit} · já comprados{' '}
+                      {jaComprada.toLocaleString('pt-BR')} de{' '}
+                      {solicitada.toLocaleString('pt-BR')}
+                    </span>
+                  ) : (
+                    <span className="block text-xs text-muted-foreground">
+                      solicitados {solicitada.toLocaleString('pt-BR')} {item.unit}
+                    </span>
+                  )}
                   {parcial && (
                     <span className="block text-xs text-amber-600 dark:text-amber-400">
-                      compra parcial
+                      compra parcial — sobram {(pendente - comprada).toLocaleString('pt-BR')}{' '}
+                      {item.unit}
                     </span>
                   )}
                   {/* Explica por que a linha veio desmarcada e sem preço, em
@@ -121,6 +145,10 @@ export function PurchaseOrderItemsPicker({
                         mode="decimal"
                         decimalScale={QUANTITY_DECIMAL_SCALE}
                         disabled={!item.selected}
+                        // O leitor de tela anuncia o teto junto do campo; a
+                        // validação do formulário recusa acima dele, e o
+                        // servidor recusa de novo dentro da transação.
+                        aria-valuemax={pendente}
                         aria-label={`Quantidade de ${item.description}`}
                         aria-invalid={Boolean(rowError?.quantity)}
                         className={cellInputClass}

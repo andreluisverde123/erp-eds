@@ -5,6 +5,8 @@ import { validate } from 'class-validator';
 import { Prisma } from '../../../generated/prisma/client';
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditLoggerService } from '../../common/services/audit-logger.service';
+import { FulfillmentService } from '../fulfillment.service';
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import { PurchaseOrderItemInputDto } from './dto/purchase-order-item-input.dto';
 import {
@@ -62,6 +64,18 @@ function makeService(
     /// Situação atual da ordem devolvida pelo dublê — usada pelas guardas de
     /// cancelamento.
     orderStatus?: string;
+    /// QUANTO foi pedido de cada linha da solicitação. É metade do saldo — a
+    /// outra metade é `compras`.
+    ///
+    /// O padrão é folgado de propósito: os testes anteriores a esta etapa não
+    /// falam de saldo, e apertar a quantidade neles trocaria o assunto de cada
+    /// um por "cabe no pendente?". Quem testa o saldo declara o número.
+    pedidos?: Record<string, number>;
+    /// O que JÁ foi comprado desta solicitação, em ordens que contam (não
+    /// canceladas, não excluídas).
+    compras?: { purchaseRequestItemId: string; quantity: number }[];
+    /// Faz a auditoria falhar, para provar que ela não derruba a compra.
+    auditoriaFalha?: boolean;
     financeiro?: {
       invoices: Record<string, unknown>[];
       inboundInvoices: Record<string, unknown>[];
@@ -77,15 +91,62 @@ function makeService(
     supplierExists = true,
     orderStatus = 'OPEN',
     financeiro = { invoices: [], inboundInvoices: [] },
+    pedidos = {},
+    compras = [],
+    auditoriaFalha = false,
   } = overrides;
+
+  /// Quantidade pedida quando o teste não declara nenhuma. Ver `pedidos`.
+  const QUANTIDADE_PEDIDA_FOLGADA = 1_000_000;
+
+  const quantidadePedida = (id: string) =>
+    new Prisma.Decimal(pedidos[id] ?? QUANTIDADE_PEDIDA_FOLGADA);
+
+  /// As compras no formato que `FulfillmentService.entriesByItem` lê.
+  const comprasComOrdem = () =>
+    compras.map((compra) => ({
+      purchaseRequestItemId: compra.purchaseRequestItemId,
+      quantity: new Prisma.Decimal(compra.quantity),
+      purchaseOrder: {
+        id: 'oc-anterior',
+        code: 'OC-0001',
+        createdAt: new Date('2026-08-01'),
+        supplier: { legalName: 'LOJA A MATERIAIS LTDA', tradeName: 'Loja A' },
+      },
+    }));
+
+  /// As linhas da solicitação como a conferência de saldo as lê.
+  const linhasDaSolicitacao = (purchaseRequestId: string) =>
+    ITENS_SOLICITACAO.filter((item) => item.purchaseRequestId === purchaseRequestId).map(
+      (item) => ({ id: item.id, quantity: quantidadePedida(item.id), unit: item.unit }),
+    );
 
   const criados: { data: Record<string, unknown> }[] = [];
   const itensCriadosNoUpdate: Record<string, unknown>[] = [];
   const deleteManyCalls: unknown[] = [];
 
   const tx = {
-    purchaseOrder: { update: jest.fn(async () => ({ id: 'oc-1' })) },
+    /// O `FOR UPDATE` que serializa duas compras concorrentes. O dublê não trava
+    /// nada — o que ele prova é que a consulta É EMITIDA, e de dentro da
+    /// transação. A corrida em si é exercitada no teste de concorrência.
+    $queryRaw: jest.fn(async () => []),
+    purchaseRequestItem: {
+      findMany: jest.fn(async ({ where }: { where: { purchaseRequestId: string } }) =>
+        linhasDaSolicitacao(where.purchaseRequestId),
+      ),
+    },
+    purchaseOrder: {
+      count: jest.fn(async () => 0),
+      create: jest.fn(async (args: { data: Record<string, unknown> }) => {
+        criados.push(args);
+        return { id: 'oc-1', code: String(args.data.code) };
+      }),
+      update: jest.fn(async () => ({ id: 'oc-1' })),
+    },
     purchaseOrderItem: {
+      /// A fonte do saldo: as compras que já apontam para as linhas desta
+      /// solicitação.
+      findMany: jest.fn(async () => comprasComOrdem()),
       deleteMany: jest.fn(async (args: unknown) => {
         deleteManyCalls.push(args);
         return { count: 2 };
@@ -129,17 +190,35 @@ function makeService(
           where,
         }: {
           where: {
-            id: { in: string[] };
-            purchaseRequest: { id: string; companyId: string };
+            id?: { in: string[] };
+            purchaseRequestId?: string;
+            purchaseRequest?: { id: string; companyId: string };
           };
-        }) =>
-          ITENS_SOLICITACAO.filter(
+        }) => {
+          // DUAS consultas diferentes caem aqui, e distingui-las importa:
+          //
+          //  - `resolveItems` pergunta por uma LISTA DE IDS, com o escopo
+          //    atravessando a relação até o `companyId` — é o que sustenta o
+          //    isolamento multi-tenant, e o dublê o reproduz de propósito.
+          //  - a auditoria do atendimento pergunta pelas linhas DA
+          //    SOLICITAÇÃO, para dizer quanto de cada uma já foi comprado.
+          if (where.purchaseRequestId) {
+            return linhasDaSolicitacao(where.purchaseRequestId);
+          }
+
+          return ITENS_SOLICITACAO.filter(
             (item) =>
-              where.id.in.includes(item.id) &&
-              item.purchaseRequestId === where.purchaseRequest.id &&
-              item.companyId === where.purchaseRequest.companyId,
-          ).map(({ id, description, unit }) => ({ id, description, unit })),
+              where.id!.in.includes(item.id) &&
+              item.purchaseRequestId === where.purchaseRequest!.id &&
+              item.companyId === where.purchaseRequest!.companyId,
+          ).map(({ id, description, unit }) => ({ id, description, unit }));
+        },
       ),
+    },
+    /// Fora da transação: é o que a AUDITORIA relê depois do commit para
+    /// registrar o saldo que passou a valer.
+    purchaseOrderItem: {
+      findMany: jest.fn(async () => comprasComOrdem()),
     },
     purchaseOrder: {
       count: jest.fn(async () => 0),
@@ -184,8 +263,18 @@ function makeService(
     ),
   } as unknown as PrismaService;
 
+  /// O que foi para a auditoria. `AuditLoggerService` grava via Prisma; aqui
+  /// só interessa O QUE ele recebeu — mesmo padrão do spec da solicitação.
+  const auditado: Record<string, unknown>[] = [];
+  const auditLogger = new AuditLoggerService(prisma);
+  jest.spyOn(auditLogger, 'log').mockImplementation(async (entry) => {
+    if (auditoriaFalha) throw new Error('auditoria fora do ar');
+    auditado.push(entry as unknown as Record<string, unknown>);
+  });
+
   return {
-    service: new PurchaseOrdersService(prisma),
+    service: new PurchaseOrdersService(prisma, new FulfillmentService(prisma), auditLogger),
+    auditado,
     prisma,
     criados,
     itensCriadosNoUpdate,
@@ -986,5 +1075,311 @@ describe('Cancelar e excluir ordem de compra', () => {
     });
 
     await expect(service.remove(EMPRESA_A, 'oc-1')).rejects.toThrow(/Cancele-a/);
+  });
+});
+
+/// COMPRA PARCIAL E MÚLTIPLAS ORDENS POR SOLICITAÇÃO.
+///
+/// O modelo já permitia uma solicitação virar N ordens — o que faltava era a
+/// única regra que impede isso de virar compra a mais:
+///
+///     Σ(quantidades compradas em todas as ordens) ≤ quantidade solicitada
+///
+/// Conferida por LINHA e dentro da transação que trava a solicitação.
+describe('Compra parcial — saldo pendente por item', () => {
+  describe('6. Tentativa de comprar acima do saldo pendente', () => {
+    it('recusa a primeira ordem que já passa do pedido', async () => {
+      const { service } = makeService({ pedidos: { 'item-cimento': 100 } });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 101, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('recusa a segunda ordem que estouraria o que sobrou', async () => {
+      // 100 pedidos, 60 já comprados: só cabem 40.
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 41, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/apenas 40 SC em aberto/);
+    });
+
+    it('a mensagem abre a conta inteira, em vez de dizer só "inválido"', async () => {
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      // Sem os três números, quem recebe o erro não tem como saber quanto
+      // pode comprar — e tentaria de novo no chute.
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 41, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/60 de 100 já comprados.*tentou comprar 41/s);
+    });
+
+    it('item já totalmente comprado diz isso, e não "restam 0"', async () => {
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 100 }],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/já foi totalmente comprado/);
+    });
+
+    it('a conferência é por LINHA, não pelo total de unidades', async () => {
+      // Cimento tem saldo de sobra; areia não. Um teto por documento deixaria
+      // isto passar, porque a soma das duas linhas cabe no total pedido.
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100, 'item-areia': 10 },
+        compras: [{ purchaseRequestItemId: 'item-areia', quantity: 10 }],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [
+            { purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 32.9 },
+            { purchaseRequestItemId: 'item-areia', quantity: 1, unitPrice: 90 },
+          ],
+        }),
+      ).rejects.toThrow(/Areia média lavada/);
+    });
+  });
+
+  describe('2, 3, 4 e 5. As compras que CABEM continuam passando', () => {
+    it('comprar exatamente o pendente é aceito', async () => {
+      const { service, criados } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 40, unitPrice: 32.9 }],
+      });
+
+      expect(itensCriados(criados)[0]).toMatchObject({ quantity: 40 });
+    });
+
+    it('a segunda ordem pode ir para OUTRA loja, sem nova solicitação', async () => {
+      const OUTRA_LOJA = '55555555-5555-5555-5555-555555555555';
+      const { service, criados } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        supplierId: OUTRA_LOJA,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 40, unitPrice: 35 }],
+      });
+
+      // Mesma solicitação-mãe, fornecedor diferente — é o desdobramento que
+      // esta etapa existe para permitir.
+      expect(criados[0]!.data).toMatchObject({
+        purchaseRequestId: SOLICITACAO,
+        supplierId: OUTRA_LOJA,
+      });
+    });
+
+    it('item que a cotação marcou como indisponível continua comprável', async () => {
+      // A tinta que a Loja A não tinha é exatamente o que a Loja B vende. O
+      // saldo não conhece disponibilidade: ele só sabe quanto falta.
+      const { service, criados } = makeService({ pedidos: { 'item-areia': 10 } });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-areia', quantity: 10, unitPrice: 90 }],
+      });
+
+      expect(itensCriados(criados)[0]).toMatchObject({ quantity: 10 });
+    });
+  });
+
+  describe('14. Ordem cancelada devolve o saldo', () => {
+    it('compra de ordem cancelada não conta contra o pendente', async () => {
+      // O dublê devolve só as ordens QUE CONTAM (o filtro real exclui
+      // CANCELLED e excluídas), então "cancelada" aqui é a lista vazia — e o
+      // que se prova é que os 100 voltaram a ser compráveis.
+      const { service, criados } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [],
+      });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 100, unitPrice: 32.9 }],
+      });
+
+      expect(itensCriados(criados)[0]).toMatchObject({ quantity: 100 });
+    });
+  });
+
+  describe('13. Concorrência', () => {
+    it('a conferência acontece DENTRO da transação, depois do FOR UPDATE', async () => {
+      const { service, tx } = makeService({ pedidos: { 'item-cimento': 100 } });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 32.9 }],
+      });
+
+      // Se o lock não fosse emitido, dois compradores leriam as mesmas 10
+      // unidades pendentes e cada um compraria 7.
+      expect(tx.$queryRaw).toHaveBeenCalled();
+      // E a leitura do saldo tem de usar o MESMO cliente da transação: lida
+      // por fora, ela enxergaria o estado de antes do lock.
+      expect(tx.purchaseOrderItem.findMany).toHaveBeenCalled();
+      expect(tx.purchaseRequestItem.findMany).toHaveBeenCalled();
+    });
+
+    it('o segundo comprador, lendo o saldo já consumido, é recusado', async () => {
+      // A corrida do enunciado: 10 pendentes, A pede 7, B pede 7. Depois que a
+      // de A grava, a de B relê 3 em aberto — e 7 não cabe.
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 10 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 7 }],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 7, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/apenas 3 SC em aberto/);
+    });
+
+    it('o código da ordem é numerado dentro do lock', async () => {
+      const { service, tx } = makeService({ pedidos: { 'item-cimento': 100 } });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 32.9 }],
+      });
+
+      // Fora do lock, duas ordens simultâneas contariam o mesmo total e
+      // receberiam o mesmo código — e a unique de (empresa, código) derrubaria
+      // a segunda com erro de banco em vez de mensagem.
+      expect(tx.purchaseOrder.count).toHaveBeenCalled();
+    });
+  });
+
+  describe('edição de ordem', () => {
+    it('não conta as linhas da PRÓPRIA ordem contra ela mesma', async () => {
+      // 100 pedidos, e esta ordem já consome 60. Sem excluí-la da soma, trocar
+      // 60 por 70 seria recusado pelos 60 que ela mesma ocupa.
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [],
+      });
+
+      await expect(
+        service.update(EMPRESA_A, 'oc-1', {
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 70, unitPrice: 32.9 }],
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('a edição também respeita o saldo das OUTRAS ordens', async () => {
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 90 }],
+      });
+
+      await expect(
+        service.update(EMPRESA_A, 'oc-1', {
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 20, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/apenas 10 SC em aberto/);
+    });
+
+    it('editar sem mandar itens não mexe em saldo nenhum', async () => {
+      const { service, tx } = makeService({ pedidos: { 'item-cimento': 100 } });
+
+      await service.update(EMPRESA_A, 'oc-1', { issueDate: '2026-09-01' });
+
+      // Mudar só a data de uma ordem antiga (sem itens) não pode disparar uma
+      // conferência de saldo que ela nunca teve como satisfazer.
+      expect(tx.$queryRaw).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('17. Auditoria do atendimento', () => {
+    it('registra a ordem gerada e o saldo que passou a valer, na SOLICITAÇÃO', async () => {
+      const { service, auditado } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 40, unitPrice: 32.9 }],
+      });
+
+      // `entityType` é PurchaseRequest, e não PurchaseOrder: a pergunta que
+      // este log responde é feita na tela da solicitação, e é lá que o painel
+      // de histórico consulta.
+      expect(auditado[0]).toMatchObject({
+        entityType: 'PurchaseRequest',
+        entityId: SOLICITACAO,
+        action: 'UPDATE',
+      });
+    });
+
+    it('falha na auditoria não derruba a compra já gravada', async () => {
+      const { service, criados } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        auditoriaFalha: true,
+      });
+
+      // Uma ordem recusada porque o log falhou seria pior que um log perdido:
+      // o comprador reemitiria uma ordem que já existe, e AÍ o saldo ficaria
+      // errado de verdade.
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 10, unitPrice: 32.9 }],
+        }),
+      ).resolves.toBeDefined();
+
+      expect(criados).toHaveLength(1);
+    });
+
+    it('o log diz quanto foi comprado e quanto ainda falta', async () => {
+      const { service, auditado } = makeService({
+        pedidos: { 'item-cimento': 100 },
+        compras: [{ purchaseRequestItemId: 'item-cimento', quantity: 60 }],
+      });
+
+      await service.create(EMPRESA_A, COMPRADOR, {
+        ...BASE,
+        items: [{ purchaseRequestItemId: 'item-cimento', quantity: 40, unitPrice: 32.9 }],
+      });
+
+      const changes = auditado[0]!.changes as Record<string, { from: string; to: string }>;
+      expect(changes.itensComprados!.to).toContain('40 SC');
+      // O saldo relido DEPOIS do commit — é o que interessa a quem abre o
+      // histórico depois.
+      expect(changes.atendimentoDaSolicitacao!.to).toContain('de 100');
+    });
+
   });
 });

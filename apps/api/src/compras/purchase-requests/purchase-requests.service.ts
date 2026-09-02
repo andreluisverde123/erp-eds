@@ -12,6 +12,8 @@ import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
 import { auditContextStorage } from '../../common/audit-context';
 import { ApprovalThresholdService } from '../../common/approval/approval-threshold.service';
+import { aggregateFulfillment, type RequestFulfillment } from '../fulfillment';
+import { FulfillmentService } from '../fulfillment.service';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
 import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
@@ -37,6 +39,10 @@ const listArgs = Prisma.validator<Prisma.PurchaseRequestDefaultArgs>()({
     requestedBy: { select: { id: true, name: true } },
     items: {
       select: {
+        /// O `id` entrou por causa do ATENDIMENTO: é ele que liga a linha
+        /// pedida às compras que a atenderam (`PurchaseOrderItem`). Sem ele a
+        /// listagem não tem como dizer o que já foi comprado.
+        id: true,
         quantity: true,
         estimatedUnitPrice: true,
         unavailable: true,
@@ -138,6 +144,7 @@ export class PurchaseRequestsService {
     private readonly prisma: PrismaService,
     private readonly approvalThreshold: ApprovalThresholdService,
     private readonly auditLogger: AuditLoggerService,
+    private readonly fulfillment: FulfillmentService,
   ) {}
 
   async create(companyId: string, userId: string, dto: CreatePurchaseRequestDto) {
@@ -191,7 +198,9 @@ export class PurchaseRequestsService {
   async findAll(
     companyId: string,
     query: QueryPurchaseRequestDto,
-  ): Promise<PaginatedResult<ListRow & { estimatedTotal: number }>> {
+  ): Promise<
+    PaginatedResult<ListRow & { estimatedTotal: number; fulfillment: RequestFulfillment }>
+  > {
     const { page, limit, search, status, constructionSiteId, costCenterId, dateFrom, dateTo } =
       query;
 
@@ -230,7 +239,21 @@ export class PurchaseRequestsService {
       this.prisma.purchaseRequest.count({ where }),
     ]);
 
-    return paginate(rows.map(withEstimatedTotal), total, page, limit);
+    // O ATENDIMENTO da página inteira em UMA consulta agregada — não uma por
+    // linha. Mesmo cuidado que `withFinancialStatus` já toma nas ordens.
+    const fulfillmentByRequest = await this.fulfillment.summaryByRequest(rows);
+
+    return paginate(
+      rows.map((row) => ({
+        ...withEstimatedTotal(row),
+        // O eixo do ATENDIMENTO, ao lado do `status` (que continua sendo o
+        // fluxo de aprovação). Ver `compras/fulfillment.ts`.
+        fulfillment: fulfillmentByRequest.get(row.id)!,
+      })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async findOne(companyId: string, id: string) {
@@ -249,7 +272,21 @@ export class PurchaseRequestsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return { ...withEstimatedTotal(request), history };
+    // Aqui vai o atendimento COMPLETO: além do saldo, quais ordens atenderam
+    // cada linha e com quanto. É o que responde, sem sair da tela,
+    // "necessidade → compra → fornecedor → quantidade".
+    const porItem = await this.fulfillment.byItem(id, request.items);
+    const items = request.items.map((item) => ({
+      ...item,
+      fulfillment: porItem.get(item.id)!,
+    }));
+
+    return {
+      ...withEstimatedTotal(request),
+      items,
+      fulfillment: aggregateFulfillment(items.map((item) => item.fulfillment)),
+      history,
+    };
   }
 
   async update(companyId: string, id: string, dto: UpdatePurchaseRequestDto) {

@@ -203,7 +203,7 @@ export function SolicitacaoDetailPage() {
   // A cotação é o momento em que Compras informa os valores que saíram do
   // formulário do solicitante — vale enquanto a solicitação não foi aprovada.
   const canQuote = canManage && (request.status === 'PENDING' || request.status === 'QUOTING');
-  const indisponiveis = request.items.filter((item) => item.unavailable).length;
+  const temOrdens = (ordersData?.data.length ?? 0) > 0;
 
   async function handleTransition(status: PurchaseRequestStatus) {
     await updateStatusMutation.mutateAsync(status);
@@ -273,12 +273,22 @@ export function SolicitacaoDetailPage() {
             </Button>
           ))}
 
-          {canManage && request.status === 'APPROVED' && (
-            <Button onClick={() => setGenerateOrderOpen(true)}>
-              <ShoppingCart />
-              Gerar Ordem de Compra
-            </Button>
-          )}
+          {/* A MESMA ação da primeira ordem — mesma permissão, mesmo fluxo,
+              mesmo endpoint. O rótulo é que muda, porque "Gerar Ordem de
+              Compra" numa solicitação que já tem duas faria a pessoa achar que
+              vai substituir alguma.
+
+              Some quando não há mais saldo: um botão que só sabe recusar é
+              pior que um botão ausente. O estado fica explicado na tabela de
+              itens, onde todas as linhas aparecem como atendidas. */}
+          {canManage &&
+            request.status === 'APPROVED' &&
+            request.fulfillment.status !== 'FULFILLED' && (
+              <Button onClick={() => setGenerateOrderOpen(true)}>
+                <ShoppingCart />
+                {temOrdens ? 'Gerar nova Ordem de Compra' : 'Gerar Ordem de Compra'}
+              </Button>
+            )}
 
           {canCancel && (
             <Button variant="outline" onClick={() => setCancelDialogOpen(true)}>
@@ -321,16 +331,19 @@ export function SolicitacaoDetailPage() {
               : 'Aguardando cotação'
           }
         />
-        {/* Contar os indisponíveis aqui evita a pergunta que o total sozinho
-            provoca: "por que o valor não bate com a lista?". */}
+        {/* ATENDIMENTO, e não a contagem crua de itens: a pergunta que quem
+            abre esta tela faz é "quanto ainda falta comprar?", e ela se
+            responde em LINHAS.
+            
+            Não em reais de propósito: o preço da ordem é o negociado e diverge
+            do cotado, então "R$ X de R$ Y" compararia duas grandezas
+            diferentes e daria um percentual que ninguém consegue conferir. */}
         <SummaryStat
           icon={ListChecks}
-          label="Itens"
-          value={
-            indisponiveis > 0
-              ? `${request.items.length} (${indisponiveis} não disponível${indisponiveis > 1 ? 'is' : ''})`
-              : String(request.items.length)
-          }
+          label="Atendimento"
+          value={`${request.fulfillment.fulfilledItems} de ${request.fulfillment.totalItems} ${
+            request.fulfillment.totalItems === 1 ? 'item atendido' : 'itens atendidos'
+          }`}
         />
         <SummaryStat icon={CalendarDays} label="Criada em" value={formatDate(request.createdAt)} />
       </div>
@@ -425,6 +438,7 @@ export function SolicitacaoDetailPage() {
         open={generateOrderOpen}
         onOpenChange={setGenerateOrderOpen}
         purchaseRequestId={request.id}
+        hasPreviousOrders={temOrdens}
         onCreated={() => setGenerateOrderOpen(false)}
       />
 
