@@ -87,6 +87,9 @@ export interface PurchaseRequestSource {
 export function buildPurchaseRequestDocument(
   request: PurchaseRequestSource,
   company: CompanySource,
+  /// Bytes do logo, já lidos pelo service. Opcional: documento sem logo é o
+  /// caso normal de empresa que não cadastrou marca.
+  companyLogo?: Buffer | null,
 ): PrintableDocument {
   const cotados = request.items.filter(isQuoted);
   const indisponiveis = request.items.filter((item) => item.unavailable).length;
@@ -100,7 +103,7 @@ export function buildPurchaseRequestDocument(
   });
 
   return {
-    ...buildCompanyHeader(company),
+    ...buildCompanyHeader(company, companyLogo),
     title: 'SOLICITAÇÃO DE COMPRA',
     code: request.code,
     blocks: [

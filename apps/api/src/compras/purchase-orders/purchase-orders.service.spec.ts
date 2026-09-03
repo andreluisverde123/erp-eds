@@ -4,10 +4,15 @@ import { validate } from 'class-validator';
 
 import { Prisma } from '../../../generated/prisma/client';
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
+import { Readable } from 'node:stream';
+
 import { PrismaService } from '../../prisma/prisma.service';
+import type { StorageService } from '../../storage/storage.module';
+import { PNG_1X1 } from '../../common/pdf/png-1x1.fixture';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { FulfillmentService } from '../fulfillment.service';
 import { PurchaseOrdersController } from './purchase-orders.controller';
+import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { PurchaseOrderItemInputDto } from './dto/purchase-order-item-input.dto';
 import {
   calculateItemTotal,
@@ -265,6 +270,13 @@ function makeService(
 
   /// O que foi para a auditoria. `AuditLoggerService` grava via Prisma; aqui
   /// só interessa O QUE ele recebeu — mesmo padrão do spec da solicitação.
+  /// O logo do PDF sai do storage. O dublê devolve um PNG mínimo de verdade —
+  /// bytes que o pdfkit consegue ler — para o cabeçalho ser exercitado, e não
+  /// só o caminho de "empresa sem logo".
+  const storage = {
+    getStream: jest.fn(async () => Readable.from([PNG_1X1])),
+  } as unknown as StorageService;
+
   const auditado: Record<string, unknown>[] = [];
   const auditLogger = new AuditLoggerService(prisma);
   jest.spyOn(auditLogger, 'log').mockImplementation(async (entry) => {
@@ -273,7 +285,13 @@ function makeService(
   });
 
   return {
-    service: new PurchaseOrdersService(prisma, new FulfillmentService(prisma), auditLogger),
+    service: new PurchaseOrdersService(
+      prisma,
+      new FulfillmentService(prisma),
+      auditLogger,
+      storage,
+    ),
+    storage,
     auditado,
     prisma,
     criados,
@@ -1230,6 +1248,37 @@ describe('Compra parcial — saldo pendente por item', () => {
       });
 
       expect(itensCriados(criados)[0]).toMatchObject({ quantity: 100 });
+    });
+  });
+
+  describe('solicitação totalmente atendida não gera ordem vazia', () => {
+    it('recusa a ordem quando NENHUM item tem saldo', async () => {
+      // A tela esconde o botão quando não há pendente, mas a regra não pode
+      // morar só lá: o endpoint é público a quem tem `compras.manage`.
+      const { service } = makeService({
+        pedidos: { 'item-cimento': 100, 'item-areia': 10 },
+        compras: [
+          { purchaseRequestItemId: 'item-cimento', quantity: 100 },
+          { purchaseRequestItemId: 'item-areia', quantity: 10 },
+        ],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/já foi totalmente comprado/);
+    });
+
+    it('uma ordem sem item nenhum já era recusada pelo DTO', async () => {
+      // `@ArrayMinSize(1)` em `CreatePurchaseOrderDto`. Continua valendo: a
+      // regra de saldo não substituiu a de "ordem precisa ter linha".
+      const dto = plainToInstance(CreatePurchaseOrderDto, { ...BASE, items: [] });
+
+      const erros = await validate(dto);
+
+      expect(erros.some((erro) => erro.property === 'items')).toBe(true);
     });
   });
 

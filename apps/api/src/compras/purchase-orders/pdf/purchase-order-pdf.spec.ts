@@ -9,6 +9,7 @@ import {
   type PurchaseOrderSource,
 } from './purchase-order-document';
 import { measureRowHeight, renderDocumentPdf } from '../../../common/pdf/pdf-renderer';
+import { PNG_1X1 } from '../../../common/pdf/png-1x1.fixture';
 import type { PrintableDocument } from '../../../common/pdf/printable-document';
 import { PURCHASE_ORDER_COLUMNS } from './purchase-order-document';
 
@@ -559,5 +560,115 @@ describe('assinaturas da ordem de compra', () => {
     // O sistema não tem assinatura eletrônica. Imprimir "assinado
     // digitalmente" afirmaria algo que não aconteceu.
     expect(textos.join(' ')).not.toMatch(/assinad|digital|certificad/i);
+  });
+});
+
+/// O LOGO NO CABEÇALHO, e o que o documento da ordem contém.
+///
+/// Estes dois assuntos andam juntos porque respondem à mesma pergunta prática:
+/// o PDF que chega ao fornecedor mostra a marca certa e SÓ o que foi comprado
+/// naquela ordem.
+describe('Logo e escopo do documento da ordem de compra', () => {
+  describe('logo no cabeçalho', () => {
+    it('viaja no documento quando a empresa tem marca cadastrada', () => {
+      const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA, PNG_1X1);
+
+      expect(documento.companyLogo).toEqual(PNG_1X1);
+    });
+
+    it('empresa sem logo continua imprimindo o cabeçalho de texto', () => {
+      // O caso de hoje no staging: nenhuma marca cadastrada. Não é erro, e o
+      // documento não pode mudar de forma por causa disso.
+      const documento = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
+
+      expect(documento.companyLogo).toBeNull();
+      expect(documento.companyName).toBe('EDS CONSTRUTORA LTDA');
+      expect(documento.companyFields.length).toBeGreaterThan(0);
+    });
+
+    it('o logo NÃO substitui nem remove nenhum dado do cabeçalho', async () => {
+      // Preservar o conteúdo atual é requisito: a marca ENTRA, nada SAI.
+      const semLogo = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA);
+      const comLogo = buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA, PNG_1X1);
+
+      expect(comLogo.companyName).toEqual(semLogo.companyName);
+      expect(comLogo.companyFields).toEqual(semLogo.companyFields);
+      expect(comLogo.columns).toEqual(semLogo.columns);
+      expect(comLogo.rows).toEqual(semLogo.rows);
+      expect(comLogo.total).toEqual(semLogo.total);
+    });
+
+    it('o PDF sai válido COM logo, e maior que o mesmo documento sem ele', async () => {
+      const comLogo = await renderDocumentPdf(
+        buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA, PNG_1X1),
+      );
+      const semLogo = await renderDocumentPdf(
+        buildPurchaseOrderDocument(order(), EMPRESA_COMPLETA),
+      );
+
+      expect(comLogo.buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(comLogo.pageCount).toBe(1);
+      // A imagem embutida pesa: é a prova de que ela foi mesmo desenhada, e
+      // não silenciosamente ignorada pelo renderizador.
+      expect(comLogo.buffer.length).toBeGreaterThan(semLogo.buffer.length);
+    });
+
+    it('bytes que não são imagem não derrubam a impressão', async () => {
+      // `loadCompanyLogo` só confere a EXTENSÃO — um PNG corrompido passa pela
+      // peneira e chegaria aqui. O pdfkit lança nesse caso, e a ordem de compra
+      // não pode deixar de existir por causa de um enfeite.
+      const documento = buildPurchaseOrderDocument(
+        order(),
+        EMPRESA_COMPLETA,
+        Buffer.from('isto não é um png'),
+      );
+
+      const { buffer, pageCount } = await renderDocumentPdf(documento);
+
+      expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(pageCount).toBe(1);
+    });
+  });
+
+  describe('o PDF contém somente os itens DAQUELA ordem', () => {
+    it('uma ordem parcial não imprime os itens que ficaram pendentes', () => {
+      // A solicitação tinha cimento, ferro e tinta; esta ordem comprou só o
+      // cimento na Loja A. O documento que vai ao fornecedor não pode listar o
+      // que não foi pedido a ele.
+      const documento = buildPurchaseOrderDocument(
+        order({ items: [item({ description: 'Cimento CP-II 50kg' })] }),
+        EMPRESA_COMPLETA,
+      );
+
+      expect(documento.rows).toHaveLength(1);
+      expect(JSON.stringify(documento.rows)).toContain('Cimento');
+      expect(JSON.stringify(documento.rows)).not.toContain('Tinta');
+    });
+
+    it('a segunda ordem imprime só o saldo que ela comprou', () => {
+      const segunda = buildPurchaseOrderDocument(
+        order({
+          code: 'OC-0002',
+          items: [item({ description: 'Tinta acrílica 18L', unit: 'LT', quantity: decimal('10') })],
+        }),
+        EMPRESA_COMPLETA,
+      );
+
+      expect(segunda.code).toBe('OC-0002');
+      expect(segunda.rows).toHaveLength(1);
+      expect(JSON.stringify(segunda.rows)).toContain('Tinta acrílica');
+      expect(JSON.stringify(segunda.rows)).not.toContain('Cimento');
+    });
+
+    it('o total impresso é o da ordem, não o da solicitação', () => {
+      // Duas ordens da mesma solicitação têm totais próprios; imprimir o da
+      // solicitação faria o fornecedor cobrar o que outro vendeu.
+      const documento = buildPurchaseOrderDocument(
+        order({ items: [item({ quantity: decimal('10'), unitPrice: decimal('10.00') })] }),
+        EMPRESA_COMPLETA,
+      );
+
+      expect(documento.total?.value).toContain('100,00');
+    });
   });
 });

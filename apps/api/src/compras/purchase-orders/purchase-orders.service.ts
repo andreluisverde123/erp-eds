@@ -18,6 +18,8 @@ import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { buildFinancialStatus, type PurchaseOrderFinancialStatus } from './financial-status.util';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
 import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
+import { loadCompanyLogo } from '../../common/pdf/company-logo';
+import { StorageService } from '../../storage/storage.module';
 import { buildPurchaseOrderDocument } from './pdf/purchase-order-document';
 import { PurchaseOrderItemInputDto } from './dto/purchase-order-item-input.dto';
 import { QueryPurchaseOrderDto } from './dto/query-purchase-order.dto';
@@ -124,6 +126,7 @@ export class PurchaseOrdersService {
     private readonly prisma: PrismaService,
     private readonly fulfillment: FulfillmentService,
     private readonly auditLogger: AuditLoggerService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(companyId: string, createdById: string, dto: CreatePurchaseOrderDto) {
@@ -656,7 +659,12 @@ export class PurchaseOrdersService {
       select: COMPANY_HEADER_SELECT,
     });
 
-    const rendered = await renderDocumentPdf(buildPurchaseOrderDocument(order, company));
+    // O logo é lido AQUI, e não dentro do builder: aquela camada é pura e não
+    // faz I/O — é o que a mantém testável sem storage. Falha na leitura devolve
+    // `null` e o documento sai sem logo, como saía antes (ver `loadCompanyLogo`).
+    const logo = await loadCompanyLogo(this.storage, company.logoUrl);
+
+    const rendered = await renderDocumentPdf(buildPurchaseOrderDocument(order, company, logo));
     return { ...rendered, code: order.code };
   }
 

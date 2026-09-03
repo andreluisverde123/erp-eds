@@ -34,6 +34,22 @@ export interface CertificateMaterial {
 /// por vídeo com a autoridade certificadora, o que não se resolve na véspera.
 const DIAS_DE_ANTECEDENCIA = 30;
 
+/// Dias inteiros até o vencimento. Negativo quando já passou.
+///
+/// `trunc` e não `floor`, e a diferença só aparece do lado negativo — que é
+/// justamente o do certificado JÁ VENCIDO.
+///
+/// Um certificado que venceu há oito dias e algumas horas dá `-8,3`. `floor`
+/// arredonda para BAIXO, devolve `-9`, e a Home anuncia "venceu há 9 dias" —
+/// um dia a mais do que a verdade, num número que a pessoa confere contra a
+/// data do certificado. `trunc` corta a fração e devolve `-8`.
+///
+/// Do lado positivo os dois concordam, e é o comportamento certo: faltando
+/// 12,9 dias, o aviso diz "vence em 12" — nunca arredonda o prazo para cima.
+function diasAte(notAfter: Date, agora = new Date()): number {
+  return Math.trunc((notAfter.getTime() - agora.getTime()) / 86_400_000);
+}
+
 /// O que a Home precisa saber sobre o certificado — e só isso.
 ///
 /// Separado de `CertificateInfo` de propósito: aquele é o painel de
@@ -176,7 +192,7 @@ export class FiscalCertificateService {
       notAfter: row.notAfter,
       isActive: row.isActive,
       expirado: row.notAfter < agora,
-      diasParaExpirar: Math.floor((row.notAfter.getTime() - agora.getTime()) / 86_400_000),
+      diasParaExpirar: diasAte(row.notAfter, agora),
       uploadedAt: row.createdAt,
     };
   }
@@ -211,7 +227,7 @@ export class FiscalCertificateService {
 
     // Mesma conta do `findInfo`, para o painel e a Home nunca discordarem em
     // um dia por arredondarem diferente.
-    const diasParaExpirar = Math.floor((row.notAfter.getTime() - Date.now()) / 86_400_000);
+    const diasParaExpirar = diasAte(row.notAfter);
 
     return {
       status:

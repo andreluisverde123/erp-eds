@@ -17,6 +17,8 @@ import { FulfillmentService } from '../fulfillment.service';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
 import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
+import { loadCompanyLogo } from '../../common/pdf/company-logo';
+import { StorageService } from '../../storage/storage.module';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPurchaseRequestDocument } from './pdf/purchase-request-document';
 import {
@@ -145,6 +147,7 @@ export class PurchaseRequestsService {
     private readonly approvalThreshold: ApprovalThresholdService,
     private readonly auditLogger: AuditLoggerService,
     private readonly fulfillment: FulfillmentService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(companyId: string, userId: string, dto: CreatePurchaseRequestDto) {
@@ -700,7 +703,9 @@ export class PurchaseRequestsService {
       select: COMPANY_HEADER_SELECT,
     });
 
-    const rendered = await renderDocumentPdf(buildPurchaseRequestDocument(request, company));
+    const logo = await loadCompanyLogo(this.storage, company.logoUrl);
+
+    const rendered = await renderDocumentPdf(buildPurchaseRequestDocument(request, company, logo));
     return { ...rendered, code: request.code };
   }
 

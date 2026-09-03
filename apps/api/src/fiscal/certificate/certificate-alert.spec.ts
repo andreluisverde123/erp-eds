@@ -30,13 +30,24 @@ function makeService(
 describe('Aviso de certificado vencendo', () => {
   describe('classificação', () => {
     it('certificado vencido é EXPIRED, com os dias em negativo', async () => {
-      const service = makeService({ notAfter: emDias(-8), isActive: true });
+      // Oito dias e meio: a fração é o que separa `trunc` de `floor`. Com
+      // `floor` isto dava -9, e a Home anunciava um dia a mais do que a
+      // verdade — foi assim que o defeito apareceu, como teste intermitente.
+      const service = makeService({ notAfter: emDias(-8.5), isActive: true });
 
       const alerta = await service.alertSummary(EMPRESA);
 
       expect(alerta.status).toBe('EXPIRED');
       // Negativo é o que permite a Home dizer "venceu há 8 dias".
       expect(alerta.diasParaExpirar).toBe(-8);
+    });
+
+    it('o prazo que falta nunca é arredondado para cima', async () => {
+      // Faltando 12,9 dias, o aviso diz 12. Dizer 13 daria à pessoa um dia que
+      // ela não tem para renovar.
+      const service = makeService({ notAfter: emDias(12.9), isActive: true });
+
+      expect((await service.alertSummary(EMPRESA)).diasParaExpirar).toBe(12);
     });
 
     it('vencendo dentro de 30 dias é EXPIRING — ainda funciona, mas tem prazo', async () => {

@@ -115,6 +115,9 @@ export interface PurchaseOrderSource {
 export function buildPurchaseOrderDocument(
   order: PurchaseOrderSource,
   company: CompanySource,
+  /// Bytes do logo, já lidos pelo service. Opcional: documento sem logo é o
+  /// caso normal de empresa que não cadastrou marca.
+  companyLogo?: Buffer | null,
 ): PrintableDocument {
   const supplierAddress = joinAddress([
     order.supplier.address,
@@ -126,7 +129,7 @@ export function buildPurchaseOrderDocument(
   ]);
 
   return {
-    ...buildCompanyHeader(company),
+    ...buildCompanyHeader(company, companyLogo),
     title: 'ORDEM DE COMPRA',
     code: order.code,
     blocks: [

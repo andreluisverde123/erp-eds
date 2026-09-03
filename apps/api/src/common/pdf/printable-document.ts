@@ -142,6 +142,16 @@ export interface PrintableDocument {
   /// Nome que aparece no topo. Sempre existe (`Company.legalName` é NOT NULL).
   companyName: string;
   companyFields: DocumentField[];
+  /// Bytes do logo da empresa (PNG ou JPEG), quando houver.
+  ///
+  /// `Buffer` já resolvido, e não a chave do storage: a camada de conteúdo é
+  /// PURA e não faz I/O — é o que permite testá-la sem storage e sem gerar
+  /// arquivo. Quem lê os bytes é o `generatePdf` de cada módulo, via
+  /// `loadCompanyLogo`.
+  ///
+  /// `null` é o caso normal, não erro: empresa sem logo cadastrado imprime o
+  /// cabeçalho de texto de sempre.
+  companyLogo?: Buffer | null;
   title: string;
   /// O identificador que o sistema já usa (ex.: OC-0001, SOL-0001).
   code: string;
@@ -178,9 +188,13 @@ export interface CompanySource {
 ///
 /// Nada é inventado: cada campo só aparece se estiver preenchido no cadastro,
 /// e o nome fantasia só entra quando diz algo além do que já está no título.
-export function buildCompanyHeader(company: CompanySource): {
+export function buildCompanyHeader(
+  company: CompanySource,
+  companyLogo?: Buffer | null,
+): {
   companyName: string;
   companyFields: DocumentField[];
+  companyLogo: Buffer | null;
 } {
   const address = joinAddress([
     company.addressLine,
@@ -192,6 +206,7 @@ export function buildCompanyHeader(company: CompanySource): {
 
   return {
     companyName: company.legalName,
+    companyLogo: companyLogo ?? null,
     companyFields: [
       ...(company.tradeName && company.tradeName !== company.legalName
         ? field('Nome fantasia', company.tradeName)
@@ -209,6 +224,9 @@ export function buildCompanyHeader(company: CompanySource): {
 /// para todo documento — antes cada `generatePdf` repetia a lista.
 export const COMPANY_HEADER_SELECT = {
   legalName: true,
+  /// A CHAVE do arquivo no storage, não os bytes. Quem os carrega é
+  /// `loadCompanyLogo`, no `generatePdf` de cada módulo.
+  logoUrl: true,
   tradeName: true,
   cnpj: true,
   stateRegistration: true,

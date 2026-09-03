@@ -110,20 +110,62 @@ function fitTitleSize(doc: Doc, title: string, width: number): number {
   );
 }
 
+/// Caixa reservada ao logo, em pontos. O desenho usa `fit`, então a imagem
+/// entra INTEIRA nesta caixa preservando a proporção — uma marca quadrada e
+/// uma deitada saem as duas corretas, sem esticar nenhuma.
+const LOGO_BOX = { width: 96, height: 40 };
+/// Respiro entre o logo e o texto do cabeçalho.
+const LOGO_GAP = 10;
+
+/// Desenha o logo e devolve quanto o texto do cabeçalho precisa recuar.
+///
+/// Devolve `0` quando não há logo — e é o que mantém o cabeçalho de sempre
+/// para empresa sem marca cadastrada, sem um segundo caminho de desenho.
+///
+/// O `try` existe porque o pdfkit lança ao receber bytes que não sabe ler, e
+/// `loadCompanyLogo` não decodifica a imagem (só confere a extensão): um PNG
+/// corrompido passa pela peneira e explodiria aqui. Um documento sem logo é
+/// aceitável; uma ordem de compra que não imprime, não.
+function drawCompanyLogo(doc: Doc, document: PrintableDocument, left: number, top: number): number {
+  if (!document.companyLogo) return 0;
+
+  try {
+    doc.image(document.companyLogo, left, top, {
+      // Sem `align`/`valign`: os tipos do pdfkit só aceitam os valores que
+      // DESVIAM do padrão, e o padrão já é topo-esquerda — que é onde a marca
+      // deve ficar, encostada no nome da empresa.
+      fit: [LOGO_BOX.width, LOGO_BOX.height],
+    });
+    return LOGO_BOX.width + LOGO_GAP;
+  } catch {
+    return 0;
+  }
+}
+
 function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, width: number) {
   const titleWidth = width * 0.38;
-  const infoWidth = width - titleWidth - 12;
   const top = doc.y;
 
-  doc.font(FONT_BOLD).fontSize(15).fillColor(BLACK).text(document.companyName, left, top, {
+  // O logo ocupa a esquerda e EMPURRA o texto — não fica atrás dele. O recuo
+  // sai do próprio desenho para que "sem logo" continue produzindo exatamente
+  // o cabeçalho anterior, e não uma versão com espaço sobrando.
+  const recuo = drawCompanyLogo(doc, document, left, top);
+  const textLeft = left + recuo;
+  const infoWidth = width - titleWidth - 12 - recuo;
+
+  doc.font(FONT_BOLD).fontSize(15).fillColor(BLACK).text(document.companyName, textLeft, top, {
     width: infoWidth,
   });
 
   doc.font(FONT).fontSize(8).fillColor(GRAY);
   for (const item of document.companyFields) {
-    doc.text(`${item.label}: ${item.value}`, left, doc.y, { width: infoWidth });
+    doc.text(`${item.label}: ${item.value}`, textLeft, doc.y, { width: infoWidth });
   }
-  const afterCompany = doc.y;
+
+  // O bloco do cabeçalho é o mais ALTO entre o texto e o logo: com poucos
+  // campos cadastrados o texto termina acima da caixa do logo, e sem isto a
+  // linha divisória cortaria a marca ao meio.
+  const afterCompany = Math.max(doc.y, document.companyLogo ? top + LOGO_BOX.height : 0);
 
   // Título e número alinhados à direita, na altura do topo do cabeçalho.
   //

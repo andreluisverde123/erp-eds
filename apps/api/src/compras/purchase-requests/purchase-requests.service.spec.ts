@@ -3,7 +3,11 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
 import { Prisma } from '../../../generated/prisma/client';
+import { Readable } from 'node:stream';
+
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
+import type { StorageService } from '../../storage/storage.module';
+import { PNG_1X1 } from '../../common/pdf/png-1x1.fixture';
 import { auditContextStorage } from '../../common/audit-context';
 import { ApprovalThresholdService } from '../../common/approval/approval-threshold.service';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
@@ -221,6 +225,11 @@ function makeService(
 
   /// O que foi para a auditoria nesta chamada. `AuditLoggerService` grava via
   /// Prisma; aqui só interessa O QUE ele recebeu.
+  /// O logo do PDF sai do storage — ver a nota no spec da ordem de compra.
+  const storage = {
+    getStream: jest.fn(async () => Readable.from([PNG_1X1])),
+  } as unknown as StorageService;
+
   const auditado: Record<string, unknown>[] = [];
   const auditLogger = new AuditLoggerService(prisma);
   jest.spyOn(auditLogger, 'log').mockImplementation(async (entry) => {
@@ -233,7 +242,9 @@ function makeService(
       approvalThreshold,
       auditLogger,
       new FulfillmentService(prisma),
+      storage,
     ),
+    storage,
     auditado,
     prisma,
     store,
