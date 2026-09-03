@@ -14,20 +14,37 @@ function storageQueDevolve(conteudo: Buffer) {
 /// impedir alguém de imprimir o pedido.
 describe('Logo da empresa nos PDFs', () => {
   describe('o caminho feliz', () => {
-    it('devolve os bytes do arquivo do storage', async () => {
+    it('busca pela CHAVE do storage, não pela URL gravada no banco', async () => {
       const storage = storageQueDevolve(PNG_1X1);
 
-      const logo = await loadCompanyLogo(storage, 'logos/eds.png');
+      // O valor REAL de `Company.logoUrl` — é assim que `saveUpload` o grava.
+      // O teste antigo passava a chave já pronta, e foi exatamente isso que
+      // escondeu o defeito: em produção o PDF saía sem logo, em silêncio,
+      // porque o driver procurava em `<raiz>/uploads/logos/…`.
+      const logo = await loadCompanyLogo(
+        storage,
+        '/uploads/logos/715c6709-083b-4e57-bbaa-9670882ed9fd.png',
+      );
 
       expect(logo).toEqual(PNG_1X1);
+      expect(storage.getStream).toHaveBeenCalledWith(
+        'logos/715c6709-083b-4e57-bbaa-9670882ed9fd.png',
+      );
+    });
+
+    it('um valor já gravado como chave passa intacto', async () => {
+      const storage = storageQueDevolve(PNG_1X1);
+
+      await loadCompanyLogo(storage, 'logos/eds.png');
+
       expect(storage.getStream).toHaveBeenCalledWith('logos/eds.png');
     });
 
     it('aceita JPEG, nas duas grafias da extensão', async () => {
       const storage = storageQueDevolve(PNG_1X1);
 
-      expect(await loadCompanyLogo(storage, 'logos/a.jpg')).not.toBeNull();
-      expect(await loadCompanyLogo(storage, 'logos/b.jpeg')).not.toBeNull();
+      expect(await loadCompanyLogo(storage, '/uploads/logos/a.jpg')).not.toBeNull();
+      expect(await loadCompanyLogo(storage, '/uploads/logos/b.jpeg')).not.toBeNull();
     });
 
     it('a extensão é lida sem depender de caixa', async () => {

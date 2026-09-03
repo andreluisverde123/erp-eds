@@ -15,6 +15,26 @@ interface LeitorDeArquivo {
 
 const logger = new Logger('CompanyLogo');
 
+/// Converte o que está gravado em `Company.logoUrl` na CHAVE do storage.
+///
+/// São coisas diferentes, e confundi-las foi o defeito que deixou o PDF sair
+/// sem logo em silêncio. `StorageService.saveUpload` devolve as duas:
+///
+///   key      logos/<uuid>.png              ← o que `getStream` espera
+///   fileUrl  /uploads/logos/<uuid>.png     ← o que vai para o banco
+///
+/// O controller de arquivos já fazia essa conversão (casa o registro pela URL
+/// e serve pela chave); esta função passava a URL crua adiante, o
+/// `LocalStorageDriver` procurava em `<raiz>/uploads/logos/…` em vez de
+/// `<raiz>/logos/…`, não achava, e o `catch` engolia.
+///
+/// Tolera as duas formas de propósito: um valor já gravado como chave passa
+/// intacto. Nada de `..` escapa — o driver confere o caminho final contra a
+/// raiz antes de tocar o disco.
+function toStorageKey(logoUrl: string): string {
+  return logoUrl.replace(/^\/?uploads\//, '');
+}
+
 /// Formatos que o pdfkit sabe desenhar. **PNG e JPEG, e mais nada.**
 ///
 /// O upload do logo aceita PNG, JPEG e WEBP (ver `company.controller.ts`), mas
@@ -59,7 +79,7 @@ export async function loadCompanyLogo(
   }
 
   try {
-    const stream = await storage.getStream(logoUrl);
+    const stream = await storage.getStream(toStorageKey(logoUrl));
     const partes: Buffer[] = [];
     let total = 0;
 

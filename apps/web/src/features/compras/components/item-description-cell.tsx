@@ -151,9 +151,14 @@ export function ItemDescriptionCell({
   }
 
   function aoTeclar(evento: React.KeyboardEvent<HTMLInputElement>) {
-    // `visiveis` vazio com o painel ABERTO é estado normal agora: é o
-    // "buscando..." e o "nenhum material encontrado". Sem esta guarda, a seta
-    // faria `% 0` — NaN no índice, e o Enter seguinte escolhia `undefined`.
+    // TAB não é tratado aqui de propósito: ele cai fora de todos os ramos
+    // abaixo, sem `preventDefault`, e o navegador leva o foco ao próximo
+    // controle da linha. Quem tira as sugestões do caminho é o `tabIndex={-1}`
+    // delas; o `blur` do input fecha a lista logo em seguida.
+    //
+    // `visiveis` vazio com o painel ABERTO é estado normal: é o "buscando..."
+    // e o "nenhum material encontrado". Sem esta guarda, a seta faria `% 0` —
+    // NaN no índice, e o Enter seguinte escolhia `undefined`.
     if (!mostrando || visiveis.length === 0) return;
 
     // Setas e Enter percorrem a lista sem tirar a mão do teclado — é uma grade
@@ -230,6 +235,17 @@ export function ItemDescriptionCell({
             <li key={sugestao.description}>
               <button
                 type="button"
+                // FORA da ordem de tabulação, e é o que consertava o pulo da
+                // Unidade: a lista é irmã do input e vem ANTES do seletor de
+                // unidade no DOM, então o Tab caía na primeira sugestão. O
+                // `blur` do input então fechava a lista, o botão focado sumia
+                // da página e o foco ia para o `body` — daí a impressão de que
+                // a Unidade tinha sido "pulada".
+                //
+                // É também o padrão de combobox: as opções se percorrem com as
+                // setas e se escolhem com Enter ou clique, nunca com Tab. O
+                // mouse não é afetado — `tabIndex` só governa o teclado.
+                tabIndex={-1}
                 className={cn(
                   'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm',
                   i === indice ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',

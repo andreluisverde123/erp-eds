@@ -239,3 +239,153 @@ describe('sugestão do que já foi digitado nesta solicitação', () => {
     expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 });
+
+/// NAVEGAÇÃO POR TECLADO na grade de itens.
+///
+/// O defeito relatado: no campo Insumo, o Tab "pulava" a Unidade e o foco
+/// aparecia adiante. A causa não era o Select — era a ordem do DOM. A lista de
+/// sugestões é irmã do input e vem ANTES do seletor de unidade, então o Tab
+/// caía na primeira sugestão; o `blur` do input fechava a lista 120 ms depois,
+/// o botão focado saía da página e o foco ia parar no `body`.
+describe('ordem de foco: Insumo → Unidade', () => {
+  /// Reproduz a vizinhança real da célula: o campo, e logo depois o controle
+  /// da coluna seguinte. Um botão faz as vezes do gatilho do Select, que é um
+  /// `<button>` como este — o teste não depende do Radix para provar a ordem.
+  function montarComVizinho(valorInicial: string, localSuggestions: string[] = []) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ItemDescriptionCell
+          value={valorInicial}
+          onChange={vi.fn()}
+          onPick={vi.fn()}
+          localSuggestions={localSuggestions}
+          aria-label="Item da linha 1"
+        />
+        <button type="button">Unidade da linha 1</button>
+      </QueryClientProvider>,
+    );
+
+    return {
+      campo: screen.getByLabelText('Item da linha 1'),
+      unidade: screen.getByRole('button', { name: 'Unidade da linha 1' }),
+    };
+  }
+
+  it('com a lista ABERTA, o Tab vai para a Unidade — não para a sugestão', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const { campo, unidade } = montarComVizinho('cimento');
+
+    await usuario.click(campo);
+    await screen.findByText('Cimento CPII 50kg');
+    await usuario.tab();
+
+    expect(document.activeElement).toBe(unidade);
+  });
+
+  it('a lista se fecha ao sair com Tab, em vez de ficar pendurada', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const { campo } = montarComVizinho('cimento');
+
+    await usuario.click(campo);
+    await screen.findByText('Cimento CPII 50kg');
+    await usuario.tab();
+
+    await waitFor(() => expect(screen.queryByText('Cimento CPII 50kg')).toBeNull());
+  });
+
+  it('as sugestões ficam fora da ordem de tabulação', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const { campo } = montarComVizinho('cimento');
+
+    await userEvent.setup().click(campo);
+    await screen.findByText('Cimento CPII 50kg');
+
+    // Padrão de combobox: percorre-se com as setas, escolhe-se com Enter ou
+    // clique. Nunca com Tab.
+    screen
+      .getAllByRole('button', { name: /Cimento/ })
+      .forEach((opcao) => expect(opcao.getAttribute('tabindex')).toBe('-1'));
+  });
+
+  it('com a lista FECHADA o Tab também chega na Unidade', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    const { campo, unidade } = montarComVizinho('');
+
+    await usuario.click(campo);
+    await usuario.tab();
+
+    expect(document.activeElement).toBe(unidade);
+  });
+
+  it('durante o "Buscando…" o Tab não fica preso no campo', async () => {
+    // O painel pode estar aberto sem nenhuma sugestão navegável. A guarda que
+    // protege as setas não pode engolir o Tab junto.
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(SUGESTOES), 300)),
+    );
+    const { campo, unidade } = montarComVizinho('cimento');
+
+    await usuario.click(campo);
+    await screen.findByText('Buscando materiais…');
+    await usuario.tab();
+
+    expect(document.activeElement).toBe(unidade);
+  });
+
+  it('o mouse continua escolhendo a sugestão normalmente', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const onPick = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ItemDescriptionCell
+          value="cimento"
+          onChange={vi.fn()}
+          onPick={onPick}
+          aria-label="Item da linha 1"
+        />
+      </QueryClientProvider>,
+    );
+
+    await usuario.click(screen.getByLabelText('Item da linha 1'));
+    await usuario.click(await screen.findByText('Cimento CPII 50kg'));
+
+    // `tabIndex={-1}` governa só o teclado: o clique não muda.
+    expect(onPick).toHaveBeenCalledWith({ description: 'Cimento CPII 50kg', timesUsed: 12 });
+  });
+
+  it('as setas continuam percorrendo a lista', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const onPick = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ItemDescriptionCell
+          value="cimento"
+          onChange={vi.fn()}
+          onPick={onPick}
+          aria-label="Item da linha 1"
+        />
+      </QueryClientProvider>,
+    );
+
+    await usuario.click(screen.getByLabelText('Item da linha 1'));
+    await screen.findByText('Cimento CPII 50kg');
+    await usuario.keyboard('{ArrowDown}{Enter}');
+
+    // Tirar as opções do Tab não podia tirá-las do teclado inteiro.
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Cimento CPIV 50kg' }),
+    );
+  });
+});
