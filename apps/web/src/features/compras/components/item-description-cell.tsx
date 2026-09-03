@@ -6,9 +6,14 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 import { searchItemSuggestions, type ItemSuggestion } from '../item-suggestions';
 
-/// Uma letra sugere quase tudo e não ajuda ninguém a escolher. Vale para as
-/// duas fontes — o servidor aplica o mesmo mínimo do lado dele.
-const MINIMO_PARA_SUGERIR = 2;
+/// A busca vale desde a PRIMEIRA letra.
+///
+/// Eram duas, e o motivo não era de produto: com `ILIKE '%c%'` o índice
+/// trigram do banco não é usado abaixo de três caracteres, e a primeira letra
+/// custava uma varredura da tabela inteira. Com o índice de prefixo sobre
+/// `searchKey`, "c" é uma consulta indexada como qualquer outra — e é
+/// justamente na primeira letra que a sugestão poupa mais digitação.
+const MINIMO_PARA_SUGERIR = 1;
 
 /// Uma sugestão com a PROCEDÊNCIA junto: `local` veio de outra linha desta
 /// mesma solicitação, ainda não gravada; o resto veio do histórico da empresa.
@@ -90,11 +95,15 @@ export function ItemDescriptionCell({
   // ANTES do click. O timer dá a janela para o clique acontecer.
   const fechamento = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Uma consulta por tecla inundaria a API numa digitação normal. 250 ms é o
-  // intervalo em que a pessoa ainda percebe a lista como imediata.
-  const termo = useDebouncedValue(value, 250);
+  // Uma consulta por tecla inundaria a API numa digitação normal. 200 ms é o
+  // intervalo em que a pessoa ainda percebe a lista como imediata — e agora a
+  // busca começa uma letra antes, então o debounce carrega mais peso.
+  //
+  // A digitação NUNCA espera por isto: o `<input>` é controlado pelo `value`
+  // vivo, e só a consulta é adiada.
+  const termo = useDebouncedValue(value, 200);
 
-  const { data: sugestoes } = useQuery({
+  const { data: sugestoes, isFetching, isError } = useQuery({
     queryKey: ['compras', 'item-suggestions', termo],
     queryFn: () => searchItemSuggestions(termo),
     enabled: aberta && normalizar(termo).length >= MINIMO_PARA_SUGERIR,
@@ -122,7 +131,12 @@ export function ItemDescriptionCell({
   const visiveis = [...locais, ...doServidor].filter(
     (s) => normalizar(s.description) !== digitado,
   );
-  const mostrando = aberta && visiveis.length > 0;
+  // O que o painel está fazendo, em um estado só — a lista só some quando
+  // não há NADA a dizer.
+  const buscando = isFetching && locais.length === 0;
+  const semResultado =
+    !isFetching && !isError && digitado.length >= MINIMO_PARA_SUGERIR && visiveis.length === 0;
+  const mostrando = aberta && (visiveis.length > 0 || buscando || semResultado || isError);
 
   // A lista encolhe sozinha (o debounce chega, uma local deixa de casar), e o
   // índice guardado pode sobrar dela. Sem o clamp, o Enter nesse intervalo
@@ -137,7 +151,10 @@ export function ItemDescriptionCell({
   }
 
   function aoTeclar(evento: React.KeyboardEvent<HTMLInputElement>) {
-    if (!mostrando) return;
+    // `visiveis` vazio com o painel ABERTO é estado normal agora: é o
+    // "buscando..." e o "nenhum material encontrado". Sem esta guarda, a seta
+    // faria `% 0` — NaN no índice, e o Enter seguinte escolhia `undefined`.
+    if (!mostrando || visiveis.length === 0) return;
 
     // Setas e Enter percorrem a lista sem tirar a mão do teclado — é uma grade
     // de digitação, e obrigar o mouse aqui custaria mais que redigitar.
@@ -192,6 +209,23 @@ export function ItemDescriptionCell({
             if (fechamento.current) clearTimeout(fechamento.current);
           }}
         >
+          {/* ESTADOS do painel, e cada um responde a uma pergunta diferente:
+              "ele está fazendo alguma coisa?", "não existe mesmo?", "quebrou?".
+              Antes os três produziam a mesma tela vazia, e o relato que chegava
+              era sempre "o autocomplete não funciona" — sem como distinguir. */}
+          {buscando && (
+            <li className="px-3 py-1.5 text-sm text-muted-foreground">Buscando materiais…</li>
+          )}
+          {semResultado && (
+            <li className="px-3 py-1.5 text-sm text-muted-foreground">
+              Nenhum material encontrado. Continue digitando para cadastrar um novo.
+            </li>
+          )}
+          {isError && !buscando && (
+            <li className="px-3 py-1.5 text-sm text-muted-foreground">
+              Não foi possível buscar sugestões. Você pode digitar normalmente.
+            </li>
+          )}
           {visiveis.map((sugestao, i) => (
             <li key={sugestao.description}>
               <button

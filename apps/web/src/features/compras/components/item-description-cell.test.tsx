@@ -44,18 +44,60 @@ function montar(valorInicial = '', localSuggestions: string[] = []) {
 }
 
 describe('sugestão de material', () => {
-  it('não busca com menos de dois caracteres', async () => {
-    const usuario = userEvent.setup();
+  it('busca já na PRIMEIRA letra', async () => {
     mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
-    const { campo } = montar();
+    const { campo } = montar('c');
 
-    await usuario.click(campo);
-    await usuario.keyboard('c');
+    await userEvent.setup().click(campo);
 
-    // Uma letra sugere quase tudo e não ajuda a escolher — e ainda gastaria
-    // uma consulta por tecla logo no começo da digitação.
-    await new Promise((r) => setTimeout(r, 350));
+    // O mínimo era dois, e não por decisão de produto: com `ILIKE '%c%'` o
+    // índice trigram não é usado abaixo de três caracteres, e a primeira letra
+    // custava varredura de tabela. Com o índice de prefixo sobre `searchKey`,
+    // ela é uma consulta indexada — e é onde a sugestão poupa mais digitação.
+    await waitFor(() => expect(mocked.searchItemSuggestions).toHaveBeenCalledWith('c'));
+    expect(await screen.findByText('Cimento CPII 50kg')).toBeDefined();
+  });
+
+  it('campo vazio não busca nada', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    const { campo } = montar('');
+
+    await userEvent.setup().click(campo);
+
+    await new Promise((r) => setTimeout(r, 300));
     expect(mocked.searchItemSuggestions).not.toHaveBeenCalled();
+  });
+
+  it('avisa enquanto busca, em vez de mostrar painel vazio', async () => {
+    mocked.searchItemSuggestions.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(SUGESTOES), 200)),
+    );
+    const { campo } = montar('cimento');
+
+    await userEvent.setup().click(campo);
+
+    expect(await screen.findByText('Buscando materiais…')).toBeDefined();
+  });
+
+  it('diz quando não existe o material, em vez de não dizer nada', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    const { campo } = montar('xyz');
+
+    await userEvent.setup().click(campo);
+
+    // Três situações produziam a mesma tela vazia — buscando, não achou e
+    // quebrou. O relato chegava como "o autocomplete não funciona", sem como
+    // distinguir qual das três era.
+    expect(await screen.findByText(/Nenhum material encontrado/)).toBeDefined();
+  });
+
+  it('falha na busca não fica invisível, e não trava a digitação', async () => {
+    mocked.searchItemSuggestions.mockRejectedValue(new Error('403'));
+    const { campo } = montar('cimento');
+
+    await userEvent.setup().click(campo);
+
+    expect(await screen.findByText(/Não foi possível buscar sugestões/)).toBeDefined();
   });
 
   it('mostra o que já foi pedido, e quantas vezes', async () => {
@@ -176,15 +218,14 @@ describe('sugestão do que já foi digitado nesta solicitação', () => {
     expect(await screen.findByText('Concreto usinado FCK 25')).toBeDefined();
   });
 
-  it('uma letra solta não sugere nada, nem local', async () => {
+  it('uma letra já sugere o material da linha de cima', async () => {
     mocked.searchItemSuggestions.mockResolvedValue([]);
     const { campo } = montar('t', ['Telha fosca']);
 
     await userEvent.setup().click(campo);
 
-    // Mesmo mínimo das sugestões do servidor: uma letra casaria com quase
-    // tudo e não ajudaria a escolher.
-    expect(screen.queryByText('Telha fosca')).toBeNull();
+    // Mesmo mínimo das sugestões do servidor: uma letra basta nas duas fontes.
+    expect(await screen.findByText('Telha fosca')).toBeDefined();
   });
 
   it('linha em branco não vira sugestão', async () => {

@@ -29,6 +29,7 @@ import {
   type DiscountType,
   type QuoteItem,
 } from './quote-totals';
+import { normalizeForSearch } from './search-key';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
@@ -128,6 +129,16 @@ function withEstimatedTotal<T extends QuotedRow>(row: T) {
   };
 }
 
+/// Uma linha de item como ela vai para o banco.
+///
+/// Existe para que a `searchKey` seja gravada nos DOIS caminhos de escrita —
+/// criar solicitação e editar o rascunho. Um item gravado sem ela ficaria
+/// invisível para o autocomplete, e ninguém relacionaria o material que não
+/// aparece com a tela em que ele foi digitado.
+function toItemRow<T extends { description: string }>(item: T): T & { searchKey: string } {
+  return { ...item, searchKey: normalizeForSearch(item.description) };
+}
+
 /// Um desconto em texto, como o histórico deve mostrá-lo: "R$ 150,00" ou
 /// "10%", nunca o par cru `discountValue: 0 → 150` — que não diz se são reais
 /// ou porcentagem, e é justamente o que a auditoria genérica produziria.
@@ -166,7 +177,7 @@ export class PurchaseRequestsService {
         requestedById: userId,
         code,
         notes: dto.notes,
-        items: { create: dto.items.map((item) => ({ ...item })) },
+        items: { create: dto.items.map(toItemRow) },
       },
     });
 
@@ -321,7 +332,7 @@ export class PurchaseRequestsService {
       if (dto.items) {
         await tx.purchaseRequestItem.deleteMany({ where: { purchaseRequestId: id } });
         await tx.purchaseRequestItem.createMany({
-          data: dto.items.map((item) => ({ ...item, purchaseRequestId: id })),
+          data: dto.items.map((item) => ({ ...toItemRow(item), purchaseRequestId: id })),
         });
       }
     });

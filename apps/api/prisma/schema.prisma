@@ -878,6 +878,21 @@ model PurchaseRequestItem {
   /// inteira (regra C-16). O service limpa o desconto nos dois casos.
   discountType       DiscountType @default(AMOUNT)
   discountValue      Decimal      @default(0) @db.Decimal(14, 2)
+  /// A DESCRIÇÃO NORMALIZADA para busca: minúsculas, sem acento, sem espaço
+  /// nas pontas. É o que o autocomplete consulta — nunca `description`.
+  ///
+  /// Existe como COLUNA, e não como expressão no índice, por dois motivos. O
+  /// Prisma não modela índice sobre expressão, então um `CREATE INDEX ... ON
+  /// (lower(...))` viraria drift em todo `migrate dev` seguinte. E uma coluna
+  /// pode ser indexada de DUAS formas ao mesmo tempo — btree para prefixo,
+  /// GIN trigram para trecho no meio —, que é o que faz a busca responder
+  /// desde a PRIMEIRA letra: um trigram não indexa padrão com menos de três
+  /// caracteres, e `LIKE 'c%'` sem btree varreria a tabela.
+  ///
+  /// `description` continua intocada: é o que a pessoa digitou e o que o
+  /// documento imprime. Esta coluna é derivada dela, gravada pelo service
+  /// (ver `normalizeForSearch`), nunca informada pelo cliente.
+  searchKey          String       @default("")
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -889,13 +904,21 @@ model PurchaseRequestItem {
 
   @@index([purchaseRequestId])
 
-  /// Índice trigram para o AUTOCOMPLETE de material na solicitação.
+  /// DOIS índices sobre `searchKey`, e cada um serve a um tipo de busca:
   ///
-  /// A sugestão busca por `contains` insensível (que vira ILIKE) sobre todas
-  /// as descrições já digitadas pela empresa. Sem este índice, cada tecla
-  /// varre a tabela inteira — e ela cresce com um item por linha de toda
-  /// solicitação já feita, que é justamente o que torna a sugestão útil.
-  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseRequestItem_description_trgm_idx")
+  ///   btree text_pattern_ops   `LIKE 'ci%'`  — PREFIXO, e vale já na 1ª letra
+  ///   GIN gin_trgm_ops         `LIKE '%ci%'` — TRECHO NO MEIO, a partir de 3
+  ///
+  /// Os dois são necessários. O trigram sozinho não atende "digite C e veja
+  /// sugestões": ele não indexa padrão com menos de três caracteres, e o
+  /// planejador cai em varredura sequencial exatamente nas duas primeiras
+  /// teclas — as mais usadas. O btree sozinho não acha "cimento" quando se
+  /// digita "mento".
+  ///
+  /// `text_pattern_ops` e não o btree padrão: com collation diferente de C, o
+  /// operador `LIKE` só usa o índice com esta classe.
+  @@index([searchKey(ops: raw("text_pattern_ops"))], map: "PurchaseRequestItem_searchKey_prefix_idx")
+  @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseRequestItem_searchKey_trgm_idx")
 
 }
 
