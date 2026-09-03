@@ -25,6 +25,13 @@ export interface ConstructionSite {
   responsibleName: string | null;
   description: string | null;
   status: ConstructionStatus;
+  /// ENDEREÇO DE ENTREGA — o que a Ordem de Compra imprime para o fornecedor.
+  /// `zipCode` vem só com dígitos, como CNPJ e telefone.
+  zipCode: string | null;
+  addressLine: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
   city: string | null;
   state: string | null;
   startDate: string | null;

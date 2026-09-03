@@ -8,7 +8,7 @@ import {
   type CompanySource,
   type DocumentColumn,
   type PrintableDocument,
-} from '../../../common/pdf/printable-document';
+  siteAddress,} from '../../../common/pdf/printable-document';
 import {
   calculateItemTotals,
   calculateQuoteTotals,
@@ -69,7 +69,19 @@ export interface PurchaseRequestSource {
   discountType: DiscountType;
   discountValue: Prisma.Decimal;
   requestedBy: { name: string };
-  constructionSite: { code: string; name: string } | null;
+  constructionSite: {
+    code: string;
+    name: string;
+    /// ENDEREÇO DE ENTREGA. O motivo de a obra ter endereço: o documento vai
+    /// ao fornecedor, e ele precisa saber onde descarregar.
+    addressLine: string | null;
+    addressNumber: string | null;
+    addressComplement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  } | null;
   costCenter: { code: string; name: string } | null;
   items: {
     description: string;
@@ -126,6 +138,10 @@ export function buildPurchaseRequestDocument(
               ? `${request.constructionSite.code} — ${request.constructionSite.name}`
               : null,
           ),
+          // O endereço acompanha a obra desde a solicitação: é o que a ordem
+          // de compra vai repetir para o fornecedor, e vê-lo aqui deixa o erro
+          // de cadastro aparecer antes de o documento sair da empresa.
+          ...field('Entregar em', siteAddress(request.constructionSite)),
           // Opcional na solicitação: quem pede pode não saber em qual centro
           // de custo o material entra, e Compras define isso na emissão da
           // Ordem. Ausente, a linha simplesmente não aparece.

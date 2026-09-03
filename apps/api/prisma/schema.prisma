@@ -624,17 +624,17 @@ model UserConstructionSite {
 
 /// Obra/canteiro de construção.
 model ConstructionSite {
-  id              String             @id @default(uuid()) @db.Uuid
-  companyId       String             @db.Uuid
-  code            String
-  name            String
-  clientName      String?
+  id                String             @id @default(uuid()) @db.Uuid
+  companyId         String             @db.Uuid
+  code              String
+  name              String
+  clientName        String?
   /// O RESPONSÁVEL pela obra, como USUÁRIO do sistema.
   ///
   /// Escolhê-lo aqui é o que dá a ele a obra no Diário: o vínculo em
   /// `UserConstructionSite` nasce junto, sem uma segunda tela. Era a lacuna
   /// que fazia uma obra recém-cadastrada não aparecer para ninguém.
-  responsibleId   String?            @db.Uuid
+  responsibleId     String?            @db.Uuid
   /// O nome, mantido ao lado do vínculo e não derivado dele.
   ///
   /// Duas razões: as obras cadastradas antes disto têm um nome digitado e
@@ -644,20 +644,37 @@ model ConstructionSite {
   /// antigo mudar de conteúdo quando a pessoa trocasse de sobrenome.
   ///
   /// Quando um usuário é escolhido, o nome é gravado a partir dele.
-  responsibleName String?
-  description     String?
-  status          ConstructionStatus @default(PLANNING)
-  addressLine     String?
-  city            String?
-  state           String?            @db.VarChar(2)
-  zipCode         String?            @db.VarChar(8)
-  startDate       DateTime?
-  expectedEndDate DateTime?
-  actualEndDate   DateTime?
-  budgetAmount    Decimal?           @db.Decimal(14, 2)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  deletedAt       DateTime?
+  responsibleName   String?
+  description       String?
+  status            ConstructionStatus @default(PLANNING)
+  /// ENDEREÇO DE ENTREGA da obra.
+  ///
+  /// `addressLine`, `city`, `state` e `zipCode` já existiam; o formulário só
+  /// expunha cidade e UF, então na prática o endereço nunca era preenchido.
+  /// Número, complemento e bairro entram agora porque sem eles o endereço não
+  /// serve ao que motiva existir: o fornecedor precisa saber ONDE descarregar,
+  /// e "Avenida Central, Goiânia" não é um lugar.
+  ///
+  /// Mesma decomposição já usada em `Company` e `Supplier` — um único campo de
+  /// texto livre pareceria mais simples e impediria formatar o endereço nos
+  /// documentos sem inventar vírgula onde falta dado (ver `joinAddress`).
+  ///
+  /// Tudo opcional: as obras já cadastradas não têm endereço, e exigi-lo
+  /// travaria a edição de qualquer uma delas.
+  addressLine       String?
+  addressNumber     String?
+  addressComplement String?
+  neighborhood      String?
+  city              String?
+  state             String?            @db.VarChar(2)
+  zipCode           String?            @db.VarChar(8)
+  startDate         DateTime?
+  expectedEndDate   DateTime?
+  actualEndDate     DateTime?
+  budgetAmount      Decimal?           @db.Decimal(14, 2)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?
 
   company             Company                @relation(fields: [companyId], references: [id])
   responsible         User?                  @relation("ConstructionSiteResponsible", fields: [responsibleId], references: [id])
@@ -903,7 +920,6 @@ model PurchaseRequestItem {
   purchaseOrderItems PurchaseOrderItem[]
 
   @@index([purchaseRequestId])
-
   /// DOIS índices sobre `searchKey`, e cada um serve a um tipo de busca:
   ///
   ///   btree text_pattern_ops   `LIKE 'ci%'`  — PREFIXO, e vale já na 1ª letra
@@ -919,7 +935,6 @@ model PurchaseRequestItem {
   /// operador `LIKE` só usa o índice com esta classe.
   @@index([searchKey(ops: raw("text_pattern_ops"))], map: "PurchaseRequestItem_searchKey_prefix_idx")
   @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "PurchaseRequestItem_searchKey_trgm_idx")
-
 }
 
 /// Pedido de compra emitido a um fornecedor a partir de uma requisição
@@ -1026,11 +1041,11 @@ model PurchaseOrderItem {
   /// e comprar 80 (o resto em outra ordem, ou nunca) é compra parcial, e o
   /// modelo precisa aceitá-la — o controle de saldo da solicitação é etapa
   /// posterior, mas o dado que ele vai precisar nasce aqui.
-  quantity   Decimal @db.Decimal(12, 3)
+  quantity      Decimal      @db.Decimal(12, 3)
   /// Preço NEGOCIADO com o fornecedor. Nasce sugerido pela cotação
   /// (`PurchaseRequestItem.estimatedUnitPrice`) e pode divergir dela — a
   /// cotação é estimativa, esta é a compra.
-  unitPrice  Decimal @db.Decimal(14, 2)
+  unitPrice     Decimal      @db.Decimal(14, 2)
   /// DESCONTO DESTA LINHA, sobre `quantity × unitPrice`. Copiado da linha
   /// correspondente da solicitação ao gerar a ordem, e editável depois.
   ///
@@ -1048,7 +1063,7 @@ model PurchaseOrderItem {
   ///
   /// Era `quantity × unitPrice` puro antes de a ordem ter desconto. As linhas
   /// antigas continuam corretas: desconto zero deixa a conta idêntica.
-  totalPrice Decimal @db.Decimal(14, 2)
+  totalPrice    Decimal      @db.Decimal(14, 2)
 
   notes String?
 

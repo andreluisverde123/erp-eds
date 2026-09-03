@@ -17,7 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { buildFinancialStatus, type PurchaseOrderFinancialStatus } from './financial-status.util';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
-import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
+import { COMPANY_HEADER_SELECT, SITE_ADDRESS_SELECT } from '../../common/pdf/printable-document';
 import { loadCompanyLogo } from '../../common/pdf/company-logo';
 import { StorageService } from '../../storage/storage.module';
 import { buildPurchaseOrderDocument } from './pdf/purchase-order-document';
@@ -65,7 +65,7 @@ const pdfArgs = Prisma.validator<Prisma.PurchaseOrderDefaultArgs>()({
   include: {
     supplier: true,
     purchaseRequest: { select: { code: true, notes: true } },
-    constructionSite: { select: { code: true, name: true } },
+    constructionSite: { select: SITE_ADDRESS_SELECT },
     costCenter: { select: { code: true, name: true } },
     /// Quem emitiu — assina o documento.
     createdBy: { select: { name: true } },

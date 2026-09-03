@@ -7,6 +7,7 @@ import {
   FormLabel,
   FormMessage,
   Input,
+  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -216,6 +217,95 @@ export function ConstructionSiteFormFields({
         />
 
         <SiteResponsibleField control={control} />
+      </div>
+
+      {/* ENDEREÇO DE ENTREGA.
+          
+          Vem antes de Cidade/UF, que já existiam soltas, para que o bloco se
+          leia na ordem em que um endereço é escrito: CEP, rua, número,
+          complemento, bairro, cidade. É este endereço que a Ordem de Compra
+          imprime — é por ele que o fornecedor sabe onde descarregar. */}
+      <div className="flex flex-col gap-1">
+        <Label>Endereço de entrega</Label>
+        <p className="text-xs text-muted-foreground">
+          Sai impresso na Ordem de Compra, para o fornecedor saber onde entregar o material.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-[auto_1fr_auto] gap-4">
+        <FormField
+          control={control}
+          name="zipCode"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>CEP</FormLabel>
+              <FormControl>
+                <Input placeholder="74000-000" inputMode="numeric" className="w-32" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="addressLine"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Logradouro</FormLabel>
+              <FormControl>
+                <Input placeholder="Avenida Central" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="addressNumber"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Número</FormLabel>
+              <FormControl>
+                <Input placeholder="1000" className="w-24" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          control={control}
+          name="addressComplement"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                Complemento <span className="font-normal text-muted-foreground">(opcional)</span>
+              </FormLabel>
+              <FormControl>
+                <Input placeholder="Portão B, fundos" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="neighborhood"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Bairro</FormLabel>
+              <FormControl>
+                <Input placeholder="Setor Central" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
       </div>
 
       <div className="grid grid-cols-[1fr_auto] gap-4">

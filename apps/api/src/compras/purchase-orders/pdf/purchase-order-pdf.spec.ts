@@ -672,3 +672,103 @@ describe('Logo e escopo do documento da ordem de compra', () => {
     });
   });
 });
+
+/// ENDEREÇO DE ENTREGA e TAMANHO DA MARCA.
+///
+/// A obra ganhou endereço por um motivo operacional: a ordem vai ao
+/// fornecedor, e ele precisa saber onde descarregar o material.
+describe('Endereço de entrega e proporção do logo', () => {
+  const OBRA_COM_ENDERECO = {
+    code: 'OBRA-1',
+    name: 'Residencial Paineiras',
+    addressLine: 'RUA DAS ACÁCIAS',
+    addressNumber: '450',
+    addressComplement: 'PORTÃO B',
+    neighborhood: 'JARDIM AMÉRICA',
+    city: 'GOIÂNIA',
+    state: 'GO',
+    zipCode: '74000123',
+  };
+
+  function origem(documento: ReturnType<typeof buildPurchaseOrderDocument>) {
+    return documento.footer?.fields.find((f) => f.label === 'Entregar em')?.value;
+  }
+
+  it('imprime o endereço completo, com o CEP formatado', () => {
+    const documento = buildPurchaseOrderDocument(
+      order({ constructionSite: OBRA_COM_ENDERECO }),
+      EMPRESA_COMPLETA,
+    );
+
+    expect(origem(documento)).toBe(
+      'RUA DAS ACÁCIAS, 450, PORTÃO B, JARDIM AMÉRICA, GOIÂNIA, GO, 74000-123',
+    );
+  });
+
+  it('obra sem número não sai com vírgula dupla', () => {
+    // A regra de "não inventar informação" aplicada ao endereço: campo ausente
+    // some, nunca vira "RUA X, , CENTRO".
+    const documento = buildPurchaseOrderDocument(
+      order({
+        constructionSite: { ...OBRA_COM_ENDERECO, addressNumber: null, addressComplement: null },
+      }),
+      EMPRESA_COMPLETA,
+    );
+
+    expect(origem(documento)).toBe('RUA DAS ACÁCIAS, JARDIM AMÉRICA, GOIÂNIA, GO, 74000-123');
+    expect(origem(documento)).not.toContain(', ,');
+  });
+
+  it('obra SEM endereço não imprime a linha', () => {
+    // É o caso das obras cadastradas antes deste campo. Um rótulo
+    // "Entregar em:" seguido de nada é pior que a ausência.
+    const documento = buildPurchaseOrderDocument(
+      order({
+        constructionSite: {
+          code: 'OBRA-9',
+          name: 'Obra antiga',
+          addressLine: null,
+          addressNumber: null,
+          addressComplement: null,
+          neighborhood: null,
+          city: null,
+          state: null,
+          zipCode: null,
+        },
+      }),
+      EMPRESA_COMPLETA,
+    );
+
+    expect(origem(documento)).toBeUndefined();
+    // A obra em si continua identificada.
+    expect(documento.footer?.fields.some((f) => f.label === 'Obra')).toBe(true);
+  });
+
+  it('ordem sem obra nenhuma segue imprimindo', () => {
+    const documento = buildPurchaseOrderDocument(
+      order({ constructionSite: null }),
+      EMPRESA_COMPLETA,
+    );
+
+    expect(origem(documento)).toBeUndefined();
+  });
+
+  it('o logo ocupa mais espaço no PDF do que antes do ajuste', async () => {
+    // A caixa passou de 96×40 para 150×72, e o recuo do texto deixou de ser
+    // fixo: ele agora acompanha a LARGURA REAL da marca. Uma marca estreita
+    // deixava um rombo no cabeçalho e parecia menor do que é.
+    //
+    // O que dá para afirmar sem medir pixel: o documento com logo é maior que
+    // o mesmo documento sem, e continua cabendo em uma página.
+    const { buffer, pageCount } = await renderDocumentPdf(
+      buildPurchaseOrderDocument(
+        order({ constructionSite: OBRA_COM_ENDERECO }),
+        EMPRESA_COMPLETA,
+        PNG_1X1,
+      ),
+    );
+
+    expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(pageCount).toBe(1);
+  });
+});

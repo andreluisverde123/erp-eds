@@ -16,7 +16,7 @@ import { aggregateFulfillment, type RequestFulfillment } from '../fulfillment';
 import { FulfillmentService } from '../fulfillment.service';
 import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
-import { COMPANY_HEADER_SELECT } from '../../common/pdf/printable-document';
+import { COMPANY_HEADER_SELECT, SITE_ADDRESS_SELECT } from '../../common/pdf/printable-document';
 import { loadCompanyLogo } from '../../common/pdf/company-logo';
 import { StorageService } from '../../storage/storage.module';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -70,7 +70,7 @@ const detailArgs = Prisma.validator<Prisma.PurchaseRequestDefaultArgs>()({
 /// e evita carregar o `auditLog` inteiro só para imprimir uma folha.
 const pdfArgs = Prisma.validator<Prisma.PurchaseRequestDefaultArgs>()({
   include: {
-    constructionSite: { select: { code: true, name: true } },
+    constructionSite: { select: SITE_ADDRESS_SELECT },
     costCenter: { select: { code: true, name: true } },
     requestedBy: { select: { name: true } },
     items: { orderBy: { createdAt: 'asc' } },

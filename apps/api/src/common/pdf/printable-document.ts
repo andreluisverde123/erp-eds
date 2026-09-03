@@ -220,8 +220,56 @@ export function buildCompanyHeader(
   };
 }
 
+/// O ENDEREÇO DE ENTREGA da obra, em uma linha.
+///
+/// Mora aqui, e não em cada documento, porque a Solicitação e a Ordem de
+/// Compra precisam imprimir exatamente o mesmo texto: o fornecedor recebe a
+/// ordem e o almoxarife confere contra a solicitação, e dois endereços
+/// formatados de jeitos diferentes para o mesmo lugar geram ligação.
+///
+/// `joinAddress` pula o que não existe, então obra com rua e cidade e sem
+/// número sai "RUA X, CENTRO, GOIÂNIA, GO" — nunca "RUA X, , CENTRO".
+/// Devolve `null` quando não há nada, e aí a linha some do documento.
+export function siteAddress(
+  site: {
+    addressLine: string | null;
+    addressNumber: string | null;
+    addressComplement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  } | null,
+): string | null {
+  if (!site) return null;
+
+  return joinAddress([
+    site.addressLine,
+    site.addressNumber,
+    site.addressComplement,
+    site.neighborhood,
+    joinAddress([site.city, site.state]),
+    formatZipCode(site.zipCode),
+  ]);
+}
+
 /// Campos que o Prisma seleciona para montar `CompanySource`. Um só lugar
 /// para todo documento — antes cada `generatePdf` repetia a lista.
+/// Colunas da obra que os documentos precisam. Um só lugar — antes cada
+/// `generatePdf` listava as suas, e acrescentar um campo de endereço exigia
+/// lembrar de mudar os dois.
+export const SITE_ADDRESS_SELECT = {
+  code: true,
+  name: true,
+  addressLine: true,
+  addressNumber: true,
+  addressComplement: true,
+  neighborhood: true,
+  city: true,
+  state: true,
+  zipCode: true,
+} as const;
+
 export const COMPANY_HEADER_SELECT = {
   legalName: true,
   /// A CHAVE do arquivo no storage, não os bytes. Quem os carrega é

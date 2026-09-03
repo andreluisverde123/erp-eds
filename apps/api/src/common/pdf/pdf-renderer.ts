@@ -113,9 +113,9 @@ function fitTitleSize(doc: Doc, title: string, width: number): number {
 /// Caixa reservada ao logo, em pontos. O desenho usa `fit`, então a imagem
 /// entra INTEIRA nesta caixa preservando a proporção — uma marca quadrada e
 /// uma deitada saem as duas corretas, sem esticar nenhuma.
-const LOGO_BOX = { width: 96, height: 40 };
+const LOGO_BOX = { width: 150, height: 72 };
 /// Respiro entre o logo e o texto do cabeçalho.
-const LOGO_GAP = 10;
+const LOGO_GAP = 12;
 
 /// Desenha o logo e devolve quanto o texto do cabeçalho precisa recuar.
 ///
@@ -126,36 +126,78 @@ const LOGO_GAP = 10;
 /// `loadCompanyLogo` não decodifica a imagem (só confere a extensão): um PNG
 /// corrompido passa pela peneira e explodiria aqui. Um documento sem logo é
 /// aceitável; uma ordem de compra que não imprime, não.
-function drawCompanyLogo(doc: Doc, document: PrintableDocument, left: number, top: number): number {
-  if (!document.companyLogo) return 0;
+/// As dimensões da imagem, em pixels.
+///
+/// `openImage` existe no pdfkit desde sempre (é o que o próprio `image()` usa
+/// por dentro), mas NÃO está declarado em `@types/pdfkit`. O elenco é estreito
+/// de propósito: expõe só `width` e `height`, que é tudo que a conta precisa,
+/// em vez de afrouxar o tipo do documento inteiro.
+function medirImagem(doc: Doc, src: Buffer): { width: number; height: number } {
+  return (doc as unknown as { openImage(src: Buffer): { width: number; height: number } })
+    .openImage(src);
+}
+
+function drawCompanyLogo(
+  doc: Doc,
+  document: PrintableDocument,
+  left: number,
+  top: number,
+): { recuo: number; altura: number } {
+  const nada = { recuo: 0, altura: 0 };
+  if (!document.companyLogo) return nada;
 
   try {
+    // A LARGURA REAL da marca, e não a da caixa reservada.
+    //
+    // `fit` encaixa a imagem preservando a proporção, então uma marca deitada
+    // usa a largura toda e uma quadrada usa bem menos. Reservar sempre
+    // `LOGO_BOX.width` empurrava o texto para longe de uma marca estreita — o
+    // cabeçalho ficava com um rombo no meio e a logo parecia menor do que é.
+    //
+    // `openImage` lê só o cabeçalho do arquivo; a imagem em si é desenhada uma
+    // vez só, logo abaixo.
+    const imagem = medirImagem(doc, document.companyLogo);
+    const escala = Math.min(LOGO_BOX.width / imagem.width, LOGO_BOX.height / imagem.height);
+    const largura = imagem.width * escala;
+    const altura = imagem.height * escala;
+
     doc.image(document.companyLogo, left, top, {
       // Sem `align`/`valign`: os tipos do pdfkit só aceitam os valores que
       // DESVIAM do padrão, e o padrão já é topo-esquerda — que é onde a marca
       // deve ficar, encostada no nome da empresa.
       fit: [LOGO_BOX.width, LOGO_BOX.height],
     });
-    return LOGO_BOX.width + LOGO_GAP;
+
+    return { recuo: largura + LOGO_GAP, altura };
   } catch {
-    return 0;
+    return nada;
   }
 }
 
 function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, width: number) {
-  const titleWidth = width * 0.38;
+  // 0,32 e não 0,38: a coluna da direita guarda só o título e o número, e
+  // "ORDEM DE COMPRA" a 15pt não chega a 155pt. O que sobra vai para o nome da
+  // empresa, que passou a dividir a esquerda com um logo maior. Título que não
+  // couber continua encolhendo sozinho (`fitTitleSize`).
+  const titleWidth = width * 0.32;
   const top = doc.y;
 
   // O logo ocupa a esquerda e EMPURRA o texto — não fica atrás dele. O recuo
   // sai do próprio desenho para que "sem logo" continue produzindo exatamente
   // o cabeçalho anterior, e não uma versão com espaço sobrando.
-  const recuo = drawCompanyLogo(doc, document, left, top);
+  const { recuo, altura: alturaDoLogo } = drawCompanyLogo(doc, document, left, top);
   const textLeft = left + recuo;
   const infoWidth = width - titleWidth - 12 - recuo;
 
-  doc.font(FONT_BOLD).fontSize(15).fillColor(BLACK).text(document.companyName, textLeft, top, {
-    width: infoWidth,
-  });
+  // O NOME DA EMPRESA encolhe para caber em UMA linha, pela mesma razão e com
+  // a mesma função do título: com o logo maior, "EDS CONSTRUTORA LTDA"
+  // quebrava em duas linhas a 15pt e o cabeçalho ficava desalinhado do bloco
+  // do título. Razão social longa cabe encolhendo; nenhuma some.
+  doc
+    .font(FONT_BOLD)
+    .fillColor(BLACK)
+    .fontSize(fitTitleSize(doc, document.companyName, infoWidth));
+  doc.text(document.companyName, textLeft, top, { width: infoWidth });
 
   doc.font(FONT).fontSize(8).fillColor(GRAY);
   for (const item of document.companyFields) {
@@ -165,7 +207,9 @@ function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, 
   // O bloco do cabeçalho é o mais ALTO entre o texto e o logo: com poucos
   // campos cadastrados o texto termina acima da caixa do logo, e sem isto a
   // linha divisória cortaria a marca ao meio.
-  const afterCompany = Math.max(doc.y, document.companyLogo ? top + LOGO_BOX.height : 0);
+  // A ALTURA DESENHADA, não a da caixa: uma marca baixa não pode inflar o
+  // cabeçalho com espaço que ela não ocupa.
+  const afterCompany = Math.max(doc.y, top + alturaDoLogo);
 
   // Título e número alinhados à direita, na altura do topo do cabeçalho.
   //

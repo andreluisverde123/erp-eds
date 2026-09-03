@@ -12,7 +12,7 @@ import {
   type CompanySource,
   type DocumentColumn,
   type PrintableDocument,
-} from '../../../common/pdf/printable-document';
+  siteAddress,} from '../../../common/pdf/printable-document';
 
 /// Montagem do conteúdo do PDF da Ordem de Compra.
 ///
@@ -91,7 +91,19 @@ export interface PurchaseOrderSource {
     email: string | null;
   };
   purchaseRequest: { code: string; notes: string | null };
-  constructionSite: { code: string; name: string } | null;
+  constructionSite: {
+    code: string;
+    name: string;
+    /// ENDEREÇO DE ENTREGA. O motivo de a obra ter endereço: o documento vai
+    /// ao fornecedor, e ele precisa saber onde descarregar.
+    addressLine: string | null;
+    addressNumber: string | null;
+    addressComplement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  } | null;
   /// Opcional: a ordem pode sair sem atribuição de custo quando a
   /// solicitação de origem também não tinha.
   costCenter: { code: string; name: string } | null;
@@ -204,6 +216,10 @@ export function buildPurchaseOrderDocument(
             ? `${order.constructionSite.code} — ${order.constructionSite.name}`
             : null,
         ),
+        // O ENDEREÇO DE ENTREGA, logo abaixo da obra que ele localiza. Some
+        // quando a obra não tem endereço cadastrado — um rótulo "Entregar em:"
+        // seguido de nada seria pior que a ausência.
+        ...field('Entregar em', siteAddress(order.constructionSite)),
         // Sem centro de custo a LINHA some, em vez de sair com um traço: numa
         // lista de origem, um campo vazio parece dado que faltou carregar.
         ...(order.costCenter

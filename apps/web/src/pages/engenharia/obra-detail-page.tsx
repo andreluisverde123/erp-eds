@@ -51,6 +51,33 @@ function SummaryStat({
   );
 }
 
+/// O endereço da obra em uma linha, pulando o que não foi preenchido.
+///
+/// Espelha `siteAddress` do backend, que monta a mesma frase para o PDF. As
+/// duas precisam concordar: quem confere a Ordem de Compra contra a tela não
+/// pode ver dois endereços diferentes para o mesmo lugar.
+function enderecoDaObra(site: {
+  addressLine: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+}): string | null {
+  const cep = site.zipCode?.replace(/^(\d{5})(\d{3})$/, '$1-$2') ?? null;
+  const partes = [
+    site.addressLine,
+    site.addressNumber,
+    site.addressComplement,
+    site.neighborhood,
+    [site.city, site.state].filter(Boolean).join(', ') || null,
+    cep,
+  ].filter((parte): parte is string => Boolean(parte?.trim()));
+
+  return partes.length > 0 ? partes.join(', ') : null;
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
@@ -200,6 +227,12 @@ export function ObraDetailPage() {
               label="Cidade / UF"
               value={site.city ? `${site.city}${site.state ? ` - ${site.state}` : ''}` : '—'}
             />
+            {/* O ENDEREÇO DE ENTREGA, na mesma leitura que sai impressa na
+                Ordem de Compra. Ocupa a linha inteira porque é uma frase, não
+                um par curto — e é o dado que o fornecedor vai usar. */}
+            <div className="sm:col-span-2 lg:col-span-4">
+              <InfoRow label="Endereço de entrega" value={enderecoDaObra(site) ?? '—'} />
+            </div>
           </div>
           {site.description && (
             <>

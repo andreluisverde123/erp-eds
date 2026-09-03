@@ -7,6 +7,7 @@ import {
   IsString,
   IsUppercase,
   Length,
+  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -28,10 +29,40 @@ export class CreateConstructionSiteDto {
   @MaxLength(150)
   clientName?: string;
 
+  /// ENDEREÇO DE ENTREGA. Todos opcionais — as obras já cadastradas não têm
+  /// endereço, e exigi-lo travaria a edição delas. É o endereço que sai
+  /// impresso na ordem de compra para o fornecedor.
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  addressLine?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  addressNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  addressComplement?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  neighborhood?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(100)
   city?: string;
+
+  /// Só dígitos. O front tira a máscara antes de enviar — o mesmo tratamento
+  /// que CNPJ e telefone já recebem (ver `document.util.ts`).
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{8}$/, { message: 'O CEP deve ter 8 dígitos.' })
+  zipCode?: string;
 
   @IsOptional()
   @IsString()

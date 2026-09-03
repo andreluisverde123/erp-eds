@@ -36,6 +36,12 @@ function siteToFormValues(site: ConstructionSite): ConstructionSiteFormValues {
     code: site.code,
     name: site.name,
     clientName: site.clientName ?? '',
+    // O CEP volta do banco só com dígitos; a máscara é remontada na tela.
+    zipCode: site.zipCode ? site.zipCode.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '',
+    addressLine: site.addressLine ?? '',
+    addressNumber: site.addressNumber ?? '',
+    addressComplement: site.addressComplement ?? '',
+    neighborhood: site.neighborhood ?? '',
     city: site.city ?? '',
     state: site.state ?? '',
     startDate: toDateInputValue(site.startDate),
