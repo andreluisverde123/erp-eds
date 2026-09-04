@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { loadCompanyLogo } from '../../../common/pdf/company-logo';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StorageService } from '../../../storage/storage.module';
 import { DailyReportsService } from '../daily-reports.service';
@@ -38,13 +39,19 @@ export class RdoPdfService {
 
     const empresa = await this.prisma.company.findUniqueOrThrow({
       where: { id: companyId },
-      select: { tradeName: true, legalName: true },
+      // `logoUrl` é a CHAVE do arquivo, não os bytes — quem os lê é
+      // `loadCompanyLogo`, logo abaixo.
+      select: { tradeName: true, legalName: true, logoUrl: true },
     });
 
     const view = buildRdoPdfView(report, empresa.tradeName ?? empresa.legalName);
     const fotos = await this.carregarFotos(reportId, view.fotos);
+    // Falha na leitura devolve `null` e o RDO sai sem marca, como saía antes.
+    // O documento é o registro legal do dia na obra: um enfeite não pode
+    // impedir a exportação.
+    const logo = await loadCompanyLogo(this.storage, empresa.logoUrl);
 
-    const bytes = await renderRdoPdf({ view, fotos });
+    const bytes = await renderRdoPdf({ view, fotos, logo });
     return { bytes, nomeArquivo: view.nomeArquivo };
   }
 

@@ -35,6 +35,13 @@ export interface FotoCarregada {
 export interface RdoPdfEntrada {
   readonly view: RdoPdfView;
   readonly fotos: readonly FotoCarregada[];
+  /// Bytes do logo da empresa (PNG ou JPEG), quando houver.
+  ///
+  /// `Buffer` já resolvido, e não a chave do storage: a montagem da view é
+  /// pura e não faz I/O. Quem lê os bytes é o `RdoPdfService`, com o mesmo
+  /// `loadCompanyLogo` que os documentos de Compras usam — inclusive a recusa
+  /// de WEBP, que o pdfkit não desenha.
+  readonly logo?: Buffer | null;
 }
 
 type Doc = PDFKit.PDFDocument;
@@ -67,7 +74,7 @@ export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
   desenharCabecalhoCorrido(doc, view, esquerda, largura);
   let y = MARGEM + 16;
 
-  y = desenharIdentificacao(doc, view, esquerda, largura, y);
+  y = desenharIdentificacao(doc, entrada, esquerda, largura, y);
   y = desenharClima(doc, view, esquerda, largura, y + 6);
   y = desenharJornada(doc, view, esquerda, largura, y + 6);
   y = desenharContagens(doc, `Mão de obra (${view.maoDeObraTotal})`, view.maoDeObra, esquerda, largura, y + 6);
@@ -94,6 +101,41 @@ export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
 // ---------------------------------------------------------------------------
 // Primitivas
 // ---------------------------------------------------------------------------
+
+/// Caixa reservada à marca no cabeçalho, em pontos. Baixa de propósito: o RDO
+/// é um documento denso, e cada ponto gasto aqui sai da tabela.
+const MARCA_CAIXA = { largura: 104, altura: 34 };
+/// Respiro entre a marca e o nome da empresa.
+const MARCA_GAP = 10;
+
+/// Desenha a marca e devolve quanto o texto precisa recuar.
+///
+/// Devolve `0` sem logo — e é o que mantém o cabeçalho centralizado de sempre
+/// para empresa sem marca cadastrada, sem um segundo caminho de desenho.
+///
+/// O `try` existe porque o pdfkit LANÇA ao receber bytes que não sabe ler, e
+/// quem carregou o arquivo confere a extensão, não o conteúdo: um PNG
+/// corrompido chega até aqui. Um RDO sem marca é aceitável; um RDO que não
+/// imprime, não — e este documento é o registro legal do dia na obra.
+function desenharMarca(doc: Doc, logo: Buffer | null | undefined, x: number, y: number): number {
+  if (!logo) return 0;
+
+  try {
+    const imagem = (
+      doc as unknown as { openImage(src: Buffer): { width: number; height: number } }
+    ).openImage(logo);
+    const escala = Math.min(
+      MARCA_CAIXA.largura / imagem.width,
+      MARCA_CAIXA.altura / imagem.height,
+    );
+    const larguraReal = imagem.width * escala;
+
+    doc.image(logo, x, y, { fit: [MARCA_CAIXA.largura, MARCA_CAIXA.altura] });
+    return larguraReal + MARCA_GAP;
+  } catch {
+    return 0;
+  }
+}
 
 function caixa(doc: Doc, x: number, y: number, w: number, h: number, preenchimento?: string) {
   if (preenchimento) doc.rect(x, y, w, h).fill(preenchimento);
@@ -169,7 +211,14 @@ function desenharCabecalhoCorrido(doc: Doc, view: RdoPdfView, x: number, largura
 }
 
 /// Bloco de identificação: marca e título à esquerda, metadados à direita.
-function desenharIdentificacao(doc: Doc, view: RdoPdfView, x: number, largura: number, y0: number): number {
+function desenharIdentificacao(
+  doc: Doc,
+  entrada: RdoPdfEntrada,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
+  const { view } = entrada;
   const larguraDireita = largura * 0.36;
   const larguraEsquerda = largura - larguraDireita;
   const xDireita = x + larguraEsquerda;
@@ -178,16 +227,31 @@ function desenharIdentificacao(doc: Doc, view: RdoPdfView, x: number, largura: n
   const alturaEsquerda = 34 + 14 + view.identificacao.length * ALTURA_LINHA;
   const altura = Math.max(alturaEsquerda, alturaDireita);
 
-  // Marca: tipografia, não imagem. A empresa não tem logo em formato que o
-  // pdfkit embuta (o do app é SVG, que exigiria dependência nova), e desenhar
-  // um substituto seria criar uma marca que não existe.
-  doc.font(FONTE_BOLD).fontSize(16).fillColor(TINTA).text(view.empresa.toUpperCase(), x, y0 + 8, {
-    width: larguraEsquerda,
-    align: 'center',
-    lineBreak: false,
-  });
-  doc.font(FONTE_BOLD).fontSize(9.5).text(view.titulo, x, y0 + 30, {
-    width: larguraEsquerda,
+  // A MARCA, quando a empresa tem uma cadastrada.
+  //
+  // Até aqui era só tipografia, e o comentário anterior explicava por quê: não
+  // havia logo em formato que o pdfkit embutisse. Deixou de ser verdade —
+  // `Company.logoUrl` guarda um PNG ou JPEG desde que o upload passou a existir
+  // em Configurações > Empresa, e os documentos de Compras já o imprimem.
+  //
+  // Fica à ESQUERDA, e o nome continua centralizado no que sobra: o bloco de
+  // identificação é centrado por desenho, e empurrar tudo para a direita
+  // desalinharia as quatro linhas de baixo (Obra, Local, Contratante,
+  // Responsável), que nascem em `x`.
+  const recuo = desenharMarca(doc, entrada.logo, x, y0 + 6);
+  const larguraDoNome = larguraEsquerda - recuo;
+
+  doc
+    .font(FONTE_BOLD)
+    .fontSize(16)
+    .fillColor(TINTA)
+    .text(view.empresa.toUpperCase(), x + recuo, y0 + 8, {
+      width: larguraDoNome,
+      align: 'center',
+      lineBreak: false,
+    });
+  doc.font(FONTE_BOLD).fontSize(9.5).text(view.titulo, x + recuo, y0 + 30, {
+    width: larguraDoNome,
     align: 'center',
     lineBreak: false,
   });
