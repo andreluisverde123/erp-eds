@@ -8,7 +8,11 @@ import {
   type CompanySource,
   type PurchaseOrderSource,
 } from './purchase-order-document';
-import { measureRowHeight, renderDocumentPdf } from '../../../common/pdf/pdf-renderer';
+import {
+  alturaAlvoDoLogo,
+  measureRowHeight,
+  renderDocumentPdf,
+} from '../../../common/pdf/pdf-renderer';
 import { PNG_1X1 } from '../../../common/pdf/png-1x1.fixture';
 import type { PrintableDocument } from '../../../common/pdf/printable-document';
 import { PURCHASE_ORDER_COLUMNS } from './purchase-order-document';
@@ -770,5 +774,49 @@ describe('Endereço de entrega e proporção do logo', () => {
 
     expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     expect(pageCount).toBe(1);
+  });
+});
+
+/// O TAMANHO DA MARCA quando a empresa tem pouco cadastro.
+///
+/// Defeito real, encontrado numa OC de verdade (OC-0030): a marca acompanha a
+/// altura do bloco de texto, e a `Company` do staging tem só a razão social
+/// preenchida — uma linha, ~15pt. A logo saiu com 15pt de altura,
+/// microscópica. "Quanto menos dados cadastrados, menor a logo" não era regra;
+/// era efeito colateral.
+describe('Piso da altura do logo', () => {
+  it('empresa de UMA linha não espreme a marca', () => {
+    // Uma linha de razão social a 15pt. Sem o piso, a marca teria 15pt.
+    expect(alturaAlvoDoLogo(15)).toBe(48);
+  });
+
+  it('empresa sem campo nenhum também não', () => {
+    expect(alturaAlvoDoLogo(0)).toBe(48);
+  });
+
+  it('cadastro completo faz a marca ALINHAR com o texto', () => {
+    // É o comportamento que o piso não pode ter atropelado: com texto alto, a
+    // marca acompanha, e as duas colunas terminam juntas.
+    expect(alturaAlvoDoLogo(64)).toBe(64);
+  });
+
+  it('o teto impede a marca de estourar o cabeçalho', () => {
+    // Empresa com endereço longo quebrando em várias linhas.
+    expect(alturaAlvoDoLogo(200)).toBe(72);
+  });
+
+  it('o piso nunca fica acima do teto', () => {
+    // Guarda contra alguém trocar as constantes e inverter a faixa.
+    expect(alturaAlvoDoLogo(0)).toBeLessThanOrEqual(alturaAlvoDoLogo(999));
+  });
+
+  it('o PDF de uma empresa só com razão social sai válido e com a marca', async () => {
+    const documento = buildPurchaseOrderDocument(order(), EMPRESA_VAZIA, PNG_1X1);
+
+    const { buffer, pageCount } = await renderDocumentPdf(documento);
+
+    expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(pageCount).toBe(1);
+    expect(documento.companyLogo).toEqual(PNG_1X1);
   });
 });

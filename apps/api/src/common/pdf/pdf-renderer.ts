@@ -120,6 +120,28 @@ function fitTitleSize(doc: Doc, title: string, width: number): number {
 /// sobra, e a largura que sobra dependeria da marca. Fixando o teto de largura
 /// primeiro, o texto tem largura conhecida antes de a marca ser dimensionada.
 const LOGO_MAX_WIDTH_RATIO = 0.2;
+/// PISO e TETO da altura da marca, em pontos.
+///
+/// O piso existe por um defeito real: a marca acompanha a altura do bloco de
+/// texto, e a `Company` do staging tem só a razão social preenchida — uma
+/// linha, ~15pt. A marca foi espremida para 15pt e saiu microscópica na ordem
+/// de compra. "Quanto menos dados cadastrados, menor a logo" não é regra
+/// nenhuma; era efeito colateral.
+///
+/// Com o piso, a marca ALINHA com o texto quando ele é alto e mantém tamanho
+/// próprio quando ele é curto. O teto impede que uma empresa com cadastro
+/// muito completo empurre a marca para além do cabeçalho.
+const LOGO_MIN_HEIGHT = 48;
+const LOGO_MAX_HEIGHT = 72;
+
+/// A altura que a marca deve ter, dada a altura do bloco de texto ao lado.
+///
+/// Exportada para ser testável: o defeito que ela corrige — marca espremida
+/// porque a empresa só tem a razão social cadastrada — é invisível num teste
+/// que só confira se o PDF abre.
+export function alturaAlvoDoLogo(alturaDoTexto: number): number {
+  return Math.min(Math.max(alturaDoTexto, LOGO_MIN_HEIGHT), LOGO_MAX_HEIGHT);
+}
 /// Respiro entre o logo e o texto do cabeçalho.
 const LOGO_GAP = 12;
 
@@ -172,8 +194,9 @@ function drawCompanyLogo(
   top: number,
   maxWidth: number,
   targetHeight: number,
-): number {
-  if (!document.companyLogo) return 0;
+): { largura: number; altura: number } {
+  const nada = { largura: 0, altura: 0 };
+  if (!document.companyLogo) return nada;
 
   try {
     const imagem = medirImagem(doc, document.companyLogo);
@@ -191,9 +214,9 @@ function drawCompanyLogo(
       fit: [largura, altura],
     });
 
-    return largura;
+    return { largura, altura };
   } catch {
-    return 0;
+    return nada;
   }
 }
 
@@ -219,7 +242,18 @@ function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, 
   const infoWidth = width - titleWidth - 12 - reserva;
 
   const alturaDoBloco = alturaDoTexto(doc, document, infoWidth);
-  const larguraDoLogo = drawCompanyLogo(doc, document, left, top, larguraMaxDoLogo, alturaDoBloco);
+  // A altura ALVO da marca: a do texto, presa entre o piso e o teto. Empresa
+  // com cadastro completo alinha; empresa com só a razão social não encolhe a
+  // marca junto.
+  const alturaAlvo = alturaAlvoDoLogo(alturaDoBloco);
+  const { largura: larguraDoLogo, altura: alturaDoLogo } = drawCompanyLogo(
+    doc,
+    document,
+    left,
+    top,
+    larguraMaxDoLogo,
+    alturaAlvo,
+  );
   const textLeft = left + (larguraDoLogo > 0 ? larguraDoLogo + LOGO_GAP : 0);
 
   // O NOME DA EMPRESA encolhe para caber em UMA linha, pela mesma razão e com
@@ -240,10 +274,10 @@ function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, 
   // O bloco do cabeçalho é o mais ALTO entre o texto e o logo: com poucos
   // campos cadastrados o texto termina acima da caixa do logo, e sem isto a
   // linha divisória cortaria a marca ao meio.
-  // As duas colunas foram dimensionadas para a mesma altura, então `doc.y`
-  // já basta. O `max` fica como rede para a marca que, por proporção, tenha
-  // ficado um fio mais alta que o texto.
-  const afterCompany = Math.max(doc.y, top + alturaDoBloco);
+  // O bloco do cabeçalho é o MAIS ALTO entre texto e marca. Com o piso, a
+  // marca passa a poder ser a mais alta — e sem isto a linha divisória
+  // cortaria a logo ao meio numa empresa de cadastro curto.
+  const afterCompany = Math.max(doc.y, top + alturaDoLogo);
 
   // Título e número alinhados à direita, na altura do topo do cabeçalho.
   //
