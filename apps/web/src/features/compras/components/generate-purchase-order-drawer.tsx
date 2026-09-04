@@ -35,6 +35,7 @@ import {
   itemsFromPurchaseRequest,
   PURCHASE_ORDER_FORM_DEFAULTS,
   purchaseOrderFormSchema,
+  rateioDoDescontoGeral,
   type PurchaseOrderFormValues,
 } from '../purchase-order-form-schema';
 import { PurchaseOrderItemsPicker } from './purchase-order-items-picker';
@@ -123,9 +124,17 @@ function GeneratePurchaseOrderBody({
       // nascia com o preço de tabela e saía acima do que o setor acordou, sem
       // nada na tela explicando a diferença.
       discountType: request.discountType,
-      discountValue: Number(request.discountValue) > 0 ? String(Number(request.discountValue)) : '',
+      // RATEADO pela fatia que esta ordem está comprando — ver
+      // `rateioDoDescontoGeral`. Numa ordem que leva a solicitação inteira o
+      // valor é idêntico ao da cotação, então o caso comum não muda.
+      discountValue: rateioDoDescontoGeral(
+        request,
+        request.items,
+        itemsFromPurchaseRequest(request.items),
+      ),
     }));
   }, [request, reset]);
+
 
   // Restrita à obra da solicitação: a ordem herda a obra dela, e a API recusa
   // um centro de custo que pertença a outra.
@@ -146,6 +155,25 @@ function GeneratePurchaseOrderBody({
     discountType: discountType ?? 'AMOUNT',
     discountValue: discountValue ?? '',
   });
+
+  // O rateio ACOMPANHA a seleção: desmarcar um item ou reduzir uma quantidade
+  // muda a fatia desta ordem, e o desconto sugerido tem de mudar junto — do
+  // contrário a pessoa desmarcaria metade da lista e o abatimento continuaria
+  // o da lista inteira.
+  //
+  // Para de acompanhar assim que o comprador DIGITA no campo: dali em diante o
+  // número é dele, e sobrescrevê-lo apagaria o desconto que ele acabou de
+  // negociar. `isDirty` é o que distingue as duas coisas — `reset` acima não
+  // suja o campo.
+  const { setValue, getFieldState } = form;
+  useEffect(() => {
+    if (!request || !items) return;
+    if (getFieldState('discountValue').isDirty) return;
+
+    setValue('discountValue', rateioDoDescontoGeral(request, request.items, items), {
+      shouldDirty: false,
+    });
+  }, [request, items, setValue, getFieldState]);
 
   async function onSubmit(values: PurchaseOrderFormValues) {
     setSubmitError(null);

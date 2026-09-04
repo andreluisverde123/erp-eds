@@ -238,3 +238,74 @@ export function calculateFormTotals(values: {
 function round2(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;
 }
+
+/// Uma linha da solicitação com os números da COTAÇÃO — os originais, não os
+/// que o comprador está editando na tela.
+interface LinhaCotada {
+  id: string;
+  quantity: string;
+  estimatedUnitPrice: string | null;
+  unavailable: boolean;
+  discountType: 'AMOUNT' | 'PERCENT';
+  discountValue: string;
+}
+
+/// O valor líquido de uma linha na COTAÇÃO: `quantidade × preço − desconto`.
+///
+/// Item não disponível ou sem preço vale zero — é a mesma regra C-8 que já
+/// mantém essas linhas fora do total da solicitação.
+function liquidoCotado(linha: LinhaCotada, quantidade: number): number {
+  if (linha.unavailable || !linha.estimatedUnitPrice) return 0;
+
+  const bruto = round2(quantidade * Number(linha.estimatedUnitPrice));
+  return round2(bruto - resolveDiscount(bruto, linha.discountType, linha.discountValue));
+}
+
+/// O DESCONTO GERAL que cabe a esta ordem de compra.
+///
+/// **Por que ratear.** O desconto geral é negociado sobre a cotação INTEIRA.
+/// Copiá-lo inteiro para uma ordem que leva só parte dos itens aplica um
+/// abatimento que nunca foi negociado — e, na segunda ordem, aplica o mesmo
+/// desconto de novo. Uma solicitação de R$ 10.000 com R$ 500 de desconto,
+/// comprada em duas ordens, descontava R$ 1.000.
+///
+/// **PERCENTUAL não é rateado**, e é o detalhe que se erra aqui: 10% já
+/// incidem sobre o subtotal da própria ordem, então ele é proporcional por
+/// natureza. Ratear um percentual o reduziria duas vezes.
+///
+/// **A proporção sai dos números da COTAÇÃO**, não dos que o comprador está
+/// digitando. Assim as partes somam exatamente o desconto negociado, mesmo
+/// quando o preço de uma ordem é renegociado — e o denominador não se move
+/// enquanto a pessoa preenche a tela.
+///
+/// O resultado é uma SUGESTÃO: o campo continua editável, porque o comprador
+/// pode ter fechado outro desconto com aquela loja.
+export function rateioDoDescontoGeral(
+  cotacao: { discountType: 'AMOUNT' | 'PERCENT'; discountValue: string },
+  linhasCotadas: LinhaCotada[],
+  itensDaOrdem: PurchaseOrderItemFormValues[],
+): string {
+  const desconto = Number(cotacao.discountValue || 0);
+  if (desconto <= 0) return '';
+  if (cotacao.discountType === 'PERCENT') return String(desconto);
+
+  const porId = new Map(linhasCotadas.map((linha) => [linha.id, linha]));
+
+  const total = linhasCotadas.reduce(
+    (soma, linha) => soma + liquidoCotado(linha, Number(linha.quantity)),
+    0,
+  );
+  // Cotação inteira sem preço: não há proporção a calcular, e inventar uma
+  // distribuiria o desconto por linhas que valem zero.
+  if (total <= 0) return String(desconto);
+
+  const desta = itensDaOrdem
+    .filter((item) => item.selected)
+    .reduce((soma, item) => {
+      const linha = porId.get(item.purchaseRequestItemId);
+      return linha ? soma + liquidoCotado(linha, Number(item.quantity || 0)) : soma;
+    }, 0);
+
+  const rateado = round2((desconto * desta) / total);
+  return rateado > 0 ? String(rateado) : '';
+}
