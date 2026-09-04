@@ -1,10 +1,22 @@
 import { Badge } from '@repo/ui';
 
-import { getRequestStatusBadgeVariant, getRequestStatusLabel } from '../purchase-request-status';
-import type { PurchaseRequestStatus } from '../types';
+import { getRequestDisplayStatus } from '../purchase-request-status';
+import type { FulfillmentStatus, PurchaseRequestStatus } from '../types';
 
-export function PurchaseRequestStatusBadge({ status }: { status: PurchaseRequestStatus }) {
-  return (
-    <Badge variant={getRequestStatusBadgeVariant(status)}>{getRequestStatusLabel(status)}</Badge>
-  );
+/// A etiqueta da solicitação.
+///
+/// `fulfillment` é OPCIONAL de propósito: onde ele não chega (uma tela que só
+/// tenha o status em mãos), a etiqueta volta a ser a de sempre em vez de
+/// quebrar. Onde chega, uma solicitação aprovada com itens pendentes passa a
+/// se anunciar como "Parcialmente atendida" — ver `getRequestDisplayStatus`.
+export function PurchaseRequestStatusBadge({
+  status,
+  fulfillment,
+}: {
+  status: PurchaseRequestStatus;
+  fulfillment?: { status: FulfillmentStatus };
+}) {
+  const { label, variant } = getRequestDisplayStatus(status, fulfillment);
+
+  return <Badge variant={variant}>{label}</Badge>;
 }

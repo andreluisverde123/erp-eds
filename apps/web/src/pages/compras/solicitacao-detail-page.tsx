@@ -227,7 +227,7 @@ export function SolicitacaoDetailPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
               {request.code}
             </h1>
-            <PurchaseRequestStatusBadge status={request.status} />
+            <PurchaseRequestStatusBadge status={request.status} fulfillment={request.fulfillment} />
           </div>
           <p className="text-sm text-muted-foreground">{request.constructionSite.name}</p>
         </div>

@@ -90,7 +90,7 @@ export const PurchaseRequestsTable = memo(function PurchaseRequestsTable({
             </TableCell>
             <TableCell className="text-muted-foreground">{request.requestedBy.name}</TableCell>
             <TableCell>
-              <PurchaseRequestStatusBadge status={request.status} />
+              <PurchaseRequestStatusBadge status={request.status} fulfillment={request.fulfillment} />
             </TableCell>
             <TableCell className="text-muted-foreground">{formatDate(request.createdAt)}</TableCell>
             <TableCell className="text-right text-muted-foreground">
