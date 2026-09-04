@@ -30,6 +30,7 @@ import {
   type QuoteItem,
 } from './quote-totals';
 import { normalizeForSearch } from './search-key';
+import { AddPurchaseRequestItemsDto } from './dto/add-purchase-request-items.dto';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
@@ -338,6 +339,94 @@ export class PurchaseRequestsService {
     });
 
     return this.findOne(companyId, id);
+  }
+
+  /// ACRESCENTA itens a uma solicitação já enviada.
+  ///
+  /// **Por que existe.** Quem abre a solicitação lembra de um material depois
+  /// de mandá-la para Compras, e a única saída era abrir OUTRA solicitação —
+  /// que então segue um fluxo próprio, é cotada à parte e vira uma segunda
+  /// ordem de compra sem necessidade.
+  ///
+  /// **Por que NÃO é a edição do `update`.** Aquele método SUBSTITUI a lista
+  /// (apaga tudo e recria), e é exatamente isso que a regra C-4 congela depois
+  /// do envio — por três razões que continuam de pé:
+  ///
+  ///   1. apagar e recriar as linhas descartaria a COTAÇÃO já feita (preço,
+  ///      disponibilidade e desconto não viajam no DTO de edição);
+  ///   2. `PurchaseOrderItem.purchaseRequestItemId` é `onDelete: Restrict`, e
+  ///      apagar uma linha já comprada bateria na trava do banco;
+  ///   3. mexer no que já existe muda o total sobre o qual a alçada decidiu.
+  ///
+  /// Aqui nada é apagado e nada é alterado — só somado. As três proteções
+  /// continuam intactas, e é o que torna esta operação segura onde a edição
+  /// não seria.
+  ///
+  /// **Só antes da aprovação.** `PENDING` e `QUOTING`, nunca `APPROVED`: a
+  /// alçada é avaliada NA APROVAÇÃO, sobre o conteúdo que existia naquele
+  /// momento. Acrescentar depois deixaria passar um item de qualquer valor com
+  /// o carimbo de uma aprovação que nunca o viu — e a ordem de compra não tem
+  /// alçada própria para segurar isso. Aceitar em `APPROVED` exige decidir o
+  /// que fazer com a aprovação, e essa decisão não foi tomada.
+  async addItems(companyId: string, id: string, dto: AddPurchaseRequestItemsDto) {
+    const existing = await this.assertExists(companyId, id);
+
+    if (existing.status === 'DRAFT') {
+      // Em rascunho a tela de edição já faz isso, e melhor: lá dá para mexer
+      // no que já existe. Dois caminhos para a mesma coisa confundiriam.
+      throw new ConflictException(
+        'Esta solicitação ainda é um rascunho — use a edição para incluir itens.',
+      );
+    }
+
+    if (existing.status !== 'PENDING' && existing.status !== 'QUOTING') {
+      throw new ConflictException(
+        'Só é possível incluir itens enquanto a solicitação não foi aprovada. Depois da aprovação, gere uma nova solicitação para o que faltou.',
+      );
+    }
+
+    await this.prisma.purchaseRequestItem.createMany({
+      data: dto.items.map((item) => ({ ...toItemRow(item), purchaseRequestId: id })),
+    });
+
+    await this.logAddedItems(companyId, id, dto.items);
+
+    return this.findOne(companyId, id);
+  }
+
+  /// Registra na SOLICITAÇÃO quais itens entraram depois do envio.
+  ///
+  /// A solicitação deixou de ser congelada, então quem a lê semanas depois
+  /// precisa conseguir distinguir o que foi pedido de origem do que entrou no
+  /// meio do caminho. Mesmo padrão de `logDiscountChanges`: uma entrada por
+  /// evento, com a descrição do item no VALOR e nunca na chave.
+  private async logAddedItems(
+    companyId: string,
+    id: string,
+    itens: { description: string; quantity: number; unit: string }[],
+  ): Promise<void> {
+    const store = auditContextStorage.getStore();
+
+    try {
+      await this.auditLogger.log({
+        companyId,
+        userId: store?.userId,
+        action: 'UPDATE',
+        entityType: 'PurchaseRequest',
+        entityId: id,
+        changes: {
+          itensIncluidos: {
+            from: '—',
+            to: itens
+              .map((item) => `${item.description}: ${item.quantity} ${item.unit}`)
+              .join(' · '),
+          },
+        },
+      });
+    } catch {
+      // Os itens já estão gravados. Derrubar a resposta agora faria a pessoa
+      // incluir tudo de novo, e aí sim a solicitação ficaria errada.
+    }
   }
 
   /// Cotação pelo setor de Compras. Existe porque o valor unitário saiu do

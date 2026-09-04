@@ -19,6 +19,7 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { ItemSuggestionsService } from './item-suggestions.service';
 import { QueryItemSuggestionDto } from './dto/query-item-suggestion.dto';
+import { AddPurchaseRequestItemsDto } from './dto/add-purchase-request-items.dto';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
@@ -123,6 +124,24 @@ export class PurchaseRequestsController {
     @CurrentUser('companyId') companyId: string,
   ) {
     return this.purchaseRequestsService.update(companyId, id, dto);
+  }
+
+  /// INCLUIR itens numa solicitação já enviada.
+  ///
+  /// `compras.request`, a mesma do `create` e do `update`: quem inclui é quem
+  /// PEDE — foi ele que esqueceu o material. Não é permissão nova.
+  ///
+  /// Rota própria em vez de afrouxar o `PATCH`: aquele substitui a lista
+  /// inteira e continua congelado depois do envio (regra C-4). Esta só
+  /// acrescenta, e é o que a torna segura fora do rascunho — ver o service.
+  @RequirePermissions('compras.request')
+  @Post(':id/items')
+  addItems(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddPurchaseRequestItemsDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.purchaseRequestsService.addItems(companyId, id, dto);
   }
 
   /// Cotação: só Compras informa valor unitário, e só enquanto a solicitação

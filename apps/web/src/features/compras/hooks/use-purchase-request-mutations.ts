@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import {
+  addPurchaseRequestItems,
   createPurchaseRequest,
   deletePurchaseRequest,
   downloadPurchaseRequestPdf,
@@ -9,6 +10,7 @@ import {
   updatePurchaseRequestStatus,
 } from '../api';
 import type {
+  PurchaseRequestItemInput,
   PurchaseRequestInput,
   PurchaseRequestQuoteInput,
   PurchaseRequestStatus,
@@ -29,6 +31,20 @@ export function useUpdatePurchaseRequest(id: string) {
   return useMutation({
     mutationFn: (input: Partial<PurchaseRequestInput>) => updatePurchaseRequest(id, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+  });
+}
+
+export function useAddPurchaseRequestItems(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (items: PurchaseRequestItemInput[]) => addPurchaseRequestItems(id, items),
+    onSuccess: () => {
+      // A listagem também muda: o total estimado e a contagem de itens saem
+      // dela, e uma solicitação com item novo não pode continuar mostrando os
+      // números de antes.
+      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+    },
   });
 }
 

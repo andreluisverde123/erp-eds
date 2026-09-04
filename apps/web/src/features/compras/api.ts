@@ -3,6 +3,7 @@ import { downloadFile } from '@/lib/download-file';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
+  PurchaseRequestItemInput,
   PaginatedResult,
   PurchaseOrder,
   PurchaseOrderInput,
@@ -53,6 +54,17 @@ export function updatePurchaseRequest(
   input: Partial<PurchaseRequestInput>,
 ): Promise<PurchaseRequestDetail> {
   return apiClient.patch(`/purchase-requests/${id}`, input);
+}
+
+/// ACRESCENTA itens a uma solicitação já enviada.
+///
+/// Rota própria, e não o `PATCH`: aquele substitui a lista inteira e continua
+/// congelado depois do envio. Esta só soma — ver `addItems` no service.
+export function addPurchaseRequestItems(
+  id: string,
+  items: PurchaseRequestItemInput[],
+): Promise<PurchaseRequestDetail> {
+  return apiClient.post(`/purchase-requests/${id}/items`, { items });
 }
 
 export function updatePurchaseRequestQuote(

@@ -171,6 +171,25 @@ function makeService(
         deleteManyCalls.push(args);
         return { count: 0 };
       }),
+      /// Usado pela INCLUSÃO de itens depois do envio. Acrescenta ao `store`,
+      /// que é o que o `findOne` devolve depois — sem isso o teste não veria a
+      /// linha nova aparecer na solicitação.
+      createMany: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => {
+        data.forEach((linha) =>
+          store.push({
+            id: `item-${store.length + 1}`,
+            quantity: new Prisma.Decimal(Number(linha.quantity ?? 0)),
+            estimatedUnitPrice: null,
+            notes: null,
+            unavailable: false,
+            unavailabilityNote: null,
+            discountType: 'AMOUNT',
+            discountValue: new Prisma.Decimal(0),
+            ...linha,
+          } as ItemLinha),
+        );
+        return { count: data.length };
+      }),
     },
     company: {
       findFirstOrThrow: jest.fn(async ({ where }: { where: { id: string } }) => {
@@ -1145,6 +1164,119 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
 
         expect(permissoes).toEqual(['compras.manage']);
       });
+    });
+  });
+
+  /// INCLUIR ITENS depois do envio.
+  ///
+  /// Existe porque quem pede lembra de um material depois de mandar a
+  /// solicitação, e a única saída era abrir outra. A faixa é ESTREITA de
+  /// propósito: só acrescenta, nunca altera nem apaga — é o que mantém de pé
+  /// as três proteções que a regra C-4 garantia (cotação, chave estrangeira e
+  /// alçada).
+  describe('Incluir itens numa solicitação enviada', () => {
+    const NOVO = { description: 'Tinta acrílica 18L', unit: 'LT', quantity: 10 };
+
+    it('acrescenta em AGUARDANDO APROVAÇÃO', async () => {
+      const { service, prisma } = makeService({ status: 'PENDING' });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] });
+
+      expect(prisma.purchaseRequestItem.createMany).toHaveBeenCalled();
+    });
+
+    it('acrescenta em EM COTAÇÃO', async () => {
+      const { service, prisma } = makeService({ status: 'QUOTING' });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] });
+
+      expect(prisma.purchaseRequestItem.createMany).toHaveBeenCalled();
+    });
+
+    it('NÃO apaga nem altera o que já existe', async () => {
+      // É a diferença inteira entre esta operação e a edição: o `update`
+      // substitui a lista, e é por isso que ele continua congelado depois do
+      // envio. Apagar descartaria a cotação já feita e bateria no
+      // `onDelete: Restrict` de um item já comprado.
+      const { service, prisma, deleteManyCalls } = makeService({ status: 'QUOTING' });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] });
+
+      expect(deleteManyCalls).toHaveLength(0);
+      expect(prisma.purchaseRequestItem.update).not.toHaveBeenCalled();
+    });
+
+    it('recusa depois de APROVADA — a alçada já decidiu sobre outro conteúdo', async () => {
+      // A alçada é avaliada NA APROVAÇÃO. Acrescentar depois deixaria passar
+      // um item de qualquer valor com o carimbo de uma aprovação que nunca o
+      // viu, e a ordem de compra não tem alçada própria para segurar isso.
+      const { service } = makeService({ status: 'APPROVED' });
+
+      await expect(
+        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('recusa em RASCUNHO — lá a edição já faz isso, e melhor', async () => {
+      const { service } = makeService({ status: 'DRAFT' });
+
+      await expect(
+        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
+      ).rejects.toThrow(/ainda é um rascunho/);
+    });
+
+    it('recusa em CANCELADA', async () => {
+      const { service } = makeService({ status: 'CANCELLED' });
+
+      await expect(
+        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('a solicitação de outra empresa não é encontrada', async () => {
+      const { service } = makeService({ status: 'PENDING' });
+
+      await expect(
+        service.addItems(EMPRESA_B, SOLICITACAO, { items: [NOVO] }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('grava a chave de busca do item novo, como a criação faz', async () => {
+      // Sem ela o material incluído ficaria invisível para o autocomplete —
+      // e ninguém relacionaria isso com a tela em que ele foi digitado.
+      const { service, prisma } = makeService({ status: 'PENDING' });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, {
+        items: [{ description: 'Cimento CP-II', unit: 'SC', quantity: 5 }],
+      });
+
+      const [{ data }] = (prisma.purchaseRequestItem.createMany as jest.Mock).mock.calls[0];
+      expect(data[0].searchKey).toBe('cimento cp-ii');
+    });
+
+    it('a inclusão entra no histórico da solicitação', async () => {
+      // A solicitação deixou de ser congelada: quem a lê semanas depois
+      // precisa distinguir o que foi pedido de origem do que entrou depois.
+      const { service, auditado } = makeService({ status: 'PENDING' });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] });
+
+      expect(auditado[0]).toMatchObject({
+        entityType: 'PurchaseRequest',
+        entityId: SOLICITACAO,
+      });
+      const changes = auditado[0]!.changes as Record<string, { to: string }>;
+      expect(changes.itensIncluidos!.to).toContain('Tinta acrílica 18L');
+    });
+
+    it('incluir exige `compras.request` — quem pede é quem inclui', () => {
+      const permissoes = Reflect.getMetadata(
+        PERMISSIONS_KEY,
+        PurchaseRequestsController.prototype.addItems,
+      ) as string[];
+
+      // Não é permissão nova: é a mesma de criar e editar.
+      expect(permissoes).toEqual(['compras.request']);
     });
   });
 

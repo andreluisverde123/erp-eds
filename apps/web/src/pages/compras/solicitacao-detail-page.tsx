@@ -5,6 +5,7 @@ import {
   FileText,
   ListChecks,
   Pencil,
+  Plus,
   ShoppingCart,
   Trash2,
   Wallet,
@@ -19,6 +20,7 @@ import { AttachmentsPanel } from '@/features/anexos/components/attachments-panel
 import { useAuth } from '@/features/auth/context';
 import { RecordHistoryPanel } from '@/features/history/components/record-history-panel';
 
+import { AddRequestItemsDrawer } from '@/features/compras/components/add-request-items-drawer';
 import { GeneratePurchaseOrderDrawer } from '@/features/compras/components/generate-purchase-order-drawer';
 import { QuotePurchaseRequestDrawer } from '@/features/compras/components/quote-purchase-request-drawer';
 import { PurchaseRequestItemsTable } from '@/features/compras/components/purchase-request-items-table';
@@ -164,6 +166,7 @@ export function SolicitacaoDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [generateOrderOpen, setGenerateOrderOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [addItemsOpen, setAddItemsOpen] = useState(false);
 
   if (!id) {
     return <Navigate to="/engenharia/solicitacoes" replace />;
@@ -203,6 +206,11 @@ export function SolicitacaoDetailPage() {
   // A cotação é o momento em que Compras informa os valores que saíram do
   // formulário do solicitante — vale enquanto a solicitação não foi aprovada.
   const canQuote = canManage && (request.status === 'PENDING' || request.status === 'QUOTING');
+  // INCLUIR item numa solicitação já enviada. Vale só antes da aprovação: a
+  // alçada é avaliada na aprovação, sobre o conteúdo daquele momento — a API
+  // aplica a mesma regra, aqui é só para não mostrar botão que dará 409.
+  const canAddItems =
+    canRequest && (request.status === 'PENDING' || request.status === 'QUOTING');
   const temOrdens = (ordersData?.data.length ?? 0) > 0;
 
   async function handleTransition(status: PurchaseRequestStatus) {
@@ -252,6 +260,13 @@ export function SolicitacaoDetailPage() {
             >
               <Pencil />
               Editar
+            </Button>
+          )}
+
+          {canAddItems && (
+            <Button variant="outline" onClick={() => setAddItemsOpen(true)}>
+              <Plus />
+              Incluir Itens
             </Button>
           )}
 
@@ -440,6 +455,13 @@ export function SolicitacaoDetailPage() {
         purchaseRequestId={request.id}
         hasPreviousOrders={temOrdens}
         onCreated={() => setGenerateOrderOpen(false)}
+      />
+
+      <AddRequestItemsDrawer
+        open={addItemsOpen}
+        onOpenChange={setAddItemsOpen}
+        purchaseRequestId={request.id}
+        requestCode={request.code}
       />
 
       <QuotePurchaseRequestDrawer open={quoteOpen} onOpenChange={setQuoteOpen} request={request} />
