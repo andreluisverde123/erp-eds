@@ -138,6 +138,23 @@ export interface DocumentSignature {
   name?: string | null;
 }
 
+/// O DESTAQUE do documento: um dado que precisa ser lido de longe.
+///
+/// Existe para o ENDEREÇO DE ENTREGA. Ele vinha no rodapé de rastreabilidade,
+/// em 9pt, entre a solicitação de origem e o centro de custo — informação de
+/// arquivo, no lugar de informação de ação. Quem recebe a ordem precisa achar
+/// onde descarregar sem procurar, e o motorista lê o papel em pé, no caminhão.
+///
+/// Genérico, e não um "campo de entrega": é o mesmo elemento que qualquer
+/// documento futuro usaria para o dado que manda nele.
+export interface DocumentHighlight {
+  title: string;
+  /// A informação principal, em corpo maior.
+  value: string;
+  /// Apoio, menor e em cinza — o que qualifica o valor sem competir com ele.
+  caption?: string | null;
+}
+
 export interface PrintableDocument {
   /// Nome que aparece no topo. Sempre existe (`Company.legalName` é NOT NULL).
   companyName: string;
@@ -156,6 +173,10 @@ export interface PrintableDocument {
   /// O identificador que o sistema já usa (ex.: OC-0001, SOL-0001).
   code: string;
   blocks: DocumentBlock[];
+  /// Desenhado entre os blocos de identificação e a tabela — depois de quem
+  /// vende e quem compra, antes do que foi comprado. `null` some sem deixar
+  /// espaço.
+  highlight?: DocumentHighlight | null;
   columns: readonly DocumentColumn[];
   rows: DocumentRow[];
   /// Texto exibido quando `rows` está vazio.

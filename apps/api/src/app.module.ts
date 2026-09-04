@@ -26,6 +26,7 @@ import { envValidationSchema } from './config/env.validation';
 import { ConfiguracoesModule } from './configuracoes/configuracoes.module';
 import { DiarioModule } from './diario/diario.module';
 import { EngenhariaModule } from './engenharia/engenharia.module';
+import { EnderecosModule } from './enderecos/enderecos.module';
 import { FilesModule } from './files/files.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { HealthModule } from './health/health.module';
@@ -109,6 +110,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     WorkflowModule,
     FilesModule,
     HealthModule,
+    EnderecosModule,
     AttachmentsModule,
     OnboardingModule,
     StorageModule,

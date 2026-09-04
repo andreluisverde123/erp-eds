@@ -18,6 +18,9 @@ const FONT = 'Helvetica';
 const FONT_BOLD = 'Helvetica-Bold';
 
 const GRAY = '#666666';
+/// Fundo do bloco de destaque. Cinza quase branco: separa o bloco do resto sem
+/// virar caixa colorida num documento que não tem nenhuma outra.
+const HIGHLIGHT_FILL = '#F2F2F2';
 const LINE = '#cccccc';
 const BLACK = '#000000';
 
@@ -77,6 +80,7 @@ export async function renderDocumentPdf(document: PrintableDocument): Promise<Re
 
   drawCompanyHeader(doc, document, left, usableWidth);
   drawInfoBlocks(doc, document, left, usableWidth);
+  drawHighlight(doc, document, left, usableWidth);
   drawItemsTable(doc, document, left, usableWidth, bottomLimit);
   drawTotal(doc, document, left, usableWidth, bottomLimit);
   drawNotes(doc, document, left, usableWidth, bottomLimit);
@@ -302,6 +306,59 @@ function drawCompanyHeader(doc: Doc, document: PrintableDocument, left: number, 
   const y = Math.max(afterCompany, doc.y) + 10;
   horizontalRule(doc, left, y, width);
   doc.y = y + 10;
+}
+
+/// O DESTAQUE — hoje, o endereço de entrega.
+///
+/// Faixa com fundo, título miúdo e o valor em 12pt: é o único elemento do
+/// documento com preenchimento, e é o que faz o olho parar nele. Fica DEPOIS
+/// de quem vende e quem compra, ANTES do que foi comprado — a ordem em que a
+/// pergunta aparece para quem recebe o pedido.
+///
+/// A altura sai do texto medido, não de um número fixo: endereço longo quebra
+/// em duas linhas, e uma faixa de altura fixa cortaria a segunda.
+function drawHighlight(doc: Doc, document: PrintableDocument, left: number, width: number) {
+  const highlight = document.highlight;
+  if (!highlight) return;
+
+  const padding = 10;
+  const innerWidth = width - padding * 2;
+
+  doc.font(FONT_BOLD).fontSize(12);
+  const alturaValor = doc.heightOfString(highlight.value, { width: innerWidth });
+
+  let alturaCaption = 0;
+  if (highlight.caption) {
+    doc.font(FONT).fontSize(8);
+    alturaCaption = doc.heightOfString(highlight.caption, { width: innerWidth }) + 2;
+  }
+
+  // título (8pt + folga) + valor + apoio + respiro em cima e embaixo
+  const altura = 12 + alturaValor + alturaCaption + padding * 2;
+
+  doc.save();
+  doc.rect(left, doc.y, width, altura).fill(HIGHLIGHT_FILL);
+  doc.restore();
+
+  const top = doc.y + padding;
+  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(highlight.title, left + padding, top, {
+    width: innerWidth,
+  });
+  doc
+    .font(FONT_BOLD)
+    .fontSize(12)
+    .fillColor(BLACK)
+    .text(highlight.value, left + padding, doc.y + 2, { width: innerWidth });
+
+  if (highlight.caption) {
+    doc
+      .font(FONT)
+      .fontSize(8)
+      .fillColor(GRAY)
+      .text(highlight.caption, left + padding, doc.y + 2, { width: innerWidth });
+  }
+
+  doc.y = top + altura - padding + 12;
 }
 
 function drawInfoBlocks(doc: Doc, document: PrintableDocument, left: number, width: number) {

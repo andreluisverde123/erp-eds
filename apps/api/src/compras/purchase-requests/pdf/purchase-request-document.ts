@@ -116,6 +116,19 @@ export function buildPurchaseRequestDocument(
 
   return {
     ...buildCompanyHeader(company, companyLogo),
+    // O MESMO destaque da ordem de compra, de propósito: quem confere um
+    // documento contra o outro encontra o endereço no mesmo lugar, com a mesma
+    // aparência. Aqui ele serve também para o erro de cadastro aparecer antes
+    // de o documento sair da empresa.
+    highlight: siteAddress(request.constructionSite)
+      ? {
+          title: 'ENDEREÇO DE ENTREGA',
+          value: siteAddress(request.constructionSite)!,
+          caption: request.constructionSite
+            ? `Obra ${request.constructionSite.code} — ${request.constructionSite.name}`
+            : null,
+        }
+      : null,
     title: 'SOLICITAÇÃO DE COMPRA',
     code: request.code,
     blocks: [
@@ -138,10 +151,7 @@ export function buildPurchaseRequestDocument(
               ? `${request.constructionSite.code} — ${request.constructionSite.name}`
               : null,
           ),
-          // O endereço acompanha a obra desde a solicitação: é o que a ordem
-          // de compra vai repetir para o fornecedor, e vê-lo aqui deixa o erro
-          // de cadastro aparecer antes de o documento sair da empresa.
-          ...field('Entregar em', siteAddress(request.constructionSite)),
+
           // Opcional na solicitação: quem pede pode não saber em qual centro
           // de custo o material entra, e Compras define isso na emissão da
           // Ordem. Ausente, a linha simplesmente não aparece.

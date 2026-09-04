@@ -1,4 +1,4 @@
-import { useWatch, type Control } from 'react-hook-form';
+import { useFormContext, useWatch, type Control } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import {
   FormControl,
@@ -16,6 +16,7 @@ import {
   Textarea,
 } from '@repo/ui';
 
+import { useCepLookup } from '../use-cep-lookup';
 import { CONSTRUCTION_STATUS_OPTIONS } from '../construction-site-status';
 import type { ConstructionSiteFormValues } from '../construction-site-form-schema';
 import { listSiteTeamCandidates } from '../site-team';
@@ -144,6 +145,38 @@ export function ConstructionSiteFormFields({
 }: {
   control: Control<ConstructionSiteFormValues>;
 }) {
+  // `useFormContext` em vez de mais uma prop: o formulário já vive dentro de
+  // um `<Form>` (que é o `FormProvider`), e passar `setValue` por fora
+  // obrigaria todo chamador a repassá-lo só por causa deste campo.
+  const { setValue, getValues } = useFormContext<ConstructionSiteFormValues>();
+  const { buscar, buscando: buscandoCep } = useCepLookup();
+
+  /// Preenche o endereço a partir do CEP.
+  ///
+  /// **NÃO sobrescreve o que já foi digitado.** Quem preencheu o logradouro à
+  /// mão antes de informar o CEP não pode ver seu texto trocado por outro —
+  /// principalmente porque a base de CEP erra em endereço novo, e a pessoa na
+  /// obra sabe mais que ela. Só campo vazio é preenchido.
+  ///
+  /// Falha, CEP inexistente ou provedor fora do ar: não preenche nada e segue.
+  /// Não houve erro do usuário, então não há o que avisar.
+  async function preencherPeloCep(cep: string) {
+    const endereco = await buscar(cep);
+    if (!endereco) return;
+
+    const atuais = getValues();
+    const preencher = (campo: 'addressLine' | 'neighborhood' | 'city' | 'state', valor: string) => {
+      if (!valor.trim()) return;
+      if (atuais[campo]?.trim()) return;
+      setValue(campo, valor, { shouldDirty: true });
+    };
+
+    preencher('addressLine', endereco.addressLine);
+    preencher('neighborhood', endereco.neighborhood);
+    preencher('city', endereco.city);
+    preencher('state', endereco.state);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <FormField
@@ -238,9 +271,26 @@ export function ConstructionSiteFormFields({
           name="zipCode"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>CEP</FormLabel>
+              <FormLabel>
+                CEP{' '}
+                {buscandoCep && (
+                  <span className="font-normal text-muted-foreground">buscando…</span>
+                )}
+              </FormLabel>
               <FormControl>
-                <Input placeholder="74000-000" inputMode="numeric" className="w-32" {...field} />
+                <Input
+                  placeholder="74000-000"
+                  inputMode="numeric"
+                  className="w-32"
+                  {...field}
+                  // No BLUR, e não a cada tecla: a pessoa termina de digitar o
+                  // CEP antes de a busca fazer sentido, e uma consulta por
+                  // tecla bateria oito vezes no provedor para cada endereço.
+                  onBlur={(evento) => {
+                    field.onBlur();
+                    void preencherPeloCep(evento.target.value);
+                  }}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

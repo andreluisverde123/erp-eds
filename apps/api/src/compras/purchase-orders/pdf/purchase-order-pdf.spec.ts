@@ -694,8 +694,10 @@ describe('Endereço de entrega e proporção do logo', () => {
     zipCode: '74000123',
   };
 
+  /// O endereço mora no DESTAQUE, não no rodapé de rastreabilidade: é o que o
+  /// fornecedor precisa achar sem procurar.
   function origem(documento: ReturnType<typeof buildPurchaseOrderDocument>) {
-    return documento.footer?.fields.find((f) => f.label === 'Entregar em')?.value;
+    return documento.highlight?.value;
   }
 
   it('imprime o endereço completo, com o CEP formatado', () => {
@@ -743,8 +745,8 @@ describe('Endereço de entrega e proporção do logo', () => {
       EMPRESA_COMPLETA,
     );
 
-    expect(origem(documento)).toBeUndefined();
-    // A obra em si continua identificada.
+    expect(documento.highlight).toBeNull();
+    // A obra em si continua identificada no rodapé de rastreabilidade.
     expect(documento.footer?.fields.some((f) => f.label === 'Obra')).toBe(true);
   });
 
@@ -754,7 +756,19 @@ describe('Endereço de entrega e proporção do logo', () => {
       EMPRESA_COMPLETA,
     );
 
-    expect(origem(documento)).toBeUndefined();
+    expect(documento.highlight).toBeNull();
+  });
+
+  it('o destaque nomeia a obra como APOIO, não como o valor', () => {
+    // O endereço é o que manda; a obra qualifica. Inverter faria o motorista
+    // ler o nome do prédio em 12pt e o endereço em 8.
+    const documento = buildPurchaseOrderDocument(
+      order({ constructionSite: OBRA_COM_ENDERECO }),
+      EMPRESA_COMPLETA,
+    );
+
+    expect(documento.highlight?.title).toBe('ENDEREÇO DE ENTREGA');
+    expect(documento.highlight?.caption).toBe('Obra OBRA-1 — Residencial Paineiras');
   });
 
   it('o logo ocupa mais espaço no PDF do que antes do ajuste', async () => {

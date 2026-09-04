@@ -142,6 +142,22 @@ export function buildPurchaseOrderDocument(
 
   return {
     ...buildCompanyHeader(company, companyLogo),
+    // O ENDEREÇO DE ENTREGA em destaque, e não no rodapé de rastreabilidade:
+    // é o que o fornecedor precisa achar sem procurar, e o que o motorista lê
+    // em pé no caminhão. A obra vira o apoio — ela qualifica o endereço, não o
+    // contrário.
+    //
+    // `null` quando a obra não tem endereço: o bloco some inteiro em vez de
+    // anunciar "ENTREGAR EM" seguido de nada.
+    highlight: siteAddress(order.constructionSite)
+      ? {
+          title: 'ENDEREÇO DE ENTREGA',
+          value: siteAddress(order.constructionSite)!,
+          caption: order.constructionSite
+            ? `Obra ${order.constructionSite.code} — ${order.constructionSite.name}`
+            : null,
+        }
+      : null,
     title: 'ORDEM DE COMPRA',
     code: order.code,
     blocks: [
@@ -216,10 +232,7 @@ export function buildPurchaseOrderDocument(
             ? `${order.constructionSite.code} — ${order.constructionSite.name}`
             : null,
         ),
-        // O ENDEREÇO DE ENTREGA, logo abaixo da obra que ele localiza. Some
-        // quando a obra não tem endereço cadastrado — um rótulo "Entregar em:"
-        // seguido de nada seria pior que a ausência.
-        ...field('Entregar em', siteAddress(order.constructionSite)),
+
         // Sem centro de custo a LINHA some, em vez de sair com um traço: numa
         // lista de origem, um campo vazio parece dado que faltou carregar.
         ...(order.costCenter
