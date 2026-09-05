@@ -100,6 +100,16 @@ export class ConstructionSitesService {
           code: dto.code,
           name: dto.name,
           clientName: dto.clientName,
+          // ENDEREÇO DE ENTREGA. Precisa estar aqui, campo a campo, porque o
+          // `data` é montado explicitamente — um campo que exista no DTO e não
+          // apareça nesta lista é aceito pela validação, chega ao service e é
+          // descartado em silêncio. Foi exatamente o que aconteceu quando o
+          // endereço da obra foi criado: a tela salvava e o dado não gravava.
+          zipCode: dto.zipCode,
+          addressLine: dto.addressLine,
+          addressNumber: dto.addressNumber,
+          addressComplement: dto.addressComplement,
+          neighborhood: dto.neighborhood,
           city: dto.city,
           state: dto.state,
           startDate: dto.startDate ? new Date(dto.startDate) : undefined,
@@ -187,6 +197,16 @@ export class ConstructionSitesService {
           code: dto.code,
           name: dto.name,
           clientName: dto.clientName,
+          // ENDEREÇO DE ENTREGA. Precisa estar aqui, campo a campo, porque o
+          // `data` é montado explicitamente — um campo que exista no DTO e não
+          // apareça nesta lista é aceito pela validação, chega ao service e é
+          // descartado em silêncio. Foi exatamente o que aconteceu quando o
+          // endereço da obra foi criado: a tela salvava e o dado não gravava.
+          zipCode: dto.zipCode,
+          addressLine: dto.addressLine,
+          addressNumber: dto.addressNumber,
+          addressComplement: dto.addressComplement,
+          neighborhood: dto.neighborhood,
           city: dto.city,
           state: dto.state,
           startDate: dto.startDate ? new Date(dto.startDate) : undefined,
