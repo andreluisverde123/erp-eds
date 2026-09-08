@@ -47,7 +47,11 @@ function RemoteLogo({ path, alt, className }: { path: string; alt: string; class
 /// genérico em vez de repetir a assinatura já exibida no topo.
 export function CompanyMarkLogo({ className }: { className?: string }) {
   const { companyName } = useBrand();
-  const { logoUrl } = useUploadedLogoPath();
+  const { logoUrl, direto } = useUploadedLogoPath();
+
+  if (direto) {
+    return <img src={direto} alt={companyName} className={className} />;
+  }
 
   if (!logoUrl) {
     return <Building2 className={className} strokeWidth={1.5} />;
@@ -61,5 +65,10 @@ function useUploadedLogoPath() {
   // O logo institucional é arquivo estático em /public e não passa pelo fetch
   // autenticado; só o que foi enviado em Configurações, que vem do storage da
   // API e exige o header Authorization.
-  return { logoUrl: logo.startsWith('/') ? null : logo };
+  //
+  // A marca de demonstração chega como `data:` — imagem já em mãos, que o
+  // `<img>` exibe direto. Sem esta guarda ela seria tratada como caminho da
+  // API e buscada por `getBlob`, que falharia e cairia no ícone genérico.
+  const embutido = logo.startsWith('/') || logo.startsWith('data:');
+  return { logoUrl: embutido ? null : logo, direto: embutido && !logo.startsWith('/') ? logo : null };
 }

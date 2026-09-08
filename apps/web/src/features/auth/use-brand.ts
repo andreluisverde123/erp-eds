@@ -1,5 +1,6 @@
 import { useAuth } from './context';
 import { APP_LOGO, APP_NAME, COMPANY_NAME } from '@/config/company';
+import { useMarcaDemo } from '@/features/demo-brand/use-demo-brand';
 
 export interface Brand {
   /// O que aparece como nome do sistema.
@@ -13,6 +14,7 @@ export interface Brand {
 
 /// Precedência da marca, do mais específico ao mais genérico:
 ///
+/// 0. a marca de demonstração, quando houver — só existe em desenvolvimento
 /// 1. o nome e o logo que a própria EDS gravou em Configurações → Sistema
 /// 2. a configuração central da aplicação (`EDS_COMPANY`)
 ///
@@ -22,7 +24,19 @@ export interface Brand {
 /// sessão (login, splash) e quando nada foi personalizado.
 export function useBrand(): Brand {
   const { user } = useAuth();
+  const demo = useMarcaDemo();
   const settings = user?.tenant ?? null;
+
+  // A marca de demonstração fica ACIMA do que está gravado no banco, e não
+  // abaixo: durante uma demonstração o dado salvo é justamente o que se quer
+  // esconder. Fora de desenvolvimento `demo` é sempre `null` e esta linha some.
+  if (demo) {
+    return {
+      name: demo.erpName,
+      logo: demo.logo ?? APP_LOGO,
+      companyName: demo.companyName,
+    };
+  }
 
   return {
     name: settings?.erpName || APP_NAME,

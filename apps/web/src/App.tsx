@@ -10,6 +10,14 @@ import { queryClient } from '@/lib/query-client';
 const ErpApp = lazy(() => import('@/erp-app').then((m) => ({ default: m.ErpApp })));
 const DiarioApp = lazy(() => import('@/diario/diario-app').then((m) => ({ default: m.DiarioApp })));
 
+// Painel de troca de marca para demonstração. O `lazy` dentro da condição é o
+// que garante que ele não exista no bundle publicado: o Vite troca
+// `import.meta.env.DEV` por `false`, o `import()` vira inalcançável e o chunk
+// nem chega a ser gerado.
+const DemoBrandPanel = import.meta.env.DEV
+  ? lazy(() => import('@/features/demo-brand/demo-brand-panel'))
+  : null;
+
 function App() {
   // Resolvido uma vez, no primeiro render: o endereço não muda sem recarregar
   // a página.
@@ -31,6 +39,12 @@ function App() {
             <ErpApp />
           )}
         </Suspense>
+
+        {DemoBrandPanel && (
+          <Suspense fallback={null}>
+            <DemoBrandPanel />
+          </Suspense>
+        )}
       </AuthProvider>
     </QueryClientProvider>
   );
