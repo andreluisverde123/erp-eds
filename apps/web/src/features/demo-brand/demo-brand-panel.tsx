@@ -4,6 +4,9 @@ import { APP_NAME, COMPANY_NAME } from '@/config/company';
 
 import { normalizarHex } from './brand-tokens';
 import {
+  ALTURA_LOGO_MAXIMA,
+  ALTURA_LOGO_MINIMA,
+  alturaDoLogo,
   aplicarMarca,
   esquecerDaBiblioteca,
   guardarNaBiblioteca,
@@ -248,6 +251,23 @@ export function DemoBrandPanel() {
               </button>
             )}
           </div>
+          {emUso.logo && (
+            <label className="flex items-center gap-2 pt-1">
+              <span className="shrink-0 text-xs text-neutral-500">Tamanho</span>
+              <input
+                type="range"
+                min={ALTURA_LOGO_MINIMA}
+                max={ALTURA_LOGO_MAXIMA}
+                value={alturaDoLogo(emUso)}
+                onChange={(e) => mudar({ alturaLogo: Number(e.target.value) })}
+                className="min-w-0 flex-1 accent-neutral-700"
+              />
+              <span className="w-9 shrink-0 text-right font-mono text-xs text-neutral-500">
+                {alturaDoLogo(emUso)}px
+              </span>
+            </label>
+          )}
+
           <input
             ref={arquivoRef}
             type="file"

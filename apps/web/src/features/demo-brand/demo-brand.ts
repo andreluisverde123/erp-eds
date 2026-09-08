@@ -26,6 +26,18 @@ export interface MarcaDemo {
   companyName: string;
   /// Cor da marca, sempre `#rrggbb`.
   primary: string;
+  /// Altura do logo na tela, em pixels.
+  ///
+  /// Precisa ser ajustável, e não uma constante: a assinatura da EDS é uma
+  /// faixa horizontal e cabe bem nos 20px em que a barra lateral foi
+  /// calibrada, mas um logo empilhado — símbolo em cima, nome embaixo — vira
+  /// um borrão nessa altura. Não existe regra automática que acerte os dois,
+  /// porque a diferença está na arte, não em nada que se possa medir.
+  ///
+  /// Opcional para não invalidar marcas que já estavam guardadas antes deste
+  /// campo existir.
+  alturaLogo?: number;
+
   /// Logo como data URL. `null` mantém a assinatura da EDS.
   ///
   /// Data URL e não caminho de arquivo porque o logo do cliente NÃO entra no
@@ -43,6 +55,22 @@ const CHAVE_BIBLIOTECA = 'eds.demo-brand.biblioteca';
 /// durante uma demonstração, na frente do cliente. Recusar cedo, com aviso, é
 /// melhor que descobrir tarde.
 export const LIMITE_LOGO_BYTES = 1_500_000;
+
+/// Altura do logo quando a marca não diz outra coisa. Maior que os 20px da
+/// assinatura da EDS porque a maioria dos logos de construtora tem o nome
+/// embaixo do símbolo, e 20px não dá para ler.
+export const ALTURA_LOGO_PADRAO = 32;
+export const ALTURA_LOGO_MINIMA = 16;
+export const ALTURA_LOGO_MAXIMA = 56;
+
+/// Largura que a caixa do logo passa a permitir durante a demonstração. Os
+/// 130px da barra lateral também são medida da arte da EDS, e cortariam um
+/// logotipo mais largo pela metade.
+const LARGURA_NA_DEMONSTRACAO = 220;
+
+export function alturaDoLogo(marca: MarcaDemo | null): number {
+  return marca?.alturaLogo ?? ALTURA_LOGO_PADRAO;
+}
 
 const ligado = (): boolean => import.meta.env.DEV;
 
@@ -66,7 +94,8 @@ function ehMarca(valor: unknown): valor is MarcaDemo {
     typeof m.companyName === 'string' &&
     typeof m.primary === 'string' &&
     normalizarHex(m.primary) !== null &&
-    (m.logo === null || typeof m.logo === 'string')
+    (m.logo === null || typeof m.logo === 'string') &&
+    (m.alturaLogo === undefined || typeof m.alturaLogo === 'number')
   );
 }
 
@@ -128,6 +157,17 @@ export function aplicarNoDocumento(marca: MarcaDemo | null): void {
     for (const [token, valor] of Object.entries(tokensDaMarca(marca.primary))) {
       raiz.style.setProperty(token, valor);
     }
+  }
+
+  // A caixa do logo na barra lateral. Os valores de origem — 20px de altura e
+  // 130px de largura — continuam em `SidebarBrand` como padrão destas mesmas
+  // variáveis, então fora da demonstração nada muda.
+  if (!marca?.logo) {
+    raiz.style.removeProperty('--marca-altura');
+    raiz.style.removeProperty('--marca-largura');
+  } else {
+    raiz.style.setProperty('--marca-altura', `${alturaDoLogo(marca)}px`);
+    raiz.style.setProperty('--marca-largura', `${LARGURA_NA_DEMONSTRACAO}px`);
   }
 
   // O splash do `index.html` já está pintado na tela quando isto roda, com a

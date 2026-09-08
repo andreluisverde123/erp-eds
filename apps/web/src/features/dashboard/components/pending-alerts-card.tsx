@@ -39,7 +39,13 @@ export function PendingAlertsCard({ alerts }: { alerts: PendingAlert[] }) {
       <div className="flex items-center gap-2 px-2">
         <span className="relative flex size-[11px] shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75 [animation-duration:2.8s] [animation-timing-function:cubic-bezier(0.4,0,0.6,1)]" />
-          <img src="/dot-pedidos.svg" alt="" className="relative size-[11px]" />
+          {/* Era `/dot-pedidos.svg`, com o mesmo rosa da marca antiga assado
+              dentro do arquivo — enquanto o halo que pulsa ao redor dele já
+              usava `bg-primary`. O ponto e o halo eram de cores diferentes. */}
+          <svg viewBox="0 0 11 11" aria-hidden className="relative size-[11px] text-primary">
+            <rect width="11" height="11" rx="5.5" className="fill-pending" />
+            <circle cx="5.5" cy="5.5" r="2.5" fill="currentColor" />
+          </svg>
         </span>
         <span className="text-sm font-semibold text-foreground/85">Pendências</span>
         <Badge variant="pending">{total}</Badge>

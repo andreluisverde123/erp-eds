@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ALTURA_LOGO_PADRAO,
+  alturaDoLogo,
   aplicarMarca,
   aplicarNoDocumento,
   esquecerDaBiblioteca,
@@ -63,6 +65,52 @@ describe('Pintar o documento com a marca', () => {
 
     aplicarNoDocumento(null);
     expect(document.querySelector('img')!.getAttribute('src')).toBe('/logo-eds.svg');
+  });
+});
+
+/// A caixa do logo na barra lateral tem 20px de altura por 130px de largura —
+/// medidas da arte da EDS, que é uma faixa horizontal. Logo de construtora
+/// quase sempre é empilhado (símbolo em cima, nome embaixo) e nessa caixa vira
+/// um borrão recortado. Por isso a altura é um controle, e não uma constante.
+describe('Tamanho do logo', () => {
+  it('sem escolha, usa uma altura maior que a da assinatura da EDS', () => {
+    expect(alturaDoLogo({ ...LETS, alturaLogo: undefined })).toBe(ALTURA_LOGO_PADRAO);
+    expect(ALTURA_LOGO_PADRAO).toBeGreaterThan(20);
+  });
+
+  it('a altura escolhida vira medida da caixa', () => {
+    aplicarMarca({ ...LETS, alturaLogo: 44 });
+
+    expect(corDaRaiz('--marca-altura')).toBe('44px');
+    // A largura também abre: 130px é medida da assinatura da EDS e cortaria um
+    // logotipo mais largo pela metade.
+    expect(corDaRaiz('--marca-largura')).not.toBe('');
+  });
+
+  it('marca SEM logo não mexe na caixa', () => {
+    // Trocar só a cor e os nomes, mantendo a assinatura da EDS: a caixa tem que
+    // continuar com as medidas para as quais ela foi desenhada.
+    aplicarMarca({ ...LETS, logo: null, alturaLogo: 44 });
+
+    expect(corDaRaiz('--marca-altura')).toBe('');
+    expect(corDaRaiz('--marca-largura')).toBe('');
+  });
+
+  it('voltar para a EDS devolve a caixa original', () => {
+    aplicarMarca({ ...LETS, alturaLogo: 44 });
+    aplicarMarca(null);
+
+    expect(corDaRaiz('--marca-altura')).toBe('');
+  });
+
+  it('marca guardada antes deste campo existir continua válida', () => {
+    // Quem já tinha salvo uma marca não pode perdê-la porque um campo novo
+    // apareceu depois.
+    const { alturaLogo: _, ...semAltura } = { ...LETS, alturaLogo: 40 };
+    window.localStorage.setItem('eds.demo-brand.ativa', JSON.stringify(semAltura));
+
+    expect(lerMarcaAtiva()).not.toBeNull();
+    expect(alturaDoLogo(lerMarcaAtiva())).toBe(ALTURA_LOGO_PADRAO);
   });
 });
 
