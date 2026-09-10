@@ -79,6 +79,14 @@ function PayslipFormBody({ onDone }: { onDone: () => void }) {
         grossSalary: Number(values.grossSalary),
         deductions: Number(values.deductions),
         netSalary: Number(values.netSalary),
+        // Campo vazio vira `undefined`, e não `0`: no backend, ausente
+        // significa DESCONHECIDO. Um zero afirmaria que a empresa não gastou
+        // nada com encargos naquele mês, e o custo somaria isso como verdade.
+        employerCharges: values.employerCharges?.trim()
+          ? Number(values.employerCharges)
+          : undefined,
+        benefits: values.benefits?.trim() ? Number(values.benefits) : undefined,
+        provisions: values.provisions?.trim() ? Number(values.provisions) : undefined,
       };
       await createMutation.mutateAsync(input);
       onDone();
@@ -210,6 +218,64 @@ function PayslipFormBody({ onDone }: { onDone: () => void }) {
                     <FormLabel>Salário líquido (R$)</FormLabel>
                     <FormControl>
                       <NumberInput placeholder="0,00" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* CUSTO DO EMPREGADOR — o que a empresa paga ALÉM do salário
+                bruto. Os descontos acima são do empregado (INSS e IRRF retidos)
+                e já estão dentro do bruto; não são custo da empresa.
+
+                Deixar em branco não é erro: significa "ainda não sei", e o
+                relatório de custo por obra mostra o mês como parcial em vez de
+                apresentar só o salário como se fosse o custo do funcionário. */}
+            <div className="flex flex-col gap-1 border-t border-border pt-4">
+              <p className="text-sm font-medium text-foreground">Custo do empregador</p>
+              <p className="text-xs text-muted-foreground">
+                Opcional. Em branco, o custo da obra sai marcado como parcial.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <FormField
+                control={form.control}
+                name="employerCharges"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Encargos (R$)</FormLabel>
+                    <FormControl>
+                      <NumberInput placeholder="—" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="benefits"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Benefícios (R$)</FormLabel>
+                    <FormControl>
+                      <NumberInput placeholder="—" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="provisions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>13º e férias (R$)</FormLabel>
+                    <FormControl>
+                      <NumberInput placeholder="—" {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -12,6 +12,12 @@ afterEach(() => {
 // jsdom não implementa `scrollTo`, e o React Router o chama ao navegar.
 window.scrollTo = vi.fn();
 
+// Nem `scrollIntoView`, que o Radix chama ao abrir um `Select` para trazer a
+// opção marcada para a vista. Sem isto, qualquer teste que abra um select
+// estoura dentro da biblioteca, num efeito, com um erro que não aponta para
+// nada do nosso código.
+Element.prototype.scrollIntoView = vi.fn();
+
 // `localStorage` e `sessionStorage` de mentira.
 //
 // O Node 25 passou a trazer Web Storage nativo, e o global dele ganha do que o

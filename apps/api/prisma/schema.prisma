@@ -263,6 +263,29 @@ enum EmployeeStatus {
   TERMINATED
 }
 
+/// Natureza do vínculo do colaborador com a empresa.
+///
+/// Não confundir com `Contractor`, que é a EMPRESA terceirizada (tem CNPJ,
+/// contrato e documentos), nem com `ContractEmployee`, que é a relação nominal
+/// de quem a terceirizada aloca em um contrato específico — controle
+/// documental, não cadastro de colaborador.
+///
+/// `OUTSOURCED` aqui é a PESSOA que trabalha na obra sob vínculo terceirizado
+/// e que a empresa precisa alocar, apontar e custear como qualquer outra. Por
+/// isso é um campo de `Employee`, e não um segundo modelo: próprio e
+/// terceirizado se distinguem pelo vínculo, não por serem coisas diferentes.
+enum EmploymentType {
+  OWN
+  OUTSOURCED
+}
+
+/// Como o colaborador é remunerado. Determina, e só ela, se `dailyRate` é
+/// exigido: `DAILY` exige um valor maior que zero, `CLT` não guarda nenhum.
+enum CompensationType {
+  CLT
+  DAILY
+}
+
 /// Situação de um apontamento de ponto. Calculado pelo backend a partir de
 /// entrada/saída (nunca setado à mão pelo cliente): CLOSED quando ambos os
 /// horários batem, INCONSISTENT quando faltam/colidem, OPEN enquanto ainda
@@ -285,6 +308,21 @@ enum ContractorStatus {
 enum ContractStatus {
   ACTIVE
   CANCELLED
+}
+
+/// Como uma empreitada é precificada. Os dois modelos que a EDS pratica:
+///
+/// - `GLOBAL` — preço fechado pelo escopo ("instalação elétrica da obra por
+///   R$ 10.000"). O custo é o do CONTRATO, e não se divide pelas pessoas da
+///   terceirizada.
+/// - `UNIT` — preço por unidade produzida ("alvenaria a R$ 30/m²"). O custo é
+///   `quantidade medida × preço unitário`, e só existe depois da medição.
+///
+/// `GLOBAL` é o default porque descreve todo contrato já cadastrado: eles têm
+/// `totalValue` e nada mais.
+enum ContractPricingType {
+  GLOBAL
+  UNIT
 }
 
 /// Natureza da conta bancária. Os três tipos que um banco brasileiro abre para
@@ -680,6 +718,7 @@ model ConstructionSite {
   responsible         User?                  @relation("ConstructionSiteResponsible", fields: [responsibleId], references: [id])
   costCenters         CostCenter[]
   employeeAllocations EmployeeAllocation[]
+  attendances         EmployeeAttendance[]
   timeEntries         TimeEntry[]
   productionEntries   ProductionEntry[]
   purchaseRequests    PurchaseRequest[]
@@ -1101,12 +1140,25 @@ model Employee {
   hireDate        DateTime
   terminationDate DateTime?
   baseSalary      Decimal?       @db.Decimal(14, 2)
+
+  /// Vínculo e forma de remuneração. Os defaults descrevem o que TODO
+  /// colaborador já cadastrado é hoje — mão de obra própria mensalista — e é
+  /// isso que permite a migration ser aditiva sem tocar em nenhuma linha.
+  employmentType   EmploymentType   @default(OWN)
+  compensationType CompensationType @default(CLT)
+
+  /// Valor da diária. Só faz sentido — e só é preenchido — quando
+  /// `compensationType` é `DAILY`; em `CLT` é normalizado para `null` no
+  /// service, para não sobrar um número morto que o cálculo de custo (RH-04)
+  /// possa vir a ler como verdade.
+  dailyRate Decimal? @db.Decimal(14, 2)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   deletedAt       DateTime?
 
   company           Company              @relation(fields: [companyId], references: [id])
   allocations       EmployeeAllocation[]
+  attendances       EmployeeAttendance[]
   timeEntries       TimeEntry[]
   productionEntries ProductionEntry[]
   payslips          Payslip[]
@@ -1170,6 +1222,75 @@ model TimeEntry {
   @@index([constructionSiteId, date])
 }
 
+/// PRESENÇA de um colaborador numa obra num dia. Fonte canônica única.
+///
+/// ## Por que uma tabela nova, e não uma das três que já existiam
+///
+/// A pergunta que ela responde — "quem efetivamente trabalhou nesta obra neste
+/// dia?" — não cabia em nenhuma das existentes sem torcer o significado delas:
+///
+/// - **`TimeEntry` é controle de JORNADA, não presença.** `status` é DERIVADO
+///   de `checkIn`/`checkOut`: um registro sem horários fica `OPEN` para sempre,
+///   e `OPEN` aparece na tela de Ponto como "Aberto" — ponto que falta fechar.
+///   Marcar presença ali encheria a tela de Ponto de linhas que parecem
+///   pendências. Além disso `constructionSiteId` é opcional lá, e presença sem
+///   obra não responde à pergunta.
+/// - **`ProductionEntry` é produção.** `description`, `quantity` e `unit` são
+///   obrigatórios; presença teria de inventar os três.
+/// - **`DailyReportLabor` é agregado por FUNÇÃO** ("4 pedreiros"), texto livre,
+///   sem vínculo com `Employee`, e some junto com o RDO (`onDelete: Cascade`).
+///   Não representa pessoa.
+///
+/// ## Presença não é alocação
+///
+/// `EmployeeAllocation` diz onde a pessoa DEVERIA estar; esta tabela diz onde
+/// ela ESTEVE. Faltar não mexe na alocação — são fatos diferentes sobre o mesmo
+/// dia, e o RH-04 vai precisar dos dois.
+model EmployeeAttendance {
+  id                 String   @id @default(uuid()) @db.Uuid
+  employeeId         String   @db.Uuid
+  constructionSiteId String   @db.Uuid
+  date               DateTime @db.Date
+
+  /// Diária VIGENTE no dia do apontamento, congelada aqui.
+  ///
+  /// É o que impede o passado de ser reescrito: `Employee.dailyRate` guarda um
+  /// valor só, sem vigência, e reajustar a diária em outubro recalcularia
+  /// setembro se o custo fosse lido do cadastro.
+  ///
+  /// Escrito pelo BACKEND, nunca pelo cliente, e só para quem é diarista.
+  /// `null` significa DESCONHECIDO — em CLT (que não tem diária) e nos
+  /// apontamentos gravados antes desta coluna existir. Desconhecido não é zero:
+  /// o relatório mostra o custo como parcial em vez de somar R$ 0,00.
+  dailyRateApplied Decimal? @db.Decimal(14, 2)
+
+  /// `true` = trabalhou; `false` = foi apontado e não veio.
+  ///
+  /// Um booleano, e não um enum de motivos: falta justificada, atestado,
+  /// férias e licença não fazem parte da demanda, e um enum criado "para o
+  /// futuro" viraria uma lista que ninguém sabe preencher. A AUSÊNCIA de linha
+  /// tem significado próprio e distinto — o dia ainda não foi apontado.
+  present Boolean @default(true)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee         Employee         @relation(fields: [employeeId], references: [id])
+  constructionSite ConstructionSite @relation(fields: [constructionSiteId], references: [id])
+
+  /// Uma pessoa, um dia, um registro — sem a obra na chave DE PROPÓSITO.
+  ///
+  /// Com a obra na chave, a mesma pessoa poderia constar presente em duas
+  /// obras no mesmo dia, e as duas linhas estariam "corretas". Sem ela, o
+  /// banco recusa a contradição, e a gravação vira um `upsert` naturalmente
+  /// idempotente: salvar o mesmo dia de novo atualiza em vez de duplicar.
+  @@unique([employeeId, date])
+  @@index([constructionSiteId, date])
+  @@index([employeeId, date])
+}
+
 /// Apontamento de produção/produtividade de um funcionário na obra
 /// (ex.: m² de alvenaria executados no dia).
 model ProductionEntry {
@@ -1205,6 +1326,28 @@ model Payslip {
   grossSalary    Decimal   @db.Decimal(14, 2)
   deductions     Decimal   @db.Decimal(14, 2)
   netSalary      Decimal   @db.Decimal(14, 2)
+
+  /// CUSTO DO EMPREGADOR, que não existia em lugar nenhum do ERP.
+  ///
+  /// `deductions` são descontos DO EMPREGADO — INSS e IRRF retidos do salário
+  /// dele. Não são custo da empresa: já estão dentro do `grossSalary`. O que
+  /// a empresa paga ALÉM do salário bruto não tinha onde ser registrado, e é
+  /// isto:
+  ///
+  /// - `employerCharges` — encargos patronais do mês (INSS patronal, FGTS,
+  ///   RAT, terceiros), como valor efetivo, não percentual. O ERP não conhece
+  ///   legislação trabalhista e não vai calculá-los.
+  /// - `benefits` — vale-transporte, alimentação, plano, EPI, alojamento.
+  /// - `provisions` — provisão de 13º e férias DO MÊS. Mensal de propósito:
+  ///   a proporcionalidade que o negócio pediu já vem de graça, porque cada
+  ///   mês carrega a sua fração e é apropriado junto com os dias daquele mês.
+  ///
+  /// Os três são opcionais e `null` significa DESCONHECIDO, nunca zero. Sem
+  /// eles o relatório marca o custo como PARCIAL, em vez de apresentar só o
+  /// salário como se fosse o custo completo.
+  employerCharges Decimal? @db.Decimal(14, 2)
+  benefits        Decimal? @db.Decimal(14, 2)
+  provisions      Decimal? @db.Decimal(14, 2)
   paidAt         DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -1271,6 +1414,23 @@ model ContractorContract {
   startDate          DateTime
   endDate            DateTime
   status             ContractStatus @default(ACTIVE)
+
+  /// Precificação da empreitada. Ver `ContractPricingType`.
+  pricingType ContractPricingType @default(GLOBAL)
+
+  /// Só para `UNIT`. Preço por unidade e o rótulo da unidade ("m²", "un").
+  unitPrice Decimal? @db.Decimal(14, 4)
+  unitLabel String?
+
+  /// Quantidade MEDIDA até agora, também só para `UNIT`.
+  ///
+  /// `null` é DESCONHECIDO — contrato unitário sem medição não custou zero,
+  /// custou um valor que ainda não foi levantado, e o relatório diz isso.
+  ///
+  /// Um número acumulado, e não um histórico de medições: a primeira versão
+  /// responde "quanto foi produzido", que é o que o custo precisa. Medição a
+  /// medição é evolução, e está registrada como tal.
+  measuredQuantity Decimal? @db.Decimal(14, 3)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
   deletedAt          DateTime?

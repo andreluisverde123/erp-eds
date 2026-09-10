@@ -63,6 +63,12 @@ export const FuncionariosPage = lazy(() =>
 export const AlocacoesPage = lazy(() =>
   import('@/pages/rh/alocacoes-page').then((m) => ({ default: m.AlocacoesPage })),
 );
+export const ApontamentoPage = lazy(() =>
+  import('@/pages/rh/apontamento-page').then((m) => ({ default: m.ApontamentoPage })),
+);
+export const CustosPage = lazy(() =>
+  import('@/pages/rh/custos-page').then((m) => ({ default: m.CustosPage })),
+);
 export const PontoPage = lazy(() =>
   import('@/pages/rh/ponto-page').then((m) => ({ default: m.PontoPage })),
 );

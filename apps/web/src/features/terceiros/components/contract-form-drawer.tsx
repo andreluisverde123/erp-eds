@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import {
   Alert,
   AlertTitle,
@@ -70,6 +70,10 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
     defaultValues: CONTRACT_FORM_DEFAULTS,
   });
 
+  // `useWatch` e não `form.watch()`: o React Compiler não memoiza a função
+  // devolvida por `watch` e desiste de otimizar o componente inteiro.
+  const pricingType = useWatch({ control: form.control, name: 'pricingType' });
+
   async function onSubmit(values: ContractFormValues) {
     setSubmitError(null);
     try {
@@ -80,6 +84,19 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
         totalValue: Number(values.totalValue),
         startDate: values.startDate,
         endDate: values.endDate,
+        pricingType: values.pricingType,
+        // Só vão no modelo unitário. Campo em branco vira `undefined`, e não
+        // zero: no backend, ausente significa DESCONHECIDO, e o custo do
+        // contrato aparece assim em vez de somar R$ 0,00.
+        unitPrice:
+          values.pricingType === 'UNIT' && values.unitPrice?.trim()
+            ? Number(values.unitPrice)
+            : undefined,
+        unitLabel: values.pricingType === 'UNIT' ? values.unitLabel?.trim() || undefined : undefined,
+        measuredQuantity:
+          values.pricingType === 'UNIT' && values.measuredQuantity?.trim()
+            ? Number(values.measuredQuantity)
+            : undefined,
       };
       await createMutation.mutateAsync(input);
       onDone();
@@ -215,6 +232,77 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="pricingType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Modelo de preço</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="GLOBAL">Preço global (valor fechado)</SelectItem>
+                      <SelectItem value="UNIT">Preço unitário (por medição)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Os campos de medição só existem no modelo unitário. No global o
+                custo é o valor contratado, e um preço por m² ali seria
+                informação que o cálculo ignora. */}
+            {pricingType === 'UNIT' && (
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="unitPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Preço unitário (R$)</FormLabel>
+                      <FormControl>
+                        <NumberInput placeholder="0,00" {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="unitLabel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Unidade</FormLabel>
+                      <FormControl>
+                        <Input placeholder="m²" {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="measuredQuantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Medido até agora</FormLabel>
+                      <FormControl>
+                        <NumberInput placeholder="—" {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
           </form>
         </Form>
       </div>

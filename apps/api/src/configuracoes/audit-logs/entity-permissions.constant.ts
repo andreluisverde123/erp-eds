@@ -12,6 +12,7 @@ const ENTITY_TYPE_PERMISSIONS: Record<string, string> = {
   Payment: 'financeiro.view',
   Employee: 'rh.view',
   EmployeeAllocation: 'rh.view',
+  EmployeeAttendance: 'rh.view',
   TimeEntry: 'rh.view',
   ProductionEntry: 'rh.view',
   Payslip: 'rh.view',

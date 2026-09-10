@@ -4,6 +4,13 @@ function isValidNumber(value: string) {
   return value.trim() !== '' && !Number.isNaN(Number(value));
 }
 
+/// Campo de custo do empregador: pode ficar VAZIO, e vazio significa
+/// desconhecido — não zero. Zero afirmaria que a empresa não gastou nada com
+/// encargos naquele mês, e o relatório de custo somaria isso como verdade.
+function isOptionalNumber(value: string | undefined) {
+  return !value || value.trim() === '' || !Number.isNaN(Number(value));
+}
+
 const currentDate = new Date();
 
 export const payslipFormSchema = z.object({
@@ -22,6 +29,9 @@ export const payslipFormSchema = z.object({
     .string()
     .refine(isValidNumber, 'Valor inválido.')
     .refine((value) => Number(value) > 0, 'Deve ser maior que zero.'),
+  employerCharges: z.string().refine(isOptionalNumber, 'Valor inválido.').optional(),
+  benefits: z.string().refine(isOptionalNumber, 'Valor inválido.').optional(),
+  provisions: z.string().refine(isOptionalNumber, 'Valor inválido.').optional(),
 });
 
 export type PayslipFormValues = z.infer<typeof payslipFormSchema>;
@@ -33,6 +43,9 @@ export const PAYSLIP_FORM_DEFAULTS: PayslipFormValues = {
   grossSalary: '',
   deductions: '',
   netSalary: '',
+  employerCharges: '',
+  benefits: '',
+  provisions: '',
 };
 
 export const MONTH_OPTIONS = [

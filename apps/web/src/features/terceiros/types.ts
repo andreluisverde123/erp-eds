@@ -63,11 +63,24 @@ export interface ContractorQuery {
   city?: string;
 }
 
+/// Como a empreitada é precificada.
+///
+/// - `GLOBAL` — preço fechado pelo escopo. O custo é do CONTRATO e não se
+///   divide pelas pessoas da terceirizada.
+/// - `UNIT` — preço por unidade produzida. O custo é medição × preço unitário,
+///   e só existe depois da medição.
+export type ContractPricingType = 'GLOBAL' | 'UNIT';
+
 export interface Contract {
   id: string;
   code: string;
   scope: string;
   totalValue: string;
+  pricingType: ContractPricingType;
+  unitPrice: string | null;
+  unitLabel: string | null;
+  /// `null` = sem medição. O custo fica DESCONHECIDO, não zero.
+  measuredQuantity: string | null;
   startDate: string;
   endDate: string;
   status: 'ACTIVE' | 'CANCELLED';
@@ -82,6 +95,10 @@ export interface ContractInput {
   constructionSiteId: string;
   scope: string;
   totalValue: number;
+  pricingType?: ContractPricingType;
+  unitPrice?: number;
+  unitLabel?: string;
+  measuredQuantity?: number;
   startDate: string;
   endDate: string;
 }

@@ -63,6 +63,9 @@ export class PayslipsService {
           grossSalary: dto.grossSalary,
           deductions: dto.deductions,
           netSalary: dto.netSalary,
+          employerCharges: dto.employerCharges,
+          benefits: dto.benefits,
+          provisions: dto.provisions,
         },
       });
       return this.findOne(companyId, created.id);
@@ -157,6 +160,9 @@ export class PayslipsService {
           grossSalary: dto.grossSalary,
           deductions: dto.deductions,
           netSalary: dto.netSalary,
+          employerCharges: dto.employerCharges,
+          benefits: dto.benefits,
+          provisions: dto.provisions,
           paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
         },
       });

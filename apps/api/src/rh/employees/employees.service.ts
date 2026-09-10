@@ -3,8 +3,10 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
+import { startOfDay } from '../../common/utils/date.util';
 import { mangleDeletedCode } from '../../common/utils/soft-delete.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolverRemuneracao } from './compensation';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -31,6 +33,9 @@ export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(companyId: string, dto: CreateEmployeeDto) {
+    // Sem linha anterior: na criação a regra vale só sobre o que veio no corpo.
+    const remuneracao = resolverRemuneracao(dto, null);
+
     try {
       const created = await this.prisma.employee.create({
         data: {
@@ -41,6 +46,9 @@ export class EmployeesService {
           hireDate: new Date(dto.hireDate),
           terminationDate: dto.terminationDate ? new Date(dto.terminationDate) : undefined,
           baseSalary: dto.baseSalary,
+          employmentType: dto.employmentType,
+          compensationType: remuneracao.compensationType,
+          dailyRate: remuneracao.dailyRate ?? undefined,
         },
       });
       return this.findOne(companyId, created.id);
@@ -56,14 +64,22 @@ export class EmployeesService {
     companyId: string,
     query: QueryEmployeeDto,
   ): Promise<PaginatedResult<ReturnType<typeof withCurrentAllocation>>> {
-    const { page, limit, search, status, position, constructionSiteId } = query;
-    const today = new Date();
+    const { page, limit, search, status, position, employmentType, compensationType, constructionSiteId } =
+      query;
+    // INÍCIO do dia, não o instante atual. `endDate` é o último dia da
+    // alocação, gravado como meia-noite UTC: comparado com "agora", quem
+    // termina hoje deixa de ser a obra atual no primeiro minuto do dia — a
+    // pessoa some da coluna "Obra Atual" justamente no seu último dia lá.
+    // `ReportsService` e `IndicatorsService` já faziam certo; só este não.
+    const today = startOfDay(new Date());
 
     const where: Prisma.EmployeeWhereInput = {
       companyId,
       deletedAt: null,
       status,
       position,
+      employmentType,
+      compensationType,
       allocations: constructionSiteId
         ? {
             some: {
@@ -104,7 +120,12 @@ export class EmployeesService {
   }
 
   async findOne(companyId: string, id: string) {
-    const today = new Date();
+    // INÍCIO do dia, não o instante atual. `endDate` é o último dia da
+    // alocação, gravado como meia-noite UTC: comparado com "agora", quem
+    // termina hoje deixa de ser a obra atual no primeiro minuto do dia — a
+    // pessoa some da coluna "Obra Atual" justamente no seu último dia lá.
+    // `ReportsService` e `IndicatorsService` já faziam certo; só este não.
+    const today = startOfDay(new Date());
     const employee = await this.prisma.employee.findFirst({
       where: { id, companyId, deletedAt: null },
       include: {
@@ -137,7 +158,18 @@ export class EmployeesService {
   }
 
   async update(companyId: string, id: string, dto: UpdateEmployeeDto) {
-    await this.assertExists(companyId, id);
+    // `assertExists` já filtra por `companyId`: um id de outra empresa não
+    // chega aqui como "existe", vira 404. É o mesmo caminho de leitura que
+    // isola o tenant no resto do service.
+    const atual = await this.assertExists(companyId, id);
+
+    // A regra depende do que JÁ está gravado, não só do que veio no PATCH:
+    // mudar para diarista sem mandar valor tem que ser recusado, e mudar para
+    // CLT tem que limpar a diária antiga.
+    const remuneracao = resolverRemuneracao(dto, {
+      compensationType: atual.compensationType,
+      dailyRate: atual.dailyRate === null ? null : Number(atual.dailyRate),
+    });
 
     try {
       await this.prisma.employee.update({
@@ -150,6 +182,9 @@ export class EmployeesService {
           hireDate: dto.hireDate ? new Date(dto.hireDate) : undefined,
           terminationDate: dto.terminationDate ? new Date(dto.terminationDate) : undefined,
           baseSalary: dto.baseSalary,
+          employmentType: dto.employmentType,
+          compensationType: remuneracao.compensationType,
+          dailyRate: remuneracao.dailyRate,
         },
       });
       return this.findOne(companyId, id);

@@ -4,7 +4,12 @@ import { toQueryString } from '@/lib/query-string';
 import type {
   Employee,
   EmployeeAllocation,
+  AttendanceDay,
+  AttendanceDayInput,
+  AttendanceSummary,
   EmployeeAllocationInput,
+  LaborCostReport,
+  EmployeeTransferInput,
   EmployeeAllocationQuery,
   EmployeeInput,
   EmployeeQuery,
@@ -44,6 +49,44 @@ export function listEmployeeAllocations(
   query: EmployeeAllocationQuery,
 ): Promise<PaginatedResult<EmployeeAllocation>> {
   return apiClient.get(`/employee-allocations${toQueryString(query)}`);
+}
+
+// --- Custo de mão de obra --------------------------------------------------
+
+export function getLaborCosts(query: {
+  constructionSiteId: string;
+  from: string;
+  to: string;
+}): Promise<LaborCostReport> {
+  return apiClient.get(`/labor-costs${toQueryString(query)}`);
+}
+
+// --- Presença --------------------------------------------------------------
+
+export function getAttendanceDay(
+  constructionSiteId: string,
+  date: string,
+): Promise<AttendanceDay> {
+  return apiClient.get(`/attendance/day${toQueryString({ constructionSiteId, date })}`);
+}
+
+/// `PUT`: o corpo descreve o ESTADO do dia. Enviar duas vezes deixa o sistema
+/// igual — a idempotência é garantida no banco por uma chave única.
+export function saveAttendanceDay(input: AttendanceDayInput): Promise<AttendanceDay> {
+  return apiClient.put('/attendance/day', input);
+}
+
+export function getAttendanceSummary(query: {
+  employeeId?: string;
+  constructionSiteId?: string;
+  from?: string;
+  to?: string;
+}): Promise<AttendanceSummary> {
+  return apiClient.get(`/attendance/summary${toQueryString(query)}`);
+}
+
+export function transferEmployee(input: EmployeeTransferInput): Promise<EmployeeAllocation> {
+  return apiClient.post('/employee-allocations/transfer', input);
 }
 
 export function createEmployeeAllocation(

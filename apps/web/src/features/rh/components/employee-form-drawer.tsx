@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import {
   Alert,
   AlertTitle,
@@ -31,6 +31,11 @@ import {
   employeeFormSchema,
   type EmployeeFormValues,
 } from '../employee-form-schema';
+import {
+  COMPENSATION_TYPE_OPTIONS,
+  EMPLOYMENT_TYPE_OPTIONS,
+  exigeDiaria,
+} from '../employee-compensation';
 import { EMPLOYEE_STATUS_OPTIONS } from '../employee-status';
 import { useCreateEmployee, useUpdateEmployee } from '../hooks/use-employee-mutations';
 import type { Employee, EmployeeInput } from '../types';
@@ -41,6 +46,9 @@ function employeeToFormValues(employee: Employee): EmployeeFormValues {
     cpf: employee.cpf,
     position: employee.position,
     status: employee.status,
+    employmentType: employee.employmentType,
+    compensationType: employee.compensationType,
+    dailyRate: employee.dailyRate ?? '',
     hireDate: employee.hireDate.slice(0, 10),
     terminationDate: employee.terminationDate?.slice(0, 10) ?? '',
     baseSalary: employee.baseSalary ?? '',
@@ -53,6 +61,11 @@ function toEmployeeInput(values: EmployeeFormValues): EmployeeInput {
     cpf: values.cpf,
     position: values.position,
     status: values.status,
+    employmentType: values.employmentType,
+    compensationType: values.compensationType,
+    // Só vai quando o tipo pede. Mandar a diária de um CLT seria informação
+    // que a API descarta — e que confundiria quem lesse o corpo do pedido.
+    dailyRate: exigeDiaria(values.compensationType) ? Number(values.dailyRate) : undefined,
     hireDate: values.hireDate,
     terminationDate: values.terminationDate || undefined,
     baseSalary: values.baseSalary ? Number(values.baseSalary) : undefined,
@@ -100,6 +113,11 @@ function EmployeeFormBody({ employee, onDone }: { employee?: Employee; onDone: (
     resolver: zodResolver(employeeFormSchema),
     defaultValues: employee ? employeeToFormValues(employee) : EMPLOYEE_FORM_DEFAULTS,
   });
+
+  // `useWatch` e não `form.watch()`: o React Compiler não consegue memoizar a
+  // função devolvida por `watch`, e desiste de otimizar o componente inteiro.
+  // Mesmo padrão já usado no formulário de solicitação de compra.
+  const compensationType = useWatch({ control: form.control, name: 'compensationType' });
 
   async function onSubmit(values: EmployeeFormValues) {
     setSubmitError(null);
@@ -186,6 +204,77 @@ function EmployeeFormBody({ employee, onDone }: { employee?: Employee; onDone: (
                 )}
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="employmentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vínculo</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="compensationType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Remuneração</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {COMPENSATION_TYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* A diária só existe para quem é diarista. Deixá-la sempre visível
+                convidaria a preencher um valor que a API descarta, e o usuário
+                sairia da tela achando que gravou algo. */}
+            {exigeDiaria(compensationType) && (
+              <FormField
+                control={form.control}
+                name="dailyRate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Valor da diária (R$)</FormLabel>
+                    <FormControl>
+                      <NumberInput placeholder="0,00" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

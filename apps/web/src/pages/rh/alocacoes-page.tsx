@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import {
   Button,
   ErrorState,
+  Input,
   Pagination,
   PaginationNext,
   PaginationPrevious,
@@ -35,6 +36,9 @@ export function AlocacoesPage() {
   const [page, setPage] = useState(1);
   const [employeeId, setEmployeeId] = useState(ALL);
   const [constructionSiteId, setConstructionSiteId] = useState(ALL);
+  // "Equipe em": quem estava alocado neste dia. Vazio = histórico inteiro.
+  // É a consulta que o mestre de obras faz, e a que o RH-03 vai reaproveitar.
+  const [onDate, setOnDate] = useState('');
 
   function resetPageAnd<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -48,7 +52,10 @@ export function AlocacoesPage() {
     limit: PAGE_SIZE,
     employeeId: employeeId === ALL ? undefined : employeeId,
     constructionSiteId: constructionSiteId === ALL ? undefined : constructionSiteId,
+    onDate: onDate || undefined,
   });
+
+  const handleDateChange = resetPageAnd(setOnDate);
 
   const { data: employeesData } = useEmployees({ limit: 100 });
   const { data: sitesData } = useConstructionSites({ limit: 100 });
@@ -120,6 +127,22 @@ export function AlocacoesPage() {
             ))}
           </SelectContent>
         </Select>
+
+        {/* Equipe da obra numa data. Sem data, a lista é o histórico inteiro —
+            o que é útil para auditar, mas não responde "quem estava lá no dia
+            8". */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="alocacao-em" className="shrink-0 text-sm text-muted-foreground">
+            Equipe em
+          </label>
+          <Input
+            id="alocacao-em"
+            type="date"
+            value={onDate}
+            onChange={(event) => handleDateChange(event.target.value)}
+            className="sm:w-[160px]"
+          />
+        </div>
       </div>
 
       {isError && <ErrorState message="Não foi possível carregar as alocações. Tente novamente." />}

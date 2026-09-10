@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsISO8601,
   IsNotEmpty,
   IsNumber,
@@ -9,6 +10,8 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
+
+import { CompensationType, EmploymentType } from '../../../../generated/prisma/client';
 
 /// Sem campo `status` — todo funcionário sempre nasce ACTIVE (default do
 /// schema). Mudar de status é uma ação de edição explícita, só existe em
@@ -34,6 +37,26 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsISO8601(undefined, { message: 'Data de desligamento inválida.' })
   terminationDate?: string;
+
+  /// Vínculo e remuneração são opcionais no contrato da API para não quebrar
+  /// nenhum cliente existente: quem não informa cai no mesmo default do schema
+  /// — próprio e CLT —, que descreve todo colaborador já cadastrado.
+  @IsOptional()
+  @IsEnum(EmploymentType, { message: 'Tipo de vínculo inválido.' })
+  employmentType?: EmploymentType;
+
+  @IsOptional()
+  @IsEnum(CompensationType, { message: 'Tipo de remuneração inválido.' })
+  compensationType?: CompensationType;
+
+  /// A obrigatoriedade da diária NÃO é decidida aqui. Ela depende do tipo de
+  /// remuneração, e na edição depende também do que já está gravado — regra
+  /// que `resolverRemuneracao` concentra, para não existir em dois lugares
+  /// com chance de divergirem.
+  @IsOptional()
+  @IsNumber({}, { message: 'Valor da diária inválido.' })
+  @Max(999_999_999.99, { message: 'Valor da diária excede o limite permitido.' })
+  dailyRate?: number;
 
   @IsOptional()
   @IsNumber({}, { message: 'Salário base inválido.' })

@@ -16,6 +16,7 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { CreateEmployeeAllocationDto } from './dto/create-employee-allocation.dto';
 import { QueryEmployeeAllocationDto } from './dto/query-employee-allocation.dto';
+import { TransferEmployeeDto } from './dto/transfer-employee.dto';
 import { UpdateEmployeeAllocationDto } from './dto/update-employee-allocation.dto';
 import { EmployeeAllocationsService } from './employee-allocations.service';
 
@@ -32,6 +33,17 @@ export class EmployeeAllocationsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('companyId') companyId: string) {
     return this.employeeAllocationsService.findOne(companyId, id);
+  }
+
+  /// Transferência de obra. Escrita, e portanto `rh.manage`.
+  ///
+  /// Rota própria e não um `POST /employee-allocations` com um campo a mais
+  /// porque o efeito é diferente: aqui DUAS linhas mudam — a anterior é
+  /// encerrada e a nova é criada —, e as duas na mesma transação.
+  @RequirePermissions('rh.manage')
+  @Post('transfer')
+  transfer(@Body() dto: TransferEmployeeDto, @CurrentUser('companyId') companyId: string) {
+    return this.employeeAllocationsService.transfer(companyId, dto);
   }
 
   @RequirePermissions('rh.manage')

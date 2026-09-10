@@ -3,9 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createEmployeeAllocation,
   deleteEmployeeAllocation,
+  transferEmployee,
   updateEmployeeAllocation,
 } from '../api';
-import type { EmployeeAllocationInput } from '../types';
+import type { EmployeeAllocationInput, EmployeeTransferInput } from '../types';
 
 export function useCreateEmployeeAllocation() {
   const queryClient = useQueryClient();
@@ -15,6 +16,21 @@ export function useCreateEmployeeAllocation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employee-allocations'] });
       // A obra atual exibida na tela de Funcionários é derivada da alocação.
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+    },
+  });
+}
+
+/// Transferência de obra. Invalida as duas listas pelo mesmo motivo das
+/// demais — mas aqui vale lembrar que UM pedido mexe em DUAS alocações: a
+/// anterior ganha data de fim e a nova nasce em aberto.
+export function useTransferEmployee() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: EmployeeTransferInput) => transferEmployee(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employee-allocations'] });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
     },
   });

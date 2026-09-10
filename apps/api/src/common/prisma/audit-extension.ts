@@ -16,6 +16,7 @@ const AUDITED_MODELS = new Set([
   'Payment',
   'Employee',
   'EmployeeAllocation',
+  'EmployeeAttendance',
   'TimeEntry',
   'ProductionEntry',
   'Payslip',

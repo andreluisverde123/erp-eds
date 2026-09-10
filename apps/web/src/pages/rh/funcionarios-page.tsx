@@ -20,12 +20,22 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 import { useConstructionSites } from '@/features/engenharia/hooks/use-construction-sites';
+import { EmployeeAllocationsDrawer } from '@/features/rh/components/employee-allocations-drawer';
 import { EmployeeFormDrawer } from '@/features/rh/components/employee-form-drawer';
 import { EmployeesTable } from '@/features/rh/components/employees-table';
+import {
+  COMPENSATION_TYPE_OPTIONS,
+  EMPLOYMENT_TYPE_OPTIONS,
+} from '@/features/rh/employee-compensation';
 import { EMPLOYEE_STATUS_OPTIONS } from '@/features/rh/employee-status';
 import { useDeleteEmployee } from '@/features/rh/hooks/use-employee-mutations';
 import { useEmployeePositions, useEmployees } from '@/features/rh/hooks/use-employees';
-import type { Employee, EmployeeStatus } from '@/features/rh/types';
+import type {
+  CompensationType,
+  Employee,
+  EmployeeStatus,
+  EmploymentType,
+} from '@/features/rh/types';
 
 const PAGE_SIZE = 10;
 const ALL = 'ALL';
@@ -35,6 +45,8 @@ export function FuncionariosPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<EmployeeStatus | typeof ALL>(ALL);
   const [position, setPosition] = useState(ALL);
+  const [employmentType, setEmploymentType] = useState<EmploymentType | typeof ALL>(ALL);
+  const [compensationType, setCompensationType] = useState<CompensationType | typeof ALL>(ALL);
   const [constructionSiteId, setConstructionSiteId] = useState(ALL);
   const debouncedSearch = useDebouncedValue(search);
 
@@ -49,6 +61,8 @@ export function FuncionariosPage() {
   const handleStatusChange = resetPageAnd(setStatus);
   const handlePositionChange = resetPageAnd(setPosition);
   const handleSiteChange = resetPageAnd(setConstructionSiteId);
+  const handleEmploymentChange = resetPageAnd(setEmploymentType);
+  const handleCompensationChange = resetPageAnd(setCompensationType);
 
   const { data, isLoading, isError } = useEmployees({
     page,
@@ -56,6 +70,8 @@ export function FuncionariosPage() {
     search: debouncedSearch || undefined,
     status: status === ALL ? undefined : status,
     position: position === ALL ? undefined : position,
+    employmentType: employmentType === ALL ? undefined : employmentType,
+    compensationType: compensationType === ALL ? undefined : compensationType,
     constructionSiteId: constructionSiteId === ALL ? undefined : constructionSiteId,
   });
 
@@ -67,6 +83,7 @@ export function FuncionariosPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | undefined>();
   const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
+  const [allocationsEmployee, setAllocationsEmployee] = useState<Employee | null>(null);
 
   function openCreateDrawer() {
     setEditingEmployee(undefined);
@@ -77,6 +94,10 @@ export function FuncionariosPage() {
   const openEditDrawer = useCallback((employee: Employee) => {
     setEditingEmployee(employee);
     setDrawerOpen(true);
+  }, []);
+
+  const openAllocationsDrawer = useCallback((employee: Employee) => {
+    setAllocationsEmployee(employee);
   }, []);
 
   async function confirmDelete() {
@@ -149,6 +170,40 @@ export function FuncionariosPage() {
         </Select>
 
         <Select
+          value={employmentType}
+          onValueChange={(value) => handleEmploymentChange(value as EmploymentType)}
+        >
+          <SelectTrigger className="sm:w-[160px]">
+            <SelectValue placeholder="Vínculo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Todos os vínculos</SelectItem>
+            {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={compensationType}
+          onValueChange={(value) => handleCompensationChange(value as CompensationType)}
+        >
+          <SelectTrigger className="sm:w-[160px]">
+            <SelectValue placeholder="Remuneração" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Todas as remunerações</SelectItem>
+            {COMPENSATION_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
           value={status}
           onValueChange={(value) => handleStatusChange(value as EmployeeStatus)}
         >
@@ -171,12 +226,13 @@ export function FuncionariosPage() {
       )}
 
       {!isError && isLoading && !data && (
-        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando funcionários..." />
+        <TableSkeleton columns={8} rows={PAGE_SIZE} message="Carregando funcionários..." />
       )}
 
       {data && (
         <>
           <EmployeesTable
+            onAllocations={openAllocationsDrawer}
             employees={data.data}
             onEdit={openEditDrawer}
             onDelete={setDeletingEmployee}
@@ -206,6 +262,12 @@ export function FuncionariosPage() {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         employee={editingEmployee}
+      />
+
+      <EmployeeAllocationsDrawer
+        employee={allocationsEmployee}
+        open={Boolean(allocationsEmployee)}
+        onOpenChange={(open) => !open && setAllocationsEmployee(null)}
       />
 
       <ConfirmDialog

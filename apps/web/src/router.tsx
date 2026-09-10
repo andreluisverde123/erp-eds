@@ -10,6 +10,8 @@ import { PUBLIC_SIGNUP_ENABLED } from '@/config/company';
 
 import {
   AlocacoesPage,
+  ApontamentoPage,
+  CustosPage,
   CadastroPage,
   ConciliacaoDetailPage,
   ConciliacaoPage,
@@ -71,6 +73,8 @@ const PAGE_OVERRIDES: Record<string, ReactNode> = {
   '/financeiro/contas-a-pagar': <ContasAPagarPage />,
   '/financeiro/pagamentos': <PagamentosPage />,
   '/rh/funcionarios': <FuncionariosPage />,
+  '/rh/apontamento': <ApontamentoPage />,
+  '/rh/custos': <CustosPage />,
   '/rh/ponto': <PontoPage />,
   '/rh/producao': <ProducaoPage />,
   '/rh/holerites': <HoleritesPage />,

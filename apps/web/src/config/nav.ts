@@ -1,7 +1,9 @@
 import {
   BarChart3,
+  CalendarCheck,
   Building2,
   ClipboardList,
+  Coins,
   Clock,
   CreditCard,
   Factory,
@@ -123,6 +125,13 @@ export const navEntries: NavEntry[] = [
     label: 'RH',
     items: [
       { title: 'Funcionários', path: '/rh/funcionarios', icon: UserRound, permission: 'rh.view' },
+      {
+        title: 'Apontamento',
+        path: '/rh/apontamento',
+        icon: CalendarCheck,
+        permission: 'rh.view',
+      },
+      { title: 'Custos', path: '/rh/custos', icon: Coins, permission: 'rh.view' },
       { title: 'Ponto', path: '/rh/ponto', icon: Fingerprint, permission: 'rh.view' },
       { title: 'Produção', path: '/rh/producao', icon: Factory, permission: 'rh.view' },
       { title: 'Holerites', path: '/rh/holerites', icon: FileSpreadsheet, permission: 'rh.view' },

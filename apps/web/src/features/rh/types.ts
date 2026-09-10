@@ -35,12 +35,19 @@ export interface EmployeeAllocationRef {
 /// Campos Decimal do Prisma (baseSalary, hoursWorked, quantity, grossSalary,
 /// deductions, netSalary) vêm serializados como string no JSON — nunca
 /// number. Parsear com Number() antes de calcular.
+export type EmploymentType = 'OWN' | 'OUTSOURCED';
+export type CompensationType = 'CLT' | 'DAILY';
+
 export interface Employee {
   id: string;
   name: string;
   cpf: string;
   position: string;
   status: EmployeeStatus;
+  employmentType: EmploymentType;
+  compensationType: CompensationType;
+  /// Decimal do banco: chega como string, e é `null` para quem não é diarista.
+  dailyRate: string | null;
   hireDate: string;
   terminationDate: string | null;
   baseSalary: string | null;
@@ -54,12 +61,17 @@ export interface EmployeeInput {
   cpf: string;
   position: string;
   status?: EmployeeStatus;
+  employmentType?: EmploymentType;
+  compensationType?: CompensationType;
+  dailyRate?: number;
   hireDate: string;
   terminationDate?: string;
   baseSalary?: number;
 }
 
 export interface EmployeeQuery {
+  employmentType?: EmploymentType;
+  compensationType?: CompensationType;
   page?: number;
   limit?: number;
   search?: string;
@@ -85,7 +97,118 @@ export interface EmployeeAllocationInput {
   endDate?: string;
 }
 
+// ---------------------------------------------------------------------------
+// PRESENÇA (RH-03)
+// ---------------------------------------------------------------------------
+
+/// Situação de uma pessoa na chamada do dia.
+///
+/// `NAO_APONTADO` não é o mesmo que `AUSENTE`: o primeiro é trabalho a fazer, o
+/// segundo é informação registrada. Sem essa distinção, o mestre de obras não
+/// sabe se já passou por aquele dia.
+export type SituacaoDoApontamento = 'PRESENTE' | 'AUSENTE' | 'NAO_APONTADO';
+
+export interface AttendanceRow {
+  employeeId: string;
+  name: string;
+  position: string;
+  situacao: SituacaoDoApontamento;
+}
+
+/// A chamada de uma obra num dia. As linhas vêm da ALOCAÇÃO daquela data.
+export interface AttendanceDay {
+  constructionSiteId: string;
+  date: string;
+  rows: AttendanceRow[];
+}
+
+export interface AttendanceDayInput {
+  constructionSiteId: string;
+  date: string;
+  entries: { employeeId: string; present: boolean }[];
+}
+
+export interface AttendanceSummary {
+  daysPresent: number;
+  daysAbsent: number;
+  daysRecorded: number;
+}
+
+// ---------------------------------------------------------------------------
+// CUSTO DE MÃO DE OBRA (RH-04)
+// ---------------------------------------------------------------------------
+
+/// Um custo tem TRÊS estados, não um número.
+///
+/// `DESCONHECIDO` vem com `valor: null` — e é `null`, não zero, porque zero
+/// somaria no total da obra e ninguém notaria que falta informação.
+export interface Custo {
+  estado: 'CONHECIDO' | 'PARCIAL' | 'DESCONHECIDO';
+  valor: string | null;
+  /// O que impede o custo de estar completo, em linguagem de quem lê.
+  faltando: string[];
+}
+
+export interface LaborCostEmployee {
+  employeeId: string;
+  name: string;
+  position: string;
+  employmentType: EmploymentType;
+  compensationType: CompensationType;
+  diasNaObra: number;
+  diasPresentesNoPeriodo: number;
+  /// Só para CLT. Diarista não rateia: o custo dele é inteiro da obra.
+  percentual: number | null;
+  custo: Custo;
+}
+
+export interface LaborCostContract {
+  contractId: string;
+  code: string;
+  scope: string;
+  contractorName: string;
+  pricingType: 'GLOBAL' | 'UNIT';
+  unitLabel: string | null;
+  unitPrice: string | null;
+  measuredQuantity: string | null;
+  /// Valor contratado (global) ou medido acumulado (unitário). É INFORMAÇÃO do
+  /// contrato — não o custo deste período.
+  valorInformado: string | null;
+  rotuloDoValor: string;
+  /// O que pode ser atribuído a este período. Hoje sempre desconhecido: sem
+  /// medições datadas, não há como dizer quanto da empreitada foi consumido
+  /// aqui, e atribuir o total daria o mesmo dinheiro em dois meses.
+  custo: Custo;
+}
+
+export interface LaborCostReport {
+  constructionSiteId: string;
+  from: string;
+  to: string;
+  colaboradores: LaborCostEmployee[];
+  empreitadas: LaborCostContract[];
+  resumo: {
+    colaboradores: Custo;
+    empreitadas: Custo;
+    maoDeObra: Custo;
+  };
+}
+
+/// Transferência de obra: a partir de `date`, o colaborador passa a trabalhar
+/// em `constructionSiteId`. A alocação anterior é encerrada na véspera pelo
+/// backend — não se informa qual é.
+export interface EmployeeTransferInput {
+  employeeId: string;
+  constructionSiteId: string;
+  costCenterId?: string;
+  date: string;
+}
+
 export interface EmployeeAllocationQuery {
+  /// Quem estava alocado NESTE dia.
+  onDate?: string;
+  from?: string;
+  to?: string;
   page?: number;
   limit?: number;
   employeeId?: string;
@@ -165,6 +288,10 @@ export interface Payslip {
   grossSalary: string;
   deductions: string;
   netSalary: string;
+  /// Custo do empregador. `null` = DESCONHECIDO, nunca zero.
+  employerCharges: string | null;
+  benefits: string | null;
+  provisions: string | null;
   paidAt: string | null;
   /// Derivado no backend a partir de `paidAt` — não é um campo de banco.
   status: PayslipStatus;
@@ -179,6 +306,9 @@ export interface PayslipInput {
   grossSalary: number;
   deductions: number;
   netSalary: number;
+  employerCharges?: number;
+  benefits?: number;
+  provisions?: number;
 }
 
 export interface PayslipQuery {
