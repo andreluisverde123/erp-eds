@@ -52,6 +52,26 @@ export const purchaseRequestFormSchema = z.object({
     .refine((items) => items.some((item) => !isBlankItemRow(item)), 'Adicione ao menos um item.'),
 });
 
+/// A validação da gaveta de INCLUIR ITENS, que valida SÓ as linhas.
+///
+/// Mesmo formato de valores do formulário de solicitação — a grade é a mesma
+/// e precisa do mesmo `items` —, mas sem as exigências dos campos que a gaveta
+/// não mostra. Validar o formulário inteiro ali reprovava em
+/// `constructionSiteId`, um campo que não está na tela: o `handleSubmit`
+/// engolia o envio, o erro ficava preso num campo que ninguém vê e o botão
+/// "Incluir itens" não fazia NADA. Nenhuma mensagem, nenhum pedido.
+///
+/// A exigência de haver ao menos um item também sai daqui de propósito: a
+/// gaveta trata esse caso no `onSubmit`, com um alerta visível. Deixá-la no
+/// schema devolveria o mesmo silêncio, agora num erro de `items` que a grade
+/// não desenha.
+export const addRequestItemsFormSchema = z.object({
+  constructionSiteId: z.string(),
+  costCenterId: z.string().optional(),
+  notes: z.string().trim().optional(),
+  items: z.array(purchaseRequestItemFormSchema),
+});
+
 export type PurchaseRequestFormValues = z.infer<typeof purchaseRequestFormSchema>;
 export type PurchaseRequestItemFormValues = z.infer<typeof purchaseRequestItemFormSchema>;
 

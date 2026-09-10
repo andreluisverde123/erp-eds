@@ -16,8 +16,8 @@ import { ApiError } from '@/lib/api-client';
 
 import { useAddPurchaseRequestItems } from '../hooks/use-purchase-request-mutations';
 import {
+  addRequestItemsFormSchema,
   isBlankItemRow,
-  purchaseRequestFormSchema,
   PURCHASE_REQUEST_FORM_DEFAULTS,
   type PurchaseRequestFormValues,
 } from '../purchase-request-form-schema';
@@ -83,8 +83,12 @@ function AddRequestItemsBody({
   // O formulário inteiro da solicitação, mas só a grade é usada e só os itens
   // são enviados. É o que permite reaproveitar `PurchaseRequestItemsGrid` sem
   // uma segunda versão dela que fosse divergindo com o tempo.
+  //
+  // A VALIDAÇÃO, porém, é só das linhas: `purchaseRequestFormSchema` exige a
+  // obra, que aqui não está na tela, e reprovaria todo envio num campo que o
+  // usuário não tem como corrigir.
   const form = useForm<PurchaseRequestFormValues>({
-    resolver: zodResolver(purchaseRequestFormSchema),
+    resolver: zodResolver(addRequestItemsFormSchema),
     defaultValues: PURCHASE_REQUEST_FORM_DEFAULTS,
   });
 
