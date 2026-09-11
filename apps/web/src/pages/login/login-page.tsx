@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { TriangleAlert } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate, type Location } from 'react-router';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ import {
 } from '@repo/ui';
 
 import { CompanyLogo } from '@/components/company-logo';
+import { PAYMENT_PENDING_CODE, PAYMENT_PENDING_LOGIN_NOTICE } from '@/config/billing-notice';
 import { APP_NAME } from '@/config/company';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/features/auth/context';
@@ -39,10 +41,15 @@ function redirectPath(location: Location): string {
 }
 
 export function LoginPage() {
-  const { status, login } = useAuth();
+  const { status, login, paymentPending: sessionDroppedForPayment } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Antes de qualquer tentativa, vale o que o provider sabe (a sessão caiu pela
+  // suspensão, inclusive se isso for descoberto com a tela já aberta). Depois,
+  // a última tentativa de login decide.
+  const [attemptPaymentPending, setPaymentPending] = useState<boolean | null>(null);
+  const paymentPending = attemptPaymentPending ?? sessionDroppedForPayment;
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -59,6 +66,13 @@ export function LoginPage() {
       await login(values.email, values.password);
       navigate(redirectPath(location), { replace: true });
     } catch (error) {
+      // A API só manda este código depois de conferir a senha, então quem
+      // erra a senha não descobre que a empresa está suspensa.
+      if (error instanceof ApiError && error.code === PAYMENT_PENDING_CODE) {
+        setPaymentPending(true);
+        return;
+      }
+      setPaymentPending(false);
       setSubmitError(
         error instanceof ApiError ? error.message : 'Não foi possível entrar. Tente novamente.',
       );
@@ -76,6 +90,8 @@ export function LoginPage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+              {paymentPending && <PaymentPendingBanner />}
+
               {submitError && (
                 <Alert variant="destructive">
                   <AlertTitle>{submitError}</AlertTitle>
@@ -131,6 +147,26 @@ export function LoginPage() {
           </Form>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/// Mesmo âmbar da faixa de "Fatura em atraso" (`BillingNoticeBanner`): é o
+/// mesmo assunto, só que agora com o acesso já cortado.
+function PaymentPendingBanner() {
+  const { title, message, contact } = PAYMENT_PENDING_LOGIN_NOTICE;
+
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-3 rounded-lg border-2 border-amber-400 bg-amber-100 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-100"
+    >
+      <TriangleAlert className="mt-0.5 size-5 shrink-0" strokeWidth={2.25} />
+      <div className="min-w-0">
+        <p className="font-bold">{title}</p>
+        <p className="mt-1 text-amber-900 dark:text-amber-100/90">{message}</p>
+        {contact ? <p className="mt-1 font-semibold">{contact}</p> : null}
+      </div>
     </div>
   );
 }

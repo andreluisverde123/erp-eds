@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { setAccessToken, setUnauthorizedHandler } from '@/lib/api-client';
+import { PAYMENT_PENDING_CODE } from '@/config/billing-notice';
+import { ApiError, setAccessToken, setUnauthorizedHandler } from '@/lib/api-client';
 
 import * as authApi from './api';
 import { AuthContext, type AuthStatus } from './context';
@@ -16,10 +17,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // funcionar. O ref garante uma única tentativa por ciclo de vida do app.
   const hasAttemptedBootRefresh = useRef(false);
 
+  const [paymentPending, setPaymentPending] = useState(false);
+
   const applySession = useCallback((token: string, sessionUser: AuthUser) => {
     setAccessToken(token);
     setUser(sessionUser);
     setStatus('authenticated');
+    setPaymentPending(false);
   }, []);
 
   const clearSession = useCallback(() => {
@@ -27,6 +31,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setStatus('unauthenticated');
   }, []);
+
+  // Refresh recusado com `PAYMENT_PENDING`: a empresa foi suspensa com gente
+  // logada. A sessão cai do mesmo jeito, mas o login já abre explicando o porquê.
+  const dropSession = useCallback(
+    (error: unknown) => {
+      setPaymentPending(error instanceof ApiError && error.code === PAYMENT_PENDING_CODE);
+      clearSession();
+    },
+    [clearSession],
+  );
 
   // Interceptor do api-client: quando uma chamada autenticada leva 401 (access
   // token expirado em pleno uso), tenta um refresh silencioso via cookie e
@@ -37,14 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const session = await authApi.refresh();
         applySession(session.accessToken, session.user);
         return session.accessToken;
-      } catch {
-        clearSession();
+      } catch (error) {
+        dropSession(error);
         return null;
       }
     });
 
     return () => setUnauthorizedHandler(null);
-  }, [applySession, clearSession]);
+  }, [applySession, dropSession]);
 
   // Loading inicial: o access token só vive em memória (nunca em
   // localStorage), então some a cada reload. No boot, tenta restaurar a
@@ -57,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authApi
       .refresh()
       .then((session) => applySession(session.accessToken, session.user))
-      .catch(() => clearSession());
-  }, [applySession, clearSession]);
+      .catch(dropSession);
+  }, [applySession, dropSession]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -99,8 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // consumidor de useAuth() — o que é praticamente a árvore inteira, já que
   // este provider envolve o RouterProvider por completo.
   const value = useMemo(
-    () => ({ status, user, login, signup, changePassword, logout }),
-    [status, user, login, signup, changePassword, logout],
+    () => ({ status, user, paymentPending, login, signup, changePassword, logout }),
+    [status, user, paymentPending, login, signup, changePassword, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

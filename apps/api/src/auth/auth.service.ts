@@ -106,6 +106,16 @@ const INVALID_CREDENTIALS_MESSAGE = 'E-mail ou senha inválidos.';
 const SESSION_EXPIRED_MESSAGE = 'Sessão expirada. Faça login novamente.';
 const COMPANY_BLOCKED_MESSAGE =
   'O acesso desta empresa está suspenso. Fale com o responsável pela conta ou com o suporte.';
+const PAYMENT_PENDING_MESSAGE =
+  'O acesso ao sistema está suspenso por pagamento pendente. Fale com o responsável pelo contrato.';
+/// Lido pelo web (`PAYMENT_PENDING_CODE` em `config/billing-notice.ts`) para
+/// trocar o erro do login pelo banner de pagamento pendente.
+const PAYMENT_PENDING_CODE = 'PAYMENT_PENDING';
+
+/// Quem administra o contrato do lado da Obrei. Entra com a empresa em
+/// qualquer situação — inclusive suspensa, que é justamente quando precisa
+/// entrar. Mesma lista de `BILLING_NOTICE.exemptEmails` no web.
+const COMPANY_STATUS_EXEMPT_EMAILS = new Set(['admin@obrei.com']);
 
 /// Situações de tenant que permitem usar o sistema. `TRIAL` entra aqui de
 /// propósito: é o estado em que toda empresa nasce pelo cadastro
@@ -270,10 +280,20 @@ export class AuthService {
   /// projeto, mas nenhum caminho de autenticação os consultava — na prática
   /// não havia como suspender um cliente.
   private assertCompanyActive(user: UserWithAccess): void {
+    if (COMPANY_STATUS_EXEMPT_EMAILS.has(user.email.trim().toLowerCase())) return;
+
     if (user.company.deletedAt || !ACTIVE_TENANT_STATUSES.has(user.company.status)) {
       this.logger.warn(
         `Acesso bloqueado: empresa ${user.companyId} está ${user.company.deletedAt ? 'excluída' : user.company.status} (usuário ${user.email}).`,
       );
+      // `SUSPENDED` é o corte por inadimplência; `CANCELLED` e excluída não
+      // são cobrança, então continuam com a mensagem genérica.
+      if (!user.company.deletedAt && user.company.status === 'SUSPENDED') {
+        throw new ForbiddenException({
+          message: PAYMENT_PENDING_MESSAGE,
+          code: PAYMENT_PENDING_CODE,
+        });
+      }
       throw new ForbiddenException(COMPANY_BLOCKED_MESSAGE);
     }
   }

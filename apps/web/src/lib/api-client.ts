@@ -4,6 +4,9 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /// Código de negócio que a API manda em casos específicos (ex.:
+    /// `PAYMENT_PENDING`). Ausente na maioria dos erros.
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -58,7 +61,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const message = Array.isArray(body?.message) ? body.message.join(' ') : body?.message;
-    throw new ApiError(response.status, message ?? 'Erro inesperado. Tente novamente.');
+    const code = typeof body?.code === 'string' ? body.code : undefined;
+    throw new ApiError(response.status, message ?? 'Erro inesperado. Tente novamente.', code);
   }
 
   if (response.status === 204) {

@@ -23,6 +23,7 @@ function contexto(user: AuthUser | null): AuthContextValue {
   return {
     status: user ? 'authenticated' : 'unauthenticated',
     user,
+    paymentPending: false,
     login: async () => {},
     signup: async () => {},
     changePassword: async () => {},

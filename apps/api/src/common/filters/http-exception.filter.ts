@@ -49,13 +49,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
+    // `code` só existe quando a exceção o declara (ex.: `PAYMENT_PENDING` no
+    // login). É o que deixa o front reagir a um caso específico sem comparar
+    // o texto da mensagem.
+    const code = isHttpException ? extractCode(exception.getResponse()) : undefined;
+
     response.status(status).json({
       statusCode: status,
       message,
+      ...(code ? { code } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });
   }
+}
+
+function extractCode(body: unknown): string | undefined {
+  if (body && typeof body === 'object' && 'code' in body) {
+    const code = (body as { code: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
 }
 
 /// Checagem estrutural em vez de `instanceof PrismaClientKnownRequestError`:

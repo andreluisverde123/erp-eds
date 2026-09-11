@@ -8,6 +8,9 @@ export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 export interface AuthContextValue {
   status: AuthStatus;
   user: AuthUser | null;
+  /// A sessão caiu porque a empresa foi suspensa por falta de pagamento. A
+  /// tela de login usa isto para já abrir com o banner de pagamento pendente.
+  paymentPending: boolean;
   login: (email: string, password: string) => Promise<void>;
   /// Cadastro de uma empresa nova. Como o backend já devolve a sessão, o
   /// usuário sai daqui autenticado — não há passo intermediário de login.
