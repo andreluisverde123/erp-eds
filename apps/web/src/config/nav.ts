@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
+  Package,
   PlugZap,
   Settings,
   ShoppingCart,
@@ -55,6 +56,10 @@ export const navEntries: NavEntry[] = [
     label: 'Engenharia',
     items: [
       { title: 'Obras', path: '/engenharia/obras', icon: Building2, permission: 'engenharia.view' },
+      // Fica em Engenharia, e não num grupo "Orçamentos": o módulo de
+      // orçamento ainda não existe, e criar o grupo agora prometeria telas que
+      // não estão lá.
+      { title: 'Insumos', path: '/engenharia/insumos', icon: Package, permission: 'catalogo.view' },
       {
         title: 'Solicitações',
         path: '/engenharia/solicitacoes',

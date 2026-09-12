@@ -2,6 +2,7 @@
 /// permissão que já protege o módulo dono daquele registro (confirmado lendo
 /// os controllers reais de cada módulo), nunca uma permissão nova.
 const ENTITY_TYPE_PERMISSIONS: Record<string, string> = {
+  CatalogItem: 'catalogo.view',
   ConstructionSite: 'engenharia.view',
   CostCenter: 'engenharia.view',
   Supplier: 'compras.view',

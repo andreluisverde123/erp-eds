@@ -430,6 +430,7 @@ model Company {
   users                   User[]
   roles                   Role[]
   constructionSites       ConstructionSite[]
+  catalogItems        CatalogItem[]
   costCenters             CostCenter[]
   suppliers               Supplier[]
   purchaseRequests        PurchaseRequest[]
@@ -777,6 +778,93 @@ model CostCenter {
 // =============================================================================
 
 /// Fornecedor de materiais/serviços.
+/// Natureza do insumo.
+///
+/// **Só `MATERIAL` está operacional.** Mão de obra e equipamento não entram
+/// como valores agora de propósito: cadastrá-los exigiria custo-hora por função
+/// e custo-hora de máquina, que o ERP não tem e que este prompt não deve
+/// inventar. Um valor de enum sem modelo de custo por trás seria um cadastro
+/// que aceita "Pedreiro" e não sabe responder quanto ele custa.
+///
+/// O enum existe com um valor só porque estender enum no Postgres é aditivo
+/// (`ALTER TYPE ... ADD VALUE`) e barato — e porque deixa explícito, na leitura
+/// do schema, que a distinção de natureza é esperada.
+enum CatalogItemType {
+  MATERIAL
+}
+
+/// CADASTRO DE INSUMOS da empresa. A identidade que faltava.
+///
+/// ## O que ele é, e o que não é
+///
+/// `CatalogItem` responde **"o que é este insumo?"** — nunca "quanto ele
+/// custa". Preço tem quatro naturezas no ERP (referencial, cotado, comprado,
+/// faturado) e nenhuma delas pertence a um cadastro: guardar um preço aqui
+/// criaria um quinto número, sem data e sem fornecedor, que pareceria a
+/// resposta certa.
+///
+/// ## Por que não reaproveitar `PurchaseRequestItem`
+///
+/// Aquilo é LINHA DE DOCUMENTO. A mesma "Cimento CP-II" existe em N linhas,
+/// uma por solicitação, sem id estável, e a unidade varia entre elas — a mesma
+/// tinta vem em lata numa compra e em galão na outra. O autocomplete de
+/// Compras continua lendo aquele histórico, e continua certo em fazê-lo: ele
+/// responde "o que já pedimos", não "o que existe".
+///
+/// ## Relação com o documento
+///
+/// `PurchaseRequestItem.catalogItemId` é opcional e o documento continua
+/// guardando a própria descrição e unidade. Renomear um insumo aqui NÃO muda
+/// nenhuma solicitação já emitida — mesmo princípio de `PurchaseOrderItem`,
+/// que copia da solicitação em vez de ler por travessia.
+model CatalogItem {
+  id        String          @id @default(uuid()) @db.Uuid
+  companyId String          @db.Uuid
+  /// Sequencial por empresa: MAT-0001. Gerado no servidor.
+  code      String
+  name      String
+  /// `name` normalizado — minúsculas, sem acento, espaços colapsados. É o que
+  /// a busca consulta e o que impede "Cimento CP II" e "cimento  cp ii" de
+  /// virarem dois insumos.
+  searchKey String
+  /// Código da lista canônica (`common/units/measurement-units.ts`). Validado
+  /// na API: o catálogo nasce agora e pode exigir unidade válida desde a
+  /// primeira linha.
+  unit      String
+  /// Texto livre e opcional ("Cimento", "Aço", "Hidráulica"). Sem entidade
+  /// própria e sem árvore: categoria é rótulo de agrupamento, e uma tabela
+  /// para isso seria estrutura antes de haver necessidade.
+  category    String?
+  description String?
+  type        CatalogItemType @default(MATERIAL)
+  /// Insumo desativado some do uso operacional e continua no histórico.
+  /// Diferente de `deletedAt`: desativar é decisão de negócio ("não compramos
+  /// mais"), excluir é correção de cadastro.
+  active Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  company              Company               @relation(fields: [companyId], references: [id])
+  purchaseRequestItems PurchaseRequestItem[]
+
+  @@unique([companyId, code])
+  /// DUPLICIDADE, e a regra é determinística: dois insumos da mesma empresa não
+  /// podem ter o mesmo nome normalizado. Nada de similaridade — "Cimento CP-II"
+  /// e "Cimento CP II" continuam sendo dois cadastros, e é o operador que
+  /// decide se são o mesmo material.
+  @@unique([companyId, searchKey])
+  @@index([companyId])
+  @@index([companyId, active])
+  /// Os MESMOS dois índices do autocomplete de Compras: btree para prefixo
+  /// (`searchKey LIKE 'ci%'`, que o trigram não indexa abaixo de 3 letras) e
+  /// GIN trigram para trecho no meio.
+  @@index([searchKey(ops: raw("text_pattern_ops"))], map: "CatalogItem_searchKey_prefix_idx")
+  @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "CatalogItem_searchKey_trgm_idx")
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "CatalogItem_code_trgm_idx")
+}
+
 model Supplier {
   id          String  @id @default(uuid()) @db.Uuid
   companyId   String  @db.Uuid
@@ -900,6 +988,21 @@ model PurchaseRequest {
 model PurchaseRequestItem {
   id                 String       @id @default(uuid()) @db.Uuid
   purchaseRequestId  String       @db.Uuid
+  /// O insumo do catálogo, QUANDO houver.
+  ///
+  /// Opcional e assim permanece: solicitação de material fora do catálogo
+  /// continua válida — é o caso do item comprado uma vez só, e obrigar o
+  /// cadastro travaria o pedido.
+  ///
+  /// É só uma ÂNCORA DE IDENTIDADE. `description` e `unit` continuam sendo o
+  /// que o documento diz, copiados na criação: renomear o insumo no catálogo
+  /// não reescreve solicitação emitida, e excluir o insumo (soft delete) não
+  /// apaga nem altera a linha.
+  ///
+  /// Nenhuma tela grava este campo ainda — ORC-07 é que liga o orçamento à
+  /// compra. A coluna existe agora porque a migration é aditiva e barata, e
+  /// porque o contrato da API já aceita o vínculo.
+  catalogItemId      String?      @db.Uuid
   description        String
   quantity           Decimal      @db.Decimal(12, 3)
   unit               String
@@ -953,6 +1056,7 @@ model PurchaseRequestItem {
   updatedAt          DateTime     @updatedAt
 
   purchaseRequest    PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  catalogItem        CatalogItem?        @relation(fields: [catalogItemId], references: [id])
   /// Uma linha da solicitação pode virar VÁRIAS linhas de ordem — é assim que
   /// a compra parcelada entre fornecedores/entregas aparece no modelo (a
   /// SOL-0005 do staging já gerou duas ordens). Ver `PurchaseOrderItem`.

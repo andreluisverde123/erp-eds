@@ -37,6 +37,18 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     description: 'Ver a home, a busca global e as telas de Processos.',
   },
   {
+    code: 'catalogo.view',
+    module: 'catalogo',
+    action: 'view',
+    description: 'Consultar o cadastro de insumos da empresa.',
+  },
+  {
+    code: 'catalogo.manage',
+    module: 'catalogo',
+    action: 'manage',
+    description: 'Cadastrar, editar, ativar e excluir insumos.',
+  },
+  {
     code: 'engenharia.view',
     module: 'engenharia',
     action: 'view',
@@ -220,6 +232,9 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       ...BASE_PERMISSIONS,
       'engenharia.view',
       'engenharia.manage',
+      // O catálogo de insumos é mantido por quem conhece o material da obra.
+      'catalogo.view',
+      'catalogo.manage',
       'terceiros.view',
       'terceiros.manage',
       // Abre a solicitação e manda para o setor de Compras — é o engenheiro
@@ -246,6 +261,8 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'compras.manage',
       // A solicitação de compra exige escolher o centro de custo.
       'engenharia.view',
+      // Compras CONSULTA o catálogo — quem mantém é Engenharia.
+      'catalogo.view',
     ],
   },
   {

@@ -57,6 +57,9 @@ export const ContasAPagarPage = lazy(() =>
 export const PagamentosPage = lazy(() =>
   import('@/pages/financeiro/pagamentos-page').then((m) => ({ default: m.PagamentosPage })),
 );
+export const InsumosPage = lazy(() =>
+  import('@/pages/engenharia/insumos-page').then((m) => ({ default: m.InsumosPage })),
+);
 export const FuncionariosPage = lazy(() =>
   import('@/pages/rh/funcionarios-page').then((m) => ({ default: m.FuncionariosPage })),
 );

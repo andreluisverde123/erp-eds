@@ -164,6 +164,7 @@ export class PurchaseRequestsService {
 
   async create(companyId: string, userId: string, dto: CreatePurchaseRequestDto) {
     await this.assertObraECentroDeCusto(companyId, dto.constructionSiteId, dto.costCenterId);
+    await this.assertInsumosDaEmpresa(companyId, dto.items);
 
     const code = await nextSequentialCode(
       () => this.prisma.purchaseRequest.count({ where: { companyId } }),
@@ -319,6 +320,7 @@ export class PurchaseRequestsService {
     const costCenterId = dto.costCenterId === undefined ? existing.costCenterId : dto.costCenterId;
 
     await this.assertObraECentroDeCusto(companyId, constructionSiteId, costCenterId);
+    if (dto.items) await this.assertInsumosDaEmpresa(companyId, dto.items);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.purchaseRequest.update({
@@ -384,6 +386,8 @@ export class PurchaseRequestsService {
         'Só é possível incluir itens enquanto a solicitação não foi aprovada. Depois da aprovação, gere uma nova solicitação para o que faltou.',
       );
     }
+
+    await this.assertInsumosDaEmpresa(companyId, dto.items);
 
     await this.prisma.purchaseRequestItem.createMany({
       data: dto.items.map((item) => ({ ...toItemRow(item), purchaseRequestId: id })),
@@ -838,6 +842,29 @@ export class PurchaseRequestsService {
   ///
   /// Centro de custo sem obra nenhuma (Escritório, Fazenda) é recusado aqui
   /// pelo mesmo motivo: ele não pertence à obra escolhida.
+  /// Todo insumo informado nas linhas precisa ser DESTA empresa.
+  ///
+  /// Sem isto, o `catalogItemId` do corpo apontaria para o catálogo de outro
+  /// inquilino — a FK do banco aceitaria, porque ela não conhece empresa. Uma
+  /// consulta só, e a diferença de contagem denuncia qualquer id estranho.
+  ///
+  /// Linhas sem insumo (a maioria hoje) não pagam consulta nenhuma.
+  private async assertInsumosDaEmpresa(
+    companyId: string,
+    items: { catalogItemId?: string | null }[],
+  ): Promise<void> {
+    const ids = [...new Set(items.map((item) => item.catalogItemId).filter(Boolean))] as string[];
+    if (ids.length === 0) return;
+
+    const encontrados = await this.prisma.catalogItem.count({
+      where: { id: { in: ids }, companyId, deletedAt: null },
+    });
+
+    if (encontrados !== ids.length) {
+      throw new BadRequestException('Há insumo inválido nos itens da solicitação.');
+    }
+  }
+
   private async assertObraECentroDeCusto(
     companyId: string,
     constructionSiteId: string,

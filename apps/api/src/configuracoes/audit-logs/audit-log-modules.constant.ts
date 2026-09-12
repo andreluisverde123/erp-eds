@@ -4,6 +4,7 @@
 /// sem exigir nenhuma mudança nos módulos de domínio existentes.
 export const AUDIT_LOG_MODULES: Record<string, string[]> = {
   engenharia: ['ConstructionSite', 'CostCenter'],
+  catalogo: ['CatalogItem'],
   compras: ['PurchaseRequest', 'PurchaseOrder', 'Supplier'],
   financeiro: ['Invoice', 'AccountPayable', 'Payment'],
   rh: [

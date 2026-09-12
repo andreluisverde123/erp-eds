@@ -4,12 +4,23 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   Max,
   Min,
   MaxLength,
 } from 'class-validator';
 
 export class PurchaseRequestItemInputDto {
+  /// ÂNCORA no cadastro de insumos, quando existir.
+  ///
+  /// Opcional e assim permanece: pedir material fora do catálogo continua
+  /// válido — é o caso do item comprado uma vez só. `description` e `unit`
+  /// continuam obrigatórios e continuam sendo o que o DOCUMENTO diz: o
+  /// vínculo dá identidade, não preenche a linha.
+  @IsOptional()
+  @IsUUID(undefined, { message: 'Insumo inválido.' })
+  catalogItemId?: string;
+
   @IsString()
   @IsNotEmpty({ message: 'Informe o item.' })
   @MaxLength(200)
