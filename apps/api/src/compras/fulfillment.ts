@@ -96,12 +96,21 @@ export function statusOf(
 }
 
 /// O atendimento de UMA linha, a partir das compras que apontam para ela.
+///
+/// Linha EM ESTOQUE não tem o que comprar: saldo zero e atendida — o
+/// material já existe. Só pode ser marcada sem compra ativa, então `entries`
+/// chega vazio nesse caso.
 export function buildItemFulfillment(
   requestedQuantity: Prisma.Decimal | number | string,
   entries: FulfillmentEntry[],
+  inStock = false,
 ): ItemFulfillment {
   const requested = toDecimal(requestedQuantity);
   const fulfilled = entries.reduce((total, entry) => total.plus(entry.quantity), ZERO);
+
+  if (inStock) {
+    return { requestedQuantity: requested, fulfilledQuantity: fulfilled, pendingQuantity: ZERO, status: 'FULFILLED', entries };
+  }
 
   return {
     requestedQuantity: requested,

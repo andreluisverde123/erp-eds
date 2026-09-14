@@ -10,6 +10,8 @@ import {
 } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { startOfDay } from '../../common/utils/date.util';
+import { budgetPrice } from '../../engenharia/budgets/budget-bdi';
+import { lineTotalExact, sumExact } from '../../engenharia/budgets/budget-cost';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QueryReportDto } from './dto/query-report.dto';
 import { capExportRows, type ExportColumn } from './export.util';
@@ -102,8 +104,6 @@ export class ReportsService {
         return { startDate: dir };
       case 'expectedEndDate':
         return { expectedEndDate: dir };
-      case 'budgetAmount':
-        return { budgetAmount: dir };
       default:
         return { name: dir };
     }
@@ -124,7 +124,51 @@ export class ReportsService {
       this.prisma.constructionSite.count({ where }),
     ]);
 
-    return paginate(data, total, page, limit);
+    const oficiais = await this.officialBudgets(companyId, data);
+    return paginate(
+      data.map((site) => ({ ...site, officialBudget: oficiais.get(site.id) ?? null })),
+      total,
+      page,
+      limit,
+    );
+  }
+
+  /// O VALOR ORÇADO da obra: o preço final (custo direto + BDI) do orçamento
+  /// definido como oficial em Orçamentos. Uma consulta para a página inteira.
+  ///
+  /// `ConstructionSite.budgetAmount` é LEGADO — um número digitado, sem
+  /// vínculo com orçamento nenhum — e não é mais usado como valor orçado. A
+  /// ordenação por ele saiu junto com a coluna; o preço final é derivado e não
+  /// ordena no banco.
+  private async officialBudgets(
+    companyId: string,
+    sites: { id: string; currentBudgetId: string | null }[],
+  ): Promise<Map<string, { id: string; code: string; version: number; finalPrice: string }>> {
+    const ids = sites.map((site) => site.currentBudgetId).filter((id): id is string => Boolean(id));
+    const resultado = new Map<string, { id: string; code: string; version: number; finalPrice: string }>();
+    if (ids.length === 0) return resultado;
+
+    const orcamentos = await this.prisma.budget.findMany({
+      where: { companyId, id: { in: ids }, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        version: true,
+        bdiPercent: true,
+        constructionSiteId: true,
+        items: { select: { quantity: true, unitCost: true } },
+      },
+    });
+    for (const orcamento of orcamentos) {
+      const exato = sumExact(orcamento.items.map((item) => lineTotalExact(item.quantity, item.unitCost)));
+      resultado.set(orcamento.constructionSiteId, {
+        id: orcamento.id,
+        code: orcamento.code,
+        version: orcamento.version,
+        finalPrice: budgetPrice(exato, orcamento.bdiPercent).finalPrice,
+      });
+    }
+    return resultado;
   }
 
   async exportObras(companyId: string, query: QueryReportDto): Promise<ExportPayload> {
@@ -133,6 +177,7 @@ export class ReportsService {
     const data = capExportRows(
       await this.prisma.constructionSite.findMany({ where, orderBy, take: 5000 }),
     );
+    const oficiais = await this.officialBudgets(companyId, data);
 
     const columns: ExportColumn[] = [
       { key: 'code', label: 'Código' },
@@ -142,7 +187,7 @@ export class ReportsService {
       { key: 'city', label: 'Cidade/UF' },
       { key: 'startDate', label: 'Início' },
       { key: 'expectedEndDate', label: 'Previsão Fim' },
-      { key: 'budgetAmount', label: 'Orçamento', align: 'right' },
+      { key: 'officialBudget', label: 'Orçamento oficial', align: 'right' },
     ];
 
     const rows = data.map((site) => ({
@@ -153,7 +198,9 @@ export class ReportsService {
       city: site.city ? `${site.city}${site.state ? `/${site.state}` : ''}` : '—',
       startDate: formatDate(site.startDate),
       expectedEndDate: formatDate(site.expectedEndDate),
-      budgetAmount: formatCurrency(site.budgetAmount),
+      officialBudget: oficiais.has(site.id)
+        ? `${formatCurrency(oficiais.get(site.id)!.finalPrice)} (${oficiais.get(site.id)!.code} v${oficiais.get(site.id)!.version})`
+        : '—',
     }));
 
     return { title: 'Relatório de Obras', columns, rows };

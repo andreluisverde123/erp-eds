@@ -13,6 +13,8 @@ import {
   ApontamentoPage,
   CustosPage,
   CadastroPage,
+  ComposicaoDetailPage,
+  ComposicoesPage,
   ConciliacaoDetailPage,
   ConciliacaoPage,
   ConfiguracoesPage,
@@ -31,6 +33,10 @@ import {
   NovoUsuarioPage,
   ObraDetailPage,
   ObrasPage,
+  OrcamentoDetailPage,
+  OrcamentosPage,
+  BasesDeReferenciaPage,
+  BaseDeReferenciaDetailPage,
   OrdensDeCompraPage,
   PagamentosPage,
   PontoPage,
@@ -74,6 +80,9 @@ const PAGE_OVERRIDES: Record<string, ReactNode> = {
   '/financeiro/contas-a-pagar': <ContasAPagarPage />,
   '/financeiro/pagamentos': <PagamentosPage />,
   '/engenharia/insumos': <InsumosPage />,
+  '/engenharia/composicoes': <ComposicoesPage />,
+  '/engenharia/orcamentos': <OrcamentosPage />,
+  '/engenharia/bases-de-referencia': <BasesDeReferenciaPage />,
   '/rh/funcionarios': <FuncionariosPage />,
   '/rh/apontamento': <ApontamentoPage />,
   '/rh/custos': <CustosPage />,
@@ -152,6 +161,30 @@ export const router = createBrowserRouter([
             element: (
               <SuspendedOutlet>
                 <ObraDetailPage />
+              </SuspendedOutlet>
+            ),
+          },
+          {
+            path: 'engenharia/composicoes/:id',
+            element: (
+              <SuspendedOutlet>
+                <ComposicaoDetailPage />
+              </SuspendedOutlet>
+            ),
+          },
+          {
+            path: 'engenharia/orcamentos/:id',
+            element: (
+              <SuspendedOutlet>
+                <OrcamentoDetailPage />
+              </SuspendedOutlet>
+            ),
+          },
+          {
+            path: 'engenharia/bases-de-referencia/:id',
+            element: (
+              <SuspendedOutlet>
+                <BaseDeReferenciaDetailPage />
               </SuspendedOutlet>
             ),
           },

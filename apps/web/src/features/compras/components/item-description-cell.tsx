@@ -4,6 +4,7 @@ import { Input, cn } from '@repo/ui';
 
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
+import { searchCatalogSuggestions, type CatalogSuggestion } from '../catalog-suggestions';
 import { searchItemSuggestions, type ItemSuggestion } from '../item-suggestions';
 
 /// A busca vale desde a PRIMEIRA letra.
@@ -19,7 +20,11 @@ const MINIMO_PARA_SUGERIR = 1;
 /// mesma solicitação, ainda não gravada; o resto veio do histórico da empresa.
 /// A tela precisa distinguir as duas — "3×" num material que só existe duas
 /// linhas acima seria mentira.
-type Sugestao = ItemSuggestion & { local: boolean };
+type Sugestao = ItemSuggestion & { local: boolean; catalogItem?: CatalogSuggestion };
+
+/// O que a célula devolve ao escolher. `catalogItem` só vem quando a escolha
+/// foi do CADASTRO — é o que liga a linha ao insumo.
+export type ItemPick = ItemSuggestion & { catalogItem?: CatalogSuggestion };
 
 /// Tira acento, caixa e espaço sobrando, só para COMPARAR. O texto exibido e
 /// o escolhido continuam sendo o que a pessoa digitou — "Telha Fosca" casa com
@@ -52,21 +57,30 @@ function dedup(descricoes: string[]): string[] {
 /// 50KG") — e relatório por material deixa de somar, porque o banco vê três
 /// materiais diferentes.
 ///
-/// **Sugere, não obriga.** Não há catálogo de materiais no ERP e isto não cria
-/// um: quem precisa de algo inédito digita e segue. A lista some ao sair do
-/// campo, e ignorá-la não custa nada.
+/// **Duas memórias, e nenhuma obriga.** O CADASTRO de insumos vem primeiro,
+/// com código e unidade: escolher dali liga a linha ao insumo. O HISTÓRICO do
+/// que já foi pedido vem depois, só com o nome. Quem precisa de algo que não
+/// está em nenhum dos dois digita e segue — a linha de texto livre continua
+/// válida, a lista some ao sair do campo, e ignorá-la não custa nada.
 ///
-/// **Só o nome.** Os demais campos da linha ficam intactos.
+/// **Do histórico, só o nome.** Do cadastro, nome e unidade — ali a unidade é
+/// do insumo, e não de um pedido anterior.
 export function ItemDescriptionCell({
   value,
   onChange,
   onPick,
   localSuggestions = [],
+  catalogItemId,
+  catalogItemCode,
   className,
   ...inputProps
 }: {
   value: string;
   onChange: (valor: string) => void;
+  /// O insumo a que a linha JÁ está ligada, se estiver. Ele não é sugerido de
+  /// novo, e o código aparece na célula para dizer de onde a linha veio.
+  catalogItemId?: string;
+  catalogItemCode?: string;
   /// As descrições JÁ DIGITADAS nesta solicitação, tirando a da própria linha.
   ///
   /// Existe porque a fonte do servidor é o que está GRAVADO
@@ -86,7 +100,10 @@ export function ItemDescriptionCell({
   /// vem em lata numa compra e em galão na outra, e herdar a unidade da vez
   /// anterior colocaria um valor plausível e errado num campo que ninguém
   /// olharia de novo.
-  onPick: (sugestao: ItemSuggestion) => void;
+  ///
+  /// Escolha do CADASTRO vem com `catalogItem`, e quem recebe decide o que
+  /// preencher com ele.
+  onPick: (escolha: ItemPick) => void;
   className?: string;
 } & Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange' | 'className'>) {
   const [aberta, setAberta] = useState(false);
@@ -110,32 +127,66 @@ export function ItemDescriptionCell({
     staleTime: 60_000,
   });
 
+  // O cadastro vem numa consulta própria, com o mesmo termo e o mesmo
+  // debounce. Falha aqui NÃO vira aviso: o histórico continua respondendo e a
+  // pessoa continua digitando — o catálogo é conveniência, não requisito.
+  const { data: doCadastro, isFetching: buscandoCadastro } = useQuery({
+    queryKey: ['compras', 'catalog-suggestions', termo],
+    queryFn: () => searchCatalogSuggestions(termo),
+    enabled: aberta && normalizar(termo).length >= MINIMO_PARA_SUGERIR,
+    staleTime: 60_000,
+  });
+
   // As da própria solicitação são filtradas pelo valor VIVO, não pelo
   // debounced: não há consulta a esperar, e segurá-las 250 ms só faria a lista
   // piscar depois que a pessoa já parou de digitar.
   const digitado = normalizar(value);
+
+  // O CADASTRO primeiro: é a única fonte que liga a linha a um insumo. O
+  // insumo a que a linha já está ligada não se oferece de novo.
+  const doCatalogo: Sugestao[] = (digitado.length < MINIMO_PARA_SUGERIR ? [] : (doCadastro ?? []))
+    .filter((insumo) => insumo.id !== catalogItemId)
+    .map((insumo) => ({
+      description: insumo.name,
+      timesUsed: 0,
+      local: false,
+      catalogItem: insumo,
+    }));
+  const noCatalogo = new Set(doCatalogo.map((s) => normalizar(s.description)));
+
   const locais: Sugestao[] =
     digitado.length < MINIMO_PARA_SUGERIR
       ? []
       : dedup(localSuggestions)
           .filter((descricao) => normalizar(descricao).includes(digitado))
+          // O nome que o cadastro já oferece aparece UMA vez, e a entrada do
+          // cadastro vence: escolhê-la é o que liga a linha ao insumo.
+          .filter((descricao) => !noCatalogo.has(normalizar(descricao)))
           .map((descricao) => ({ description: descricao, timesUsed: 1, local: true }));
 
-  // O que já veio da linha de cima não se repete vindo do banco.
-  const jaListadas = new Set(locais.map((s) => normalizar(s.description)));
+  // O que já veio do cadastro ou da linha de cima não se repete vindo do banco.
+  const jaListadas = new Set([...noCatalogo, ...locais.map((s) => normalizar(s.description))]);
   const doServidor: Sugestao[] = (sugestoes ?? [])
     .filter((s) => !jaListadas.has(normalizar(s.description)))
     .map((s) => ({ ...s, local: false }));
 
-  // Sugerir exatamente o que já está escrito é ruído: a pessoa já digitou.
-  const visiveis = [...locais, ...doServidor].filter(
-    (s) => normalizar(s.description) !== digitado,
-  );
+  // Sugerir exatamente o que já está escrito é ruído: a pessoa já digitou. A
+  // exceção é o cadastro — "Cimento CP II" digitado à mão ainda não está
+  // ligado ao insumo, e escolher a sugestão é justamente o que liga.
+  const visiveis = [
+    ...doCatalogo,
+    ...[...locais, ...doServidor].filter((s) => normalizar(s.description) !== digitado),
+  ];
   // O que o painel está fazendo, em um estado só — a lista só some quando
   // não há NADA a dizer.
-  const buscando = isFetching && locais.length === 0;
+  const buscando =
+    (isFetching || buscandoCadastro) && locais.length === 0 && doCatalogo.length === 0;
   const semResultado =
-    !isFetching && !isError && digitado.length >= MINIMO_PARA_SUGERIR && visiveis.length === 0;
+    !isFetching &&
+    !buscandoCadastro &&
+    !isError &&
+    digitado.length >= MINIMO_PARA_SUGERIR &&
+    visiveis.length === 0;
   const mostrando = aberta && (visiveis.length > 0 || buscando || semResultado || isError);
 
   // A lista encolhe sozinha (o debounce chega, uma local deixa de casar), e o
@@ -146,7 +197,11 @@ export function ItemDescriptionCell({
   function escolher(sugestao: Sugestao) {
     // `local` é de uso interno da lista; quem recebe continua vendo uma
     // `ItemSuggestion` como sempre.
-    onPick({ description: sugestao.description, timesUsed: sugestao.timesUsed });
+    onPick(
+      sugestao.catalogItem
+        ? { description: sugestao.description, timesUsed: 0, catalogItem: sugestao.catalogItem }
+        : { description: sugestao.description, timesUsed: sugestao.timesUsed },
+    );
     setAberta(false);
   }
 
@@ -185,7 +240,7 @@ export function ItemDescriptionCell({
       <Input
         {...inputProps}
         value={value}
-        className={className}
+        className={cn(className, catalogItemCode && 'pr-20')}
         autoComplete="off"
         onChange={(evento) => {
           onChange(evento.target.value);
@@ -199,6 +254,17 @@ export function ItemDescriptionCell({
           inputProps.onBlur?.(evento);
         }}
       />
+
+      {/* De onde a linha veio. Some assim que a pessoa digita por cima: a
+          grade desfaz o vínculo e a linha volta a ser texto livre. */}
+      {catalogItemCode && (
+        <span
+          className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[11px] text-muted-foreground"
+          title="Insumo do cadastro"
+        >
+          {catalogItemCode}
+        </span>
+      )}
 
       {mostrando && (
         <ul
@@ -232,7 +298,11 @@ export function ItemDescriptionCell({
             </li>
           )}
           {visiveis.map((sugestao, i) => (
-            <li key={sugestao.description}>
+            <li
+              key={
+                sugestao.catalogItem ? `cadastro:${sugestao.catalogItem.id}` : sugestao.description
+              }
+            >
               <button
                 type="button"
                 // FORA da ordem de tabulação, e é o que consertava o pulo da
@@ -259,7 +329,13 @@ export function ItemDescriptionCell({
                     acabou de digitar e quer repetir; o contador é o histórico
                     da empresa, e separa o material do dia a dia do que foi
                     pedido uma vez só. */}
-                {sugestao.local ? (
+                {sugestao.catalogItem ? (
+                  // Do cadastro: código e unidade, que é o que separa dois
+                  // insumos de nome parecido.
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {sugestao.catalogItem.code} · {sugestao.catalogItem.unit}
+                  </span>
+                ) : sugestao.local ? (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     nesta solicitação
                   </span>

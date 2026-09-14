@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent } from 'react';
 import {
   Controller,
+  useController,
   useFieldArray,
   useWatch,
   type Control,
@@ -153,10 +154,6 @@ export function PurchaseRequestItemsGrid({
               const rowError = errors.items?.[index];
               const rowNumber = index + 1;
 
-              // `Controller` no lugar de `register` para a descrição: o campo
-              // deixou de ser um `<input>` simples e passa a ter sugestão, que
-              // escreve no formulário sem passar por um evento de digitação.
-              const descriptionName = `items.${index}.description` as const;
               const notes = register(`items.${index}.notes`);
 
               return (
@@ -166,32 +163,16 @@ export function PurchaseRequestItemsGrid({
                   onBlur={(event) => handleRowBlur(index, event)}
                 >
                   <TableCell className="border-r border-border/60 p-0">
-                    <Controller
+                    <DescriptionCell
                       control={control}
-                      name={descriptionName}
-                      render={({ field: descField }) => (
-                        <ItemDescriptionCell
-                          value={descField.value ?? ''}
-                          onChange={descField.onChange}
-                          onBlur={descField.onBlur}
-                          // O que já foi digitado NESTA solicitação, fora a
-                          // própria linha. A sugestão do servidor só conhece o
-                          // que está gravado, e a repetição mais cara acontece
-                          // antes de salvar: digitar "Telha fosca" na linha 2
-                          // e ter de redigitá-la inteira na linha 3.
-                          localSuggestions={descricoesDigitadasExceto(index)}
-                          // SÓ o nome. Unidade, quantidade e observação são
-                          // decisões daquele pedido, não do material, e ficam
-                          // como estão.
-                          onPick={(sugestao) => descField.onChange(sugestao.description)}
-                          data-row={index}
-                          data-column="description"
-                          aria-label={`Item da linha ${rowNumber}`}
-                          placeholder="Cimento CPII 50kg"
-                          aria-invalid={Boolean(rowError?.description)}
-                          className={cellInputClass}
-                        />
-                      )}
+                      index={index}
+                      // O que já foi digitado NESTA solicitação, fora a
+                      // própria linha. A sugestão do servidor só conhece o
+                      // que está gravado, e a repetição mais cara acontece
+                      // antes de salvar: digitar "Telha fosca" na linha 2
+                      // e ter de redigitá-la inteira na linha 3.
+                      localSuggestions={descricoesDigitadasExceto(index)}
+                      invalid={Boolean(rowError?.description)}
                     />
                     <CellError message={rowError?.description?.message} />
                   </TableCell>
@@ -313,6 +294,81 @@ export function PurchaseRequestItemsGrid({
 
       {itemsError && <p className="text-sm text-destructive">{itemsError}</p>}
     </div>
+  );
+}
+
+/// A célula de descrição, com o VÍNCULO ao cadastro de insumos.
+///
+/// `useController` e não `register`: o campo tem sugestão, que escreve no
+/// formulário sem passar por um evento de digitação — e escolher do cadastro
+/// escreve em QUATRO campos da linha (descrição, insumo, código e unidade).
+///
+/// As regras do vínculo, que é o que garante que a linha não mente:
+///
+///   * escolher do cadastro liga a linha e preenche nome e unidade do insumo;
+///   * escolher do histórico ou da linha de cima preenche SÓ o nome e desfaz
+///     qualquer vínculo — unidade, quantidade e observação são daquele pedido;
+///   * digitar por cima desfaz o vínculo: a partir daí a linha é texto livre,
+///     e dizer que ela é o insumo MAT-0007 seria falso.
+///
+/// A unidade preenchida continua editável e NÃO desfaz o vínculo: é o que o
+/// documento diz, e a linha continua sendo aquele material.
+function DescriptionCell({
+  control,
+  index,
+  localSuggestions,
+  invalid,
+}: {
+  control: Control<PurchaseRequestFormValues>;
+  index: number;
+  localSuggestions: string[];
+  invalid: boolean;
+}) {
+  const { field: description } = useController({ control, name: `items.${index}.description` });
+  const { field: catalogItemId } = useController({
+    control,
+    name: `items.${index}.catalogItemId`,
+  });
+  const { field: catalogItemCode } = useController({
+    control,
+    name: `items.${index}.catalogItemCode`,
+  });
+  const { field: unit } = useController({ control, name: `items.${index}.unit` });
+
+  function desvincular() {
+    if (!catalogItemId.value) return;
+    catalogItemId.onChange('');
+    catalogItemCode.onChange('');
+  }
+
+  return (
+    <ItemDescriptionCell
+      value={description.value ?? ''}
+      onChange={(valor) => {
+        description.onChange(valor);
+        desvincular();
+      }}
+      onBlur={description.onBlur}
+      catalogItemId={catalogItemId.value || undefined}
+      catalogItemCode={catalogItemCode.value || undefined}
+      localSuggestions={localSuggestions}
+      onPick={(escolha) => {
+        description.onChange(escolha.description);
+        if (escolha.catalogItem) {
+          catalogItemId.onChange(escolha.catalogItem.id);
+          catalogItemCode.onChange(escolha.catalogItem.code);
+          unit.onChange(escolha.catalogItem.unit);
+        } else {
+          desvincular();
+        }
+      }}
+      data-row={index}
+      data-column="description"
+      aria-label={`Item da linha ${index + 1}`}
+      placeholder="Cimento CPII 50kg"
+      aria-invalid={invalid}
+      className={cellInputClass}
+    />
   );
 }
 

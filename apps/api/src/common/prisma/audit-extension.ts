@@ -6,7 +6,13 @@ import { auditContextStorage } from '../audit-context';
 /// menos Company/User/Role, que já são logados manualmente pelos próprios
 /// services de Configurações (logar aqui também duplicaria a linha).
 const AUDITED_MODELS = new Set([
+  'Budget',
+  'BudgetNode',
+  'BudgetItem',
   'CatalogItem',
+  'CatalogItemPrice',
+  'Composition',
+  'CompositionItem',
   'ConstructionSite',
   'CostCenter',
   'Supplier',

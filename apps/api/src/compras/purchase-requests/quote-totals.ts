@@ -24,6 +24,9 @@ export interface QuoteItem {
   quantity: Prisma.Decimal | number | string;
   estimatedUnitPrice: Prisma.Decimal | number | string | null;
   unavailable: boolean;
+  /// Material já existe no estoque físico: a linha não é comprada. Opcional
+  /// para quem monta linhas que nunca estão em estoque (testes, ordem).
+  inStock?: boolean;
   discountType: DiscountType;
   discountValue: Prisma.Decimal | number | string;
 }
@@ -54,7 +57,7 @@ export interface QuoteTotals {
 /// informou o preço. As duas ausências têm significados diferentes e nenhuma
 /// delas é zero — ver a regra C-16.
 export function isQuoted(item: QuoteItem): boolean {
-  return !item.unavailable && item.estimatedUnitPrice !== null;
+  return !item.unavailable && !item.inStock && item.estimatedUnitPrice !== null;
 }
 
 /// A conta de UMA linha. Item fora da cotação (indisponível ou sem preço) vale

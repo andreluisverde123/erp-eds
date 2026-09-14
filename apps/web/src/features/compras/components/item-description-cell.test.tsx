@@ -1,13 +1,30 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ItemDescriptionCell } from './item-description-cell';
+import * as cadastro from '../catalog-suggestions';
 import * as api from '../item-suggestions';
 
 vi.mock('../item-suggestions');
+vi.mock('../catalog-suggestions');
 const mocked = vi.mocked(api);
+const mockedCadastro = vi.mocked(cadastro);
+
+const CIMENTO_DO_CADASTRO = {
+  id: 'insumo-1',
+  code: 'MAT-0001',
+  name: 'Cimento CPII 50kg',
+  unit: 'SC',
+};
+
+// Cadastro vazio por padrão: os testes do histórico continuam valendo como
+// eram antes de o cadastro existir.
+beforeEach(() => {
+  mockedCadastro.searchCatalogSuggestions.mockReset();
+  mockedCadastro.searchCatalogSuggestions.mockResolvedValue([]);
+});
 
 const SUGESTOES = [
   { description: 'Cimento CPII 50kg', timesUsed: 12 },
@@ -387,5 +404,101 @@ describe('ordem de foco: Insumo → Unidade', () => {
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({ description: 'Cimento CPIV 50kg' }),
     );
+  });
+});
+
+/// O CADASTRO de insumos como fonte do autocomplete (ORC-01).
+describe('sugestão do cadastro de insumos', () => {
+  it('mostra o insumo com código e unidade, já na primeira letra', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    mockedCadastro.searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { campo } = montar('c');
+
+    await userEvent.setup().click(campo);
+
+    await waitFor(() =>
+      expect(mockedCadastro.searchCatalogSuggestions).toHaveBeenCalledWith('c'),
+    );
+    expect(await screen.findByText('Cimento CPII 50kg')).toBeDefined();
+    expect(screen.getByText('MAT-0001 · SC')).toBeDefined();
+  });
+
+  it('escolher do cadastro devolve o insumo junto do nome', async () => {
+    const usuario = userEvent.setup();
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    mockedCadastro.searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { onPick, campo } = montar('cim');
+
+    await usuario.click(campo);
+    await usuario.click(await screen.findByText('Cimento CPII 50kg'));
+
+    expect(onPick).toHaveBeenCalledWith({
+      description: 'Cimento CPII 50kg',
+      timesUsed: 0,
+      catalogItem: CIMENTO_DO_CADASTRO,
+    });
+  });
+
+  it('o mesmo nome no cadastro e no histórico aparece UMA vez, e é o do cadastro', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    mockedCadastro.searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { campo } = montar('cimento');
+
+    await userEvent.setup().click(campo);
+
+    await screen.findByText('MAT-0001 · SC');
+    await waitFor(() => expect(mocked.searchItemSuggestions).toHaveBeenCalled());
+    expect(screen.getAllByText('Cimento CPII 50kg')).toHaveLength(1);
+    expect(screen.queryByText('12×')).toBeNull();
+    // O que só existe no histórico continua lá.
+    expect(await screen.findByText('Cimento CPIV 50kg')).toBeDefined();
+  });
+
+  it('o nome digitado igual ao do cadastro ainda é sugerido — escolher é o que liga', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    mockedCadastro.searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { campo } = montar('Cimento CPII 50kg');
+
+    await userEvent.setup().click(campo);
+
+    expect(await screen.findByText('MAT-0001 · SC')).toBeDefined();
+  });
+
+  it('não sugere de novo o insumo a que a linha já está ligada', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue([]);
+    mockedCadastro.searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ItemDescriptionCell
+          value="Cimento CPII 50kg"
+          onChange={vi.fn()}
+          onPick={vi.fn()}
+          catalogItemId="insumo-1"
+          catalogItemCode="MAT-0001"
+          aria-label="Item da linha 1"
+        />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.setup().click(screen.getByLabelText('Item da linha 1'));
+
+    await waitFor(() => expect(mockedCadastro.searchCatalogSuggestions).toHaveBeenCalled());
+    expect(screen.queryByText('MAT-0001 · SC')).toBeNull();
+    // O código aparece na célula, dizendo de onde a linha veio.
+    expect(screen.getByTitle('Insumo do cadastro').textContent).toBe('MAT-0001');
+  });
+
+  it('falha do cadastro não vira aviso nem trava a digitação', async () => {
+    mocked.searchItemSuggestions.mockResolvedValue(SUGESTOES);
+    mockedCadastro.searchCatalogSuggestions.mockRejectedValue(new Error('500'));
+    const { campo } = montar('cimento');
+
+    await userEvent.setup().click(campo);
+
+    // O histórico continua respondendo.
+    expect(await screen.findByText('Cimento CPII 50kg')).toBeDefined();
+    expect(screen.queryByText(/Não foi possível buscar sugestões/)).toBeNull();
   });
 });

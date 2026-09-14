@@ -50,6 +50,7 @@ const listArgs = Prisma.validator<Prisma.PurchaseRequestDefaultArgs>()({
         quantity: true,
         estimatedUnitPrice: true,
         unavailable: true,
+        inStock: true,
         discountType: true,
         discountValue: true,
       },
@@ -62,7 +63,14 @@ const detailArgs = Prisma.validator<Prisma.PurchaseRequestDefaultArgs>()({
     constructionSite: { select: { id: true, code: true, name: true } },
     costCenter: { select: { id: true, code: true, name: true } },
     requestedBy: { select: { id: true, name: true } },
-    items: { orderBy: { createdAt: 'asc' } },
+    items: {
+      orderBy: { createdAt: 'asc' },
+      // Só o CÓDIGO, para a tela mostrar de onde a linha veio. Descrição e
+      // unidade continuam sendo as da própria linha — o snapshot gravado —, e
+      // nunca as do catálogo de hoje. O código pode ser lido por travessia
+      // porque não muda: não é editável, e insumo usado não é excluído.
+      include: { catalogItem: { select: { code: true } } },
+    },
   },
 });
 
@@ -93,6 +101,16 @@ const ALLOWED_TRANSITIONS: Record<PurchaseRequestStatus, PurchaseRequestStatus[]
 /// O que o solicitante faz sozinho, a partir do rascunho: mandar para Compras
 /// ou desistir. Ver a checagem em `updateStatus`.
 const REQUESTER_TRANSITIONS: PurchaseRequestStatus[] = ['PENDING', 'CANCELLED'];
+
+/// Onde um item de solicitação ENVIADA ainda pode ser excluído ou marcado como
+/// em estoque: da chegada em Compras até a aprovação e depois dela — desde que
+/// a linha não esteja em ordem de compra (conferido por item). Em rascunho a
+/// edição já faz isso; cancelada é terminal.
+const ITENS_ALTERAVEIS: PurchaseRequestStatus[] = ['PENDING', 'QUOTING', 'APPROVED'];
+
+function descreverItem(item: { description: string; quantity: Prisma.Decimal; unit: string }): string {
+  return `${item.description}: ${Number(item.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${item.unit}`;
+}
 
 /// O que a solicitação carrega para a conta: as linhas e o desconto geral.
 type QuotedRow = { items: QuoteItem[]; discountType: 'AMOUNT' | 'PERCENT'; discountValue: unknown };
@@ -433,6 +451,157 @@ export class PurchaseRequestsService {
     }
   }
 
+  /// EXCLUI um item de uma solicitação já enviada.
+  ///
+  /// Para o caso em que o pedido não precisa mais daquele material. Vale em
+  /// PENDING, QUOTING e APPROVED, enquanto a linha não está em ordem de compra
+  /// ativa: o que já foi comprado não some da solicitação que o originou.
+  /// Depois da aprovação, excluir só REDUZ o valor aprovado — a alçada decidiu
+  /// sobre um total maior —, e por isso não reabre aprovação.
+  ///
+  /// Não deixa a solicitação sem itens: desistir do pedido inteiro é cancelar.
+  ///
+  /// Trava a solicitação `FOR UPDATE`, a mesma trava da emissão de ordem: um
+  /// item não é excluído no meio de uma compra que o inclui.
+  async removeItem(companyId: string, id: string, itemId: string) {
+    const existing = await this.assertExists(companyId, id);
+    this.assertItemsChangeable(existing.status);
+
+    const removido = await this.prisma
+      .$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "PurchaseRequest" WHERE id = ${id}::uuid FOR UPDATE`;
+
+        const itens = await tx.purchaseRequestItem.findMany({
+          where: { purchaseRequestId: id },
+          select: { id: true, description: true, quantity: true, unit: true },
+        });
+        const item = itens.find((linha) => linha.id === itemId);
+        if (!item) throw new NotFoundException('Item não encontrado nesta solicitação.');
+
+        await this.assertNotPurchased(tx, id, item);
+
+        if (itens.length === 1) {
+          throw new ConflictException(
+            'A solicitação precisa ter ao menos um item. Para desistir do pedido inteiro, cancele a solicitação.',
+          );
+        }
+
+        await tx.purchaseRequestItem.delete({ where: { id: itemId } });
+        return item;
+      })
+      .catch((error: unknown) => {
+        // Ordem CANCELADA ainda aponta para a linha, e a FK é `Restrict`.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+          throw new ConflictException(
+            'Este item aparece numa ordem de compra cancelada e não pode ser excluído. Marque-o como em estoque ou mantenha-o.',
+          );
+        }
+        throw error;
+      });
+
+    await this.logItemChange(companyId, id, { itemExcluido: descreverItem(removido) });
+
+    return this.findOne(companyId, id);
+  }
+
+  /// Marca (ou desmarca) um item como EM ESTOQUE.
+  ///
+  /// Alguém conferiu o estoque físico e o material já existe: a linha fica na
+  /// solicitação, mas sai da cotação, do total, do saldo a comprar e da ordem
+  /// de compra. Marcar limpa preço, "não disponível" e desconto — são da
+  /// cotação, e a linha deixou de ser cotável. Desmarcar devolve a linha à
+  /// compra, sem preço, para ser cotada de novo.
+  ///
+  /// Mesma janela e mesma trava da exclusão: não se marca em estoque o que já
+  /// está em ordem de compra ativa.
+  async setItemStock(companyId: string, id: string, itemId: string, inStock: boolean) {
+    const existing = await this.assertExists(companyId, id);
+    this.assertItemsChangeable(existing.status);
+
+    const alterado = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "PurchaseRequest" WHERE id = ${id}::uuid FOR UPDATE`;
+
+      const item = await tx.purchaseRequestItem.findFirst({
+        where: { id: itemId, purchaseRequestId: id },
+        select: { id: true, description: true, quantity: true, unit: true, inStock: true },
+      });
+      if (!item) throw new NotFoundException('Item não encontrado nesta solicitação.');
+      if (item.inStock === inStock) return null;
+
+      if (inStock) await this.assertNotPurchased(tx, id, item);
+
+      await tx.purchaseRequestItem.update({
+        where: { id: itemId },
+        data: inStock
+          ? {
+              inStock: true,
+              estimatedUnitPrice: null,
+              unavailable: false,
+              unavailabilityNote: null,
+              discountType: 'AMOUNT',
+              discountValue: 0,
+            }
+          : { inStock: false },
+      });
+      return item;
+    });
+
+    if (alterado) {
+      await this.logItemChange(
+        companyId,
+        id,
+        inStock ? { emEstoque: descreverItem(alterado) } : { voltouParaCompra: descreverItem(alterado) },
+      );
+    }
+
+    return this.findOne(companyId, id);
+  }
+
+  private assertItemsChangeable(status: PurchaseRequestStatus): void {
+    if (status === 'DRAFT') {
+      throw new ConflictException(
+        'Esta solicitação ainda é um rascunho — use a edição para mudar os itens.',
+      );
+    }
+    if (!ITENS_ALTERAVEIS.includes(status)) {
+      throw new ConflictException('Os itens de uma solicitação cancelada não podem ser alterados.');
+    }
+  }
+
+  /// Recusa mexer numa linha que já está em ordem de compra ativa.
+  private async assertNotPurchased(
+    tx: Prisma.TransactionClient,
+    purchaseRequestId: string,
+    item: { id: string; description: string },
+  ): Promise<void> {
+    const compras = (await this.fulfillment.entriesByItem(purchaseRequestId, { client: tx })).get(item.id) ?? [];
+    if (compras.length > 0) {
+      throw new ConflictException(
+        `O item "${item.description}" já está na ordem de compra ${compras.map((compra) => compra.purchaseOrderCode).join(', ')} e não pode ser alterado.`,
+      );
+    }
+  }
+
+  /// Uma entrada no histórico da solicitação por alteração de item, com a
+  /// descrição no VALOR (mesmo padrão de `logAddedItems`).
+  private async logItemChange(companyId: string, id: string, mudanca: Record<string, string>): Promise<void> {
+    const store = auditContextStorage.getStore();
+    try {
+      await this.auditLogger.log({
+        companyId,
+        userId: store?.userId,
+        action: 'UPDATE',
+        entityType: 'PurchaseRequest',
+        entityId: id,
+        changes: Object.fromEntries(
+          Object.entries(mudanca).map(([campo, valor]) => [campo, { from: '—', to: valor }]),
+        ),
+      });
+    } catch {
+      // A alteração já está gravada; derrubar a resposta faria a pessoa repetir.
+    }
+  }
+
   /// Cotação pelo setor de Compras. Existe porque o valor unitário saiu do
   /// formulário de solicitação (quem pede não conhece o preço) — sem um lugar
   /// para informá-lo depois, toda solicitação valeria zero e a alçada de
@@ -474,6 +643,7 @@ export class PurchaseRequestsService {
         description: true,
         discountType: true,
         discountValue: true,
+        inStock: true,
       },
     });
     const quantityById = new Map(items.map((item) => [item.id, item.quantity]));
@@ -481,6 +651,23 @@ export class PurchaseRequestsService {
     if (dto.items.some((item) => !quantityById.has(item.id))) {
       throw new BadRequestException('Um dos itens informados não pertence a esta solicitação.');
     }
+
+    // Item EM ESTOQUE não é cotado: não será comprado. Mandá-lo com preço,
+    // desconto ou "não disponível" é pedir as duas coisas ao mesmo tempo, e é
+    // recusado. Sem nada disso, ele simplesmente fica como está.
+    const emEstoque = new Set(items.filter((item) => item.inStock).map((item) => item.id));
+    if (
+      dto.items.some(
+        (item) =>
+          emEstoque.has(item.id) &&
+          (item.unavailable === true || item.estimatedUnitPrice !== undefined || item.discount !== undefined),
+      )
+    ) {
+      throw new BadRequestException(
+        'Item marcado como em estoque não entra na cotação. Desmarque o estoque para cotá-lo.',
+      );
+    }
+    dto.items = dto.items.filter((item) => !emEstoque.has(item.id));
 
     // Preço em item indisponível é contradição, não detalhe a ignorar: o
     // cliente está afirmando as duas coisas ao mesmo tempo, e escolher uma
@@ -752,6 +939,7 @@ export class PurchaseRequestsService {
           quantity: true,
           estimatedUnitPrice: true,
           unavailable: true,
+          inStock: true,
           discountType: true,
           discountValue: true,
         },

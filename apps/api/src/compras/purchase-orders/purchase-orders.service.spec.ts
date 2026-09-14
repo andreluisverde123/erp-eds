@@ -76,6 +76,8 @@ function makeService(
     /// falam de saldo, e apertar a quantidade neles trocaria o assunto de cada
     /// um por "cabe no pendente?". Quem testa o saldo declara o número.
     pedidos?: Record<string, number>;
+    /// Linhas da solicitação marcadas como EM ESTOQUE.
+    emEstoque?: string[];
     /// O que JÁ foi comprado desta solicitação, em ordens que contam (não
     /// canceladas, não excluídas).
     compras?: { purchaseRequestItemId: string; quantity: number }[];
@@ -97,6 +99,7 @@ function makeService(
     orderStatus = 'OPEN',
     financeiro = { invoices: [], inboundInvoices: [] },
     pedidos = {},
+    emEstoque = [],
     compras = [],
     auditoriaFalha = false,
   } = overrides;
@@ -123,7 +126,12 @@ function makeService(
   /// As linhas da solicitação como a conferência de saldo as lê.
   const linhasDaSolicitacao = (purchaseRequestId: string) =>
     ITENS_SOLICITACAO.filter((item) => item.purchaseRequestId === purchaseRequestId).map(
-      (item) => ({ id: item.id, quantity: quantidadePedida(item.id), unit: item.unit }),
+      (item) => ({
+        id: item.id,
+        quantity: quantidadePedida(item.id),
+        unit: item.unit,
+        inStock: emEstoque.includes(item.id),
+      }),
     );
 
   const criados: { data: Record<string, unknown> }[] = [];
@@ -1105,6 +1113,19 @@ describe('Cancelar e excluir ordem de compra', () => {
 ///
 /// Conferida por LINHA e dentro da transação que trava a solicitação.
 describe('Compra parcial — saldo pendente por item', () => {
+  describe('Item marcado como em estoque', () => {
+    it('não entra em ordem de compra', async () => {
+      const { service } = makeService({ emEstoque: ['item-cimento'] });
+
+      await expect(
+        service.create(EMPRESA_A, COMPRADOR, {
+          ...BASE,
+          items: [{ purchaseRequestItemId: 'item-cimento', quantity: 1, unitPrice: 32.9 }],
+        }),
+      ).rejects.toThrow(/marcado como em estoque/);
+    });
+  });
+
   describe('6. Tentativa de comprar acima do saldo pendente', () => {
     it('recusa a primeira ordem que já passa do pedido', async () => {
       const { service } = makeService({ pedidos: { 'item-cimento': 100 } });

@@ -6,6 +6,7 @@ import { Prisma } from '../../../generated/prisma/client';
 import { Readable } from 'node:stream';
 
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
+import { CatalogItemsService } from '../../engenharia/catalog-items/catalog-items.service';
 import type { StorageService } from '../../storage/storage.module';
 import { PNG_1X1 } from '../../common/pdf/png-1x1.fixture';
 import { auditContextStorage } from '../../common/audit-context';
@@ -38,6 +39,20 @@ type ItemLinha = {
   unavailabilityNote: string | null;
   discountType: 'AMOUNT' | 'PERCENT';
   discountValue: Prisma.Decimal;
+  catalogItemId?: string | null;
+  inStock?: boolean;
+};
+
+/// Um insumo do cadastro, como o banco o guarda.
+type InsumoGravado = {
+  id: string;
+  companyId: string;
+  code: string;
+  name: string;
+  unit: string;
+  searchKey: string;
+  active: boolean;
+  deletedAt: Date | null;
 };
 
 function itensIniciais(): ItemLinha[] {
@@ -103,6 +118,9 @@ function makeService(
         supplier: { legalName: string; tradeName: string | null };
       };
     }[];
+    /// O CADASTRO de insumos. É o array passado aqui, e não uma cópia: o teste
+    /// de snapshot renomeia um insumo e confere o efeito nele.
+    catalogo?: InsumoGravado[];
   } = {},
 ) {
   const {
@@ -111,12 +129,14 @@ function makeService(
     threshold = 0,
     descontoGeral = { discountType: 'AMOUNT' as const, discountValue: new Prisma.Decimal(0) },
     compras = [],
+    catalogo = [],
   } = overrides;
 
   const store = itens.map((item) => ({ ...item }));
   const solicitacao = { ...descontoGeral };
   const deleteManyCalls: unknown[] = [];
   const statusGravado: string[] = [];
+  const travas: string[] = [];
 
   const prisma = {
     // Todo acesso passa por aqui filtrando `companyId` — é o que faz o teste
@@ -157,8 +177,77 @@ function makeService(
           return { id: SOLICITACAO };
         },
       ),
+      count: jest.fn(async () => 0),
+      /// A CRIAÇÃO grava as linhas no `store`, que é o que o `findOne` lê.
+      create: jest.fn(
+        async ({ data }: { data: { items: { create: Record<string, unknown>[] } } }) => {
+          data.items.create.forEach((linha) =>
+            store.push({
+              id: `item-${store.length + 1}`,
+              estimatedUnitPrice: null,
+              notes: null,
+              unavailable: false,
+              unavailabilityNote: null,
+              discountType: 'AMOUNT',
+              discountValue: new Prisma.Decimal(0),
+              ...linha,
+              quantity: new Prisma.Decimal(Number(linha.quantity ?? 0)),
+            } as ItemLinha),
+          );
+          return { id: SOLICITACAO };
+        },
+      ),
     },
+    constructionSite: {
+      findFirst: jest.fn(async ({ where }: { where: { companyId: string } }) =>
+        where.companyId === EMPRESA_A ? { id: 'obra-1' } : null,
+      ),
+    },
+    costCenter: {
+      findFirst: jest.fn(async () => ({ constructionSiteId: 'obra-1' })),
+    },
+    /// O cadastro de insumos, COM ESTADO: renomear aqui muda o array, e é o
+    /// que deixa o teste de snapshot provar que a linha não acompanha.
+    catalogItem: {
+      count: jest.fn(
+        async ({ where }: { where: { id: { in: string[] }; companyId: string } }) =>
+          catalogo.filter(
+            (insumo) =>
+              where.id.in.includes(insumo.id) &&
+              insumo.companyId === where.companyId &&
+              insumo.deletedAt === null,
+          ).length,
+      ),
+      findFirst: jest.fn(
+        async ({ where }: { where: { id: string; companyId: string } }) =>
+          catalogo.find(
+            (insumo) =>
+              insumo.id === where.id &&
+              insumo.companyId === where.companyId &&
+              insumo.deletedAt === null,
+          ) ?? null,
+      ),
+      update: jest.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const alvo = catalogo.find((insumo) => insumo.id === where.id)!;
+          Object.entries(data).forEach(([campo, valor]) => {
+            if (valor !== undefined) Object.assign(alvo, { [campo]: valor });
+          });
+          return { ...alvo };
+        },
+      ),
+    },
+    /// Nenhuma composição nestes testes. O catálogo consulta o uso em
+    /// composição antes de trocar a unidade e antes de excluir (ORC-02).
+    compositionItem: { count: jest.fn(async () => 0) },
+    /// Nem preço de referência (ORC-03): o catálogo também o consulta antes
+    /// de trocar a unidade e antes de excluir.
+    catalogItemPrice: { count: jest.fn(async () => 0) },
     purchaseRequestItem: {
+      count: jest.fn(
+        async ({ where }: { where: { catalogItemId: string } }) =>
+          store.filter((item) => item.catalogItemId === where.catalogItemId).length,
+      ),
       findMany: jest.fn(async () => store.map((item) => ({ ...item }))),
       update: jest.fn(
         async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -170,6 +259,15 @@ function makeService(
       deleteMany: jest.fn(async (args: unknown) => {
         deleteManyCalls.push(args);
         return { count: 0 };
+      }),
+      findFirst: jest.fn(async ({ where }: { where: { id: string } }) => {
+        const alvo = store.find((item) => item.id === where.id);
+        return alvo ? { inStock: false, ...alvo } : null;
+      }),
+      delete: jest.fn(async ({ where }: { where: { id: string } }) => {
+        const indice = store.findIndex((item) => item.id === where.id);
+        const [removido] = store.splice(indice, 1);
+        return removido;
       }),
       /// Usado pela INCLUSÃO de itens depois do envio. Acrescenta ao `store`,
       /// que é o que o `findOne` devolve depois — sem isso o teste não veria a
@@ -232,6 +330,12 @@ function makeService(
         }));
       }),
     },
+    /// A trava da solicitação (`FOR UPDATE`). Registra o SQL para o teste
+    /// conferir que a alteração de item roda travada.
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => {
+      travas.push(strings.join('?'));
+      return [];
+    }),
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: unknown) => Promise<unknown>)(prisma)
@@ -271,6 +375,7 @@ function makeService(
     deleteManyCalls,
     statusGravado,
     assertThreshold,
+    travas,
   };
 }
 
@@ -1280,6 +1385,157 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
     });
   });
 
+  /// ITEM VINDO DO CADASTRO DE INSUMOS (ORC-01).
+  ///
+  /// O vínculo é opcional, e a linha continua sendo DOCUMENTO: descrição e
+  /// unidade são as que a linha grava. O catálogo mudar depois não as toca.
+  describe('Item vindo do cadastro de insumos', () => {
+    const INSUMO = '77777777-7777-4777-8777-777777777777';
+    const cimentoDoCatalogo = (sobrescrever: Partial<InsumoGravado> = {}): InsumoGravado => ({
+      id: INSUMO,
+      companyId: EMPRESA_A,
+      code: 'MAT-0001',
+      name: 'Cimento CP II 50kg',
+      unit: 'SC',
+      searchKey: 'cimento cp ii 50kg',
+      active: true,
+      deletedAt: null,
+      ...sobrescrever,
+    });
+    const LINHA_DO_CATALOGO = {
+      catalogItemId: INSUMO,
+      description: 'Cimento CP II 50kg',
+      unit: 'SC',
+      quantity: 10,
+    };
+    const LINHA_LIVRE = { description: 'Torneira de jardim', unit: 'UN', quantity: 2 };
+
+    it('criar com insumo grava o vínculo JUNTO da descrição e da unidade da linha', async () => {
+      const { service, prisma } = makeService({ itens: [], catalogo: [cimentoDoCatalogo()] });
+
+      await service.create(EMPRESA_A, 'usuario-1', {
+        constructionSiteId: 'obra-1',
+        items: [LINHA_DO_CATALOGO],
+      });
+
+      const [{ data }] = (prisma.purchaseRequest.create as jest.Mock).mock.calls[0];
+      expect(data.items.create[0]).toMatchObject({
+        catalogItemId: INSUMO,
+        description: 'Cimento CP II 50kg',
+        unit: 'SC',
+        searchKey: 'cimento cp ii 50kg',
+      });
+    });
+
+    it('criar SEM insumo continua como sempre: texto livre, sem consultar o catálogo', async () => {
+      const { service, prisma } = makeService({ itens: [] });
+
+      const criada = await service.create(EMPRESA_A, 'usuario-1', {
+        constructionSiteId: 'obra-1',
+        items: [LINHA_LIVRE],
+      });
+
+      const [{ data }] = (prisma.purchaseRequest.create as jest.Mock).mock.calls[0];
+      expect(data.items.create[0]).toMatchObject(LINHA_LIVRE);
+      expect(data.items.create[0].catalogItemId).toBeUndefined();
+      expect(prisma.catalogItem.count).not.toHaveBeenCalled();
+      expect(criada.items[0]).toMatchObject({ description: 'Torneira de jardim', unit: 'UN' });
+    });
+
+    it('insumo de OUTRA empresa é recusado, e nada é gravado', async () => {
+      // A FK do banco aceitaria: ela não conhece empresa.
+      const { service, prisma } = makeService({
+        itens: [],
+        catalogo: [cimentoDoCatalogo({ companyId: EMPRESA_B })],
+      });
+
+      await expect(
+        service.create(EMPRESA_A, 'usuario-1', {
+          constructionSiteId: 'obra-1',
+          items: [LINHA_DO_CATALOGO],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.purchaseRequest.create).not.toHaveBeenCalled();
+    });
+
+    it('insumo excluído é recusado', async () => {
+      const { service } = makeService({
+        status: 'PENDING',
+        catalogo: [cimentoDoCatalogo({ deletedAt: new Date() })],
+      });
+
+      await expect(
+        service.addItems(EMPRESA_A, SOLICITACAO, { items: [LINHA_DO_CATALOGO] }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('insumo DESATIVADO continua aceito: editar um rascunho antigo não pode quebrar', async () => {
+      // A edição de rascunho apaga e recria as linhas. Recusar o vínculo a um
+      // insumo desativado depois travaria a edição de quem pediu antes.
+      const { service, prisma } = makeService({
+        status: 'DRAFT',
+        catalogo: [cimentoDoCatalogo({ active: false })],
+      });
+
+      await service.update(EMPRESA_A, SOLICITACAO, { items: [LINHA_DO_CATALOGO] });
+
+      const [{ data }] = (prisma.purchaseRequestItem.createMany as jest.Mock).mock.calls[0];
+      expect(data[0]).toMatchObject({ catalogItemId: INSUMO, description: 'Cimento CP II 50kg' });
+    });
+
+    it('incluir itens aceita linha do catálogo e linha livre na mesma chamada', async () => {
+      const { service, prisma } = makeService({
+        status: 'PENDING',
+        catalogo: [cimentoDoCatalogo()],
+      });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [LINHA_DO_CATALOGO, LINHA_LIVRE] });
+
+      const [{ data }] = (prisma.purchaseRequestItem.createMany as jest.Mock).mock.calls[0];
+      expect(data[0].catalogItemId).toBe(INSUMO);
+      expect(data[1].catalogItemId).toBeUndefined();
+      // Uma consulta só para validar todos os insumos da chamada.
+      expect(prisma.catalogItem.count).toHaveBeenCalledTimes(1);
+    });
+
+    it('renomear o insumo no catálogo NÃO reescreve a linha já gravada', async () => {
+      const catalogo = [cimentoDoCatalogo()];
+      const { service, prisma } = makeService({ status: 'PENDING', itens: [], catalogo });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [LINHA_DO_CATALOGO] });
+
+      // O catálogo muda de verdade — nome, chave e unidade.
+      await new CatalogItemsService(prisma).update(EMPRESA_A, INSUMO, {
+        name: 'Cimento CP V ARI 40kg',
+        unit: 'KG',
+      });
+      expect(catalogo[0]).toMatchObject({ name: 'Cimento CP V ARI 40kg', unit: 'KG' });
+
+      const detalhe = await service.findOne(EMPRESA_A, SOLICITACAO);
+      const vinculada = detalhe.items.find((item) => item.catalogItemId === INSUMO);
+
+      // A solicitação continua dizendo o que foi pedido.
+      expect(vinculada).toMatchObject({
+        description: 'Cimento CP II 50kg',
+        unit: 'SC',
+        searchKey: 'cimento cp ii 50kg',
+      });
+    });
+
+    it('insumo usado na solicitação não pode ser excluído do catálogo', async () => {
+      const { service, prisma } = makeService({
+        status: 'PENDING',
+        catalogo: [cimentoDoCatalogo()],
+      });
+
+      await service.addItems(EMPRESA_A, SOLICITACAO, { items: [LINHA_DO_CATALOGO] });
+
+      await expect(new CatalogItemsService(prisma).remove(EMPRESA_A, INSUMO)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+  });
+
   describe('12. RBAC e janela de edição', () => {
     /// A permissão EFETIVA de uma rota. O guard usa `getAllAndOverride`, então
     /// o decorator do MÉTODO vence o da classe; sem decorator próprio, a rota
@@ -1304,6 +1560,12 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
       // Alinhar a permissão não pode ter virado promoção: o solicitante da
       // Engenharia continua sem nada do setor de Compras.
       expect(permissaoDe('suggestItems')).not.toContain('compras.manage');
+    });
+
+    it('a sugestão do CADASTRO segue a mesma regra: quem solicita, não quem mantém o catálogo', () => {
+      // Com `catalogo.view`, um perfil que pode solicitar e não mantém cadastro
+      // perderia a sugestão do catálogo em silêncio.
+      expect(permissaoDe('suggestCatalogItems')).toEqual(['compras.request']);
     });
 
     it('cotar exige `compras.manage` — quem só abre solicitação não cota', () => {
@@ -1334,5 +1596,217 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
         }),
       ).rejects.toThrow(ConflictException);
     });
+  });
+});
+
+
+/// ITEM EXCLUÍDO E ITEM EM ESTOQUE numa solicitação já enviada.
+///
+/// Os dois liberados para quem pede e para quem compra (`compras.request`),
+/// de PENDING a APPROVED, enquanto a linha não está em ordem de compra ativa.
+describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
+  const COMPRA_DO_CIMENTO = {
+    purchaseRequestItemId: CIMENTO,
+    quantity: new Prisma.Decimal(10),
+    purchaseOrder: {
+      id: 'oc-1',
+      code: 'OC-0001',
+      createdAt: new Date('2026-09-01'),
+      supplier: { legalName: 'Depósito Central LTDA', tradeName: 'Depósito Central' },
+    },
+  };
+
+  describe('Excluir item', () => {
+    it.each(['PENDING', 'QUOTING', 'APPROVED'])('exclui em %s, travando a solicitação', async (status) => {
+      const { service, store, travas } = makeService({ status });
+
+      const resultado = await service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA);
+
+      expect(store.map((item) => item.id)).toEqual([CIMENTO, PVC]);
+      expect(resultado.items.map((item) => item.id)).toEqual([CIMENTO, PVC]);
+      expect(travas[0]).toContain('FOR UPDATE');
+    });
+
+    it('registra a exclusão no histórico, com descrição e quantidade', async () => {
+      const { service, auditado } = makeService({ status: 'QUOTING' });
+
+      await service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA);
+
+      expect(auditado[0]).toMatchObject({
+        entityType: 'PurchaseRequest',
+        entityId: SOLICITACAO,
+        changes: { itemExcluido: { from: '—', to: 'Torneira de jardim: 5 UN' } },
+      });
+    });
+
+    it('recusa item que já está em ordem de compra', async () => {
+      const { service, store } = makeService({ status: 'APPROVED', compras: [COMPRA_DO_CIMENTO] });
+
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(
+        /já está na ordem de compra OC-0001/,
+      );
+      expect(store).toHaveLength(3);
+    });
+
+    it('não deixa a solicitação sem itens — desistir de tudo é cancelar', async () => {
+      const { service } = makeService({ status: 'PENDING', itens: [itensIniciais()[0]!] });
+
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(/ao menos um item/);
+    });
+
+    it('rascunho usa a edição; cancelada não muda', async () => {
+      await expect(makeService({ status: 'DRAFT' }).service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(
+        /rascunho/,
+      );
+      await expect(
+        makeService({ status: 'CANCELLED' }).service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('item de outra solicitação não é encontrado; solicitação de outra empresa também não', async () => {
+      const { service } = makeService({ status: 'PENDING' });
+
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, '77777777-7777-4777-8777-777777777777')).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.removeItem(EMPRESA_B, SOLICITACAO, CIMENTO)).rejects.toThrow(NotFoundException);
+    });
+
+    it('ordem cancelada ainda ligada à linha: a trava do banco vira mensagem', async () => {
+      const { service, prisma } = makeService({ status: 'APPROVED' });
+      (prisma.purchaseRequestItem.delete as jest.Mock).mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('fk', { code: 'P2003', clientVersion: '7' }),
+      );
+
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA)).rejects.toThrow(/ordem de compra cancelada/);
+    });
+  });
+
+  describe('Marcar em estoque', () => {
+    function cotada() {
+      return itensIniciais().map((item) => ({
+        ...item,
+        estimatedUnitPrice: new Prisma.Decimal(item.id === CIMENTO ? 40 : 10),
+        discountType: 'AMOUNT' as const,
+        discountValue: new Prisma.Decimal(item.id === CIMENTO ? 50 : 0),
+      }));
+    }
+
+    it('marca, limpa preço, indisponibilidade e desconto, e tira do total', async () => {
+      const { service, store } = makeService({ status: 'QUOTING', itens: cotada() });
+
+      const antes = await service.findOne(EMPRESA_A, SOLICITACAO);
+      // 10 × 40 − 50 + 20 × 10 + 5 × 10 = 600
+      expect(antes.estimatedTotal).toBe(600);
+
+      const depois = await service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true);
+
+      expect(linha(store, CIMENTO)).toMatchObject({
+        inStock: true,
+        estimatedUnitPrice: null,
+        unavailable: false,
+        unavailabilityNote: null,
+        discountValue: 0,
+      });
+      expect(depois.estimatedTotal).toBe(250);
+    });
+
+    it('em estoque não tem saldo a comprar: conta como atendido', async () => {
+      const { service } = makeService({ status: 'APPROVED' });
+
+      const depois = await service.setItemStock(EMPRESA_A, SOLICITACAO, TORNEIRA, true);
+      const torneira = depois.items.find((item) => item.id === TORNEIRA)!;
+
+      expect(torneira.fulfillment.pendingQuantity.toNumber()).toBe(0);
+      expect(torneira.fulfillment.status).toBe('FULFILLED');
+      expect(depois.fulfillment).toMatchObject({ totalItems: 3, fulfilledItems: 1, pendingItems: 2 });
+    });
+
+    it('a listagem também desconta o item em estoque do saldo', async () => {
+      const { prisma } = makeService({ status: 'APPROVED' });
+      const fulfillment = new FulfillmentService(prisma);
+
+      const resumo = await fulfillment.summaryByRequest([
+        {
+          id: SOLICITACAO,
+          items: itensIniciais().map((item) => ({ id: item.id, quantity: item.quantity, inStock: true })),
+        },
+      ]);
+
+      expect(resumo.get(SOLICITACAO)).toMatchObject({ status: 'FULFILLED', pendingItems: 0 });
+    });
+
+    it('desmarcar devolve à compra e fica no histórico', async () => {
+      const itens = itensIniciais().map((item) => (item.id === PVC ? { ...item, inStock: true } : item));
+      const { service, store, auditado } = makeService({ status: 'QUOTING', itens });
+
+      await service.setItemStock(EMPRESA_A, SOLICITACAO, PVC, false);
+
+      expect(linha(store, PVC).inStock).toBe(false);
+      expect(auditado[0]).toMatchObject({ changes: { voltouParaCompra: { to: 'Tubo PVC 100mm: 20 UN' } } });
+    });
+
+    it('marcar registra no histórico; repetir o mesmo estado não muda nada nem registra', async () => {
+      const { service, prisma, auditado } = makeService({ status: 'PENDING' });
+
+      await service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true);
+      expect(auditado[0]).toMatchObject({ changes: { emEstoque: { to: 'Cimento CP-II: 10 SC' } } });
+
+      (prisma.purchaseRequestItem.update as jest.Mock).mockClear();
+      await service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true);
+      expect(prisma.purchaseRequestItem.update).not.toHaveBeenCalled();
+      expect(auditado).toHaveLength(1);
+    });
+
+    it('recusa marcar o que já está em ordem de compra', async () => {
+      const { service } = makeService({ status: 'APPROVED', compras: [COMPRA_DO_CIMENTO] });
+
+      await expect(service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true)).rejects.toThrow(/OC-0001/);
+    });
+
+    it('rascunho e cancelada recusam', async () => {
+      await expect(
+        makeService({ status: 'DRAFT' }).service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true),
+      ).rejects.toThrow(/rascunho/);
+      await expect(
+        makeService({ status: 'CANCELLED' }).service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('a cotação não cota item em estoque: com preço é recusada, sem preço ele fica como está', async () => {
+      const itens = itensIniciais().map((item) => (item.id === TORNEIRA ? { ...item, inStock: true } : item));
+
+      const recusada = makeService({ status: 'QUOTING', itens });
+      await expect(
+        recusada.service.updateQuote(EMPRESA_A, SOLICITACAO, {
+          items: [
+            { id: CIMENTO, estimatedUnitPrice: 40 },
+            { id: TORNEIRA, estimatedUnitPrice: 10 },
+          ],
+        }),
+      ).rejects.toThrow(/em estoque não entra na cotação/);
+
+      const aceita = makeService({ status: 'QUOTING', itens });
+      await aceita.service.updateQuote(EMPRESA_A, SOLICITACAO, {
+        items: [{ id: CIMENTO, estimatedUnitPrice: 40 }, { id: TORNEIRA }],
+      });
+      expect(aceita.prisma.purchaseRequestItem.update).toHaveBeenCalledTimes(1);
+      expect(linha(aceita.store, TORNEIRA)).toMatchObject({ inStock: true, estimatedUnitPrice: null });
+    });
+
+    it('a aprovação usa o total sem o item em estoque', async () => {
+      const itens = cotada().map((item) => (item.id === CIMENTO ? { ...item, estimatedUnitPrice: null, discountValue: new Prisma.Decimal(0), inStock: true } : item));
+      const { service, assertThreshold } = makeService({ status: 'QUOTING', itens });
+
+      await service.updateStatus(EMPRESA_A, SOLICITACAO, 'APPROVED', ['compras.manage', 'compras.approve']);
+
+      expect(assertThreshold).toHaveBeenCalledWith(EMPRESA_A, expect.anything(), 250);
+    });
+  });
+
+  it('as duas rotas exigem `compras.request` — quem pede e quem compra', () => {
+    for (const rota of ['removeItem', 'setItemStock'] as const) {
+      expect(Reflect.getMetadata(PERMISSIONS_KEY, PurchaseRequestsController.prototype[rota])).toEqual(['compras.request']);
+    }
   });
 });

@@ -67,6 +67,20 @@ export function addPurchaseRequestItems(
   return apiClient.post(`/purchase-requests/${id}/items`, { items });
 }
 
+/// Exclui um item de solicitação já enviada (enquanto não estiver em ordem de compra).
+export function removePurchaseRequestItem(id: string, itemId: string): Promise<PurchaseRequestDetail> {
+  return apiClient.delete(`/purchase-requests/${id}/items/${itemId}`);
+}
+
+/// Marca ou desmarca o item como EM ESTOQUE.
+export function setPurchaseRequestItemStock(
+  id: string,
+  itemId: string,
+  inStock: boolean,
+): Promise<PurchaseRequestDetail> {
+  return apiClient.patch(`/purchase-requests/${id}/items/${itemId}/stock`, { inStock });
+}
+
 export function updatePurchaseRequestQuote(
   id: string,
   input: PurchaseRequestQuoteInput,

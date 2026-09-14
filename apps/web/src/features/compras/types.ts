@@ -111,6 +111,9 @@ export interface PurchaseRequestItem {
   /// Por que não tem ("sem estoque"). Opcional, e só existe junto de
   /// `unavailable`.
   unavailabilityNote: string | null;
+  /// EM ESTOQUE: o material já existe no estoque físico e a linha não será
+  /// comprada. Fora da cotação, do total e do saldo pendente.
+  inStock: boolean;
   /// Desconto DESTA linha, sobre `quantidade × preço unitário`. `AMOUNT` com
   /// valor `"0"` é a ausência de desconto.
   discountType: DiscountType;
@@ -118,9 +121,16 @@ export interface PurchaseRequestItem {
   /// Quanto desta linha já foi comprado, quanto falta, e por quais ordens.
   /// Vem do detalhe da solicitação (`GET /purchase-requests/:id`).
   fulfillment: ItemFulfillment;
+  /// O insumo do cadastro, QUANDO a linha veio de lá. `description` e `unit`
+  /// acima continuam sendo as da própria linha — o que foi pedido —, nunca as
+  /// do catálogo de hoje. Vêm do detalhe; a listagem não os traz.
+  catalogItemId?: string | null;
+  catalogItem?: { code: string } | null;
 }
 
 export interface PurchaseRequestItemInput {
+  /// Opcional: a linha de texto livre continua sendo o caso comum.
+  catalogItemId?: string;
   description: string;
   unit: string;
   quantity: number;

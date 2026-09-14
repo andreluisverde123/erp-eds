@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InsumosPage } from './insumos-page';
 import type { CatalogItem, PaginatedResult } from '@/features/catalogo/types';
+import { ApiError } from '@/lib/api-client';
 
 const criar = vi.fn();
 const atualizar = vi.fn();
@@ -262,7 +263,7 @@ describe('Edição e exclusão', () => {
     expect(atualizar.mock.calls[0]![0].active).toBe(false);
   });
 
-  it('excluir avisa que o histórico de compras fica intacto', async () => {
+  it('excluir avisa que insumo já usado se desativa, não se exclui', async () => {
     resultado = pagina([CIMENTO]);
     const usuario = abrir();
 
@@ -270,7 +271,173 @@ describe('Edição e exclusão', () => {
     await usuario.click(await screen.findByRole('menuitem', { name: /Excluir/ }));
 
     expect(
-      await screen.findByText(/As solicitações que já usaram este insumo continuam intactas/),
+      await screen.findByText(/nunca foi usado em solicitação de compra — se já foi, desative-o/),
     ).toBeDefined();
+  });
+
+  it('a recusa da API para insumo usado aparece na tela, como veio', async () => {
+    excluir.mockRejectedValue(
+      new ApiError(
+        409,
+        'Este insumo já foi usado em solicitações de compra e não pode ser excluído. Desative-o para tirá-lo do uso.',
+      ),
+    );
+    resultado = pagina([CIMENTO]);
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await usuario.click(await screen.findByRole('menuitem', { name: /Excluir/ }));
+    await usuario.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Excluir' }),
+    );
+
+    expect(await screen.findByText(/já foi usado em solicitações de compra/)).toBeDefined();
+    expect(excluir).toHaveBeenCalledWith('i1');
+  });
+});
+
+describe('Naturezas: material, mão de obra e equipamento', () => {
+  const PEDREIRO: CatalogItem = {
+    ...CIMENTO,
+    id: 'i2',
+    code: 'MO-0001',
+    name: 'Pedreiro',
+    unit: 'H',
+    category: null,
+    description: null,
+    type: 'LABOR',
+  };
+  const BETONEIRA: CatalogItem = { ...PEDREIRO, id: 'i3', code: 'EQP-0001', name: 'Betoneira', type: 'EQUIPMENT' };
+
+  it('a listagem mostra a natureza de cada insumo', () => {
+    resultado = pagina([CIMENTO, PEDREIRO, BETONEIRA]);
+    abrir();
+
+    expect(within(screen.getByText('Cimento CP II 50kg').closest('tr')!).getByText('Material')).toBeDefined();
+    expect(within(screen.getByText('Pedreiro').closest('tr')!).getByText('Mão de obra')).toBeDefined();
+    expect(within(screen.getByText('Betoneira').closest('tr')!).getByText('Equipamento')).toBeDefined();
+  });
+
+  it('o insumo existente continua sendo cadastrado como MATERIAL por padrão', async () => {
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: /Novo Insumo/ }));
+    await usuario.type(await screen.findByLabelText('Nome'), 'Areia média');
+    const drawer = screen.getByRole('dialog');
+    within(drawer).getByLabelText('Unidade').focus();
+    await usuario.keyboard('{Enter}');
+    await usuario.click(await screen.findByRole('option', { name: /M3/ }));
+    await usuario.click(within(drawer).getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(criar).toHaveBeenCalledTimes(1));
+    expect(criar.mock.calls[0]![0].type).toBe('MATERIAL');
+  });
+
+  it('cadastrar mão de obra envia a natureza escolhida', async () => {
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: /Novo Insumo/ }));
+    await usuario.type(await screen.findByLabelText('Nome'), 'Pedreiro');
+    const drawer = screen.getByRole('dialog');
+
+    within(drawer).getByLabelText('Natureza').focus();
+    await usuario.keyboard('{Enter}');
+    await usuario.click(await screen.findByRole('option', { name: 'Mão de obra' }));
+
+    within(drawer).getByLabelText('Unidade').focus();
+    await usuario.keyboard('{Enter}');
+    await usuario.click(await screen.findByRole('option', { name: /KG/ }));
+    await usuario.click(within(drawer).getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(criar).toHaveBeenCalledTimes(1));
+    expect(criar.mock.calls[0]![0]).toMatchObject({ name: 'Pedreiro', type: 'LABOR' });
+  });
+
+  it('na edição a natureza aparece travada e não é enviada', async () => {
+    resultado = pagina([PEDREIRO]);
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await usuario.click(await screen.findByRole('menuitem', { name: /Editar/ }));
+    const drawer = screen.getByRole('dialog');
+
+    expect(within(drawer).getByLabelText('Natureza')).toHaveProperty('disabled', true);
+    await usuario.click(within(drawer).getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0]![0]).not.toHaveProperty('type');
+  });
+
+  it('filtrar por natureza envia o filtro', async () => {
+    const usuario = abrir();
+
+    screen.getByLabelText('Natureza').focus();
+    await usuario.keyboard('{Enter}');
+    await usuario.click(await screen.findByRole('option', { name: 'Equipamento' }));
+
+    await waitFor(() => expect(ultimaQuery.type).toBe('EQUIPMENT'));
+  });
+
+  it('sem filtro, a natureza não é enviada', () => {
+    abrir();
+
+    expect(ultimaQuery.type).toBeUndefined();
+  });
+});
+
+/// As permissões de quem está na tela. Por padrão, Engenharia: consulta e
+/// mantém o catálogo, vê e registra preço.
+let permissoesDaTela = ['catalogo.view', 'catalogo.manage', 'composicoes.view', 'composicoes.manage'];
+
+vi.mock('@/features/auth/context', () => ({
+  useAuth: () => ({ user: { permissions: permissoesDaTela } }),
+}));
+
+vi.mock('@/features/catalogo/hooks/use-catalog-item-prices', () => ({
+  useCatalogItemPrices: () => ({
+    data: { data: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } },
+    isLoading: false,
+    isError: false,
+  }),
+  useCurrentReferencePrice: () => ({ data: { asOf: '2026-09-14', unit: 'SC', price: null } }),
+  usePurchasePriceCandidates: () => ({ data: [], isLoading: false, isError: false }),
+  useRegisterManualPrice: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRegisterPurchasePrice: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
+describe('Preços de referência a partir da tela de Insumos (ORC-03)', () => {
+  beforeEach(() => {
+    permissoesDaTela = ['catalogo.view', 'catalogo.manage', 'composicoes.view', 'composicoes.manage'];
+  });
+
+  it('a ação "Preços" abre o histórico do insumo', async () => {
+    resultado = pagina([CIMENTO]);
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await usuario.click(await screen.findByRole('menuitem', { name: /Preços/ }));
+
+    const drawer = await screen.findByRole('dialog');
+    expect(within(drawer).getByText('Preços de referência')).toBeDefined();
+    expect(within(drawer).getByText(/MAT-0001 · Cimento CP II 50kg — preço por SC/)).toBeDefined();
+  });
+
+  it('quem consulta o catálogo sem composicoes.view não vê a ação de preços', async () => {
+    // É o caso de Compras: consultar insumo não dá acesso a preço.
+    permissoesDaTela = ['catalogo.view', 'compras.view', 'compras.manage'];
+    resultado = pagina([CIMENTO]);
+    const usuario = abrir();
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await screen.findByRole('menuitem', { name: /Editar/ });
+
+    expect(screen.queryByRole('menuitem', { name: /Preços/ })).toBeNull();
+  });
+
+  it('a tabela de insumos continua sem preço', () => {
+    resultado = pagina([CIMENTO]);
+    abrir();
+
+    expect(within(screen.getByRole('table')).queryByText(/R\$/)).toBeNull();
   });
 });

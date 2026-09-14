@@ -1,5 +1,6 @@
-import { IsBooleanString, IsOptional, IsString } from 'class-validator';
+import { IsBooleanString, IsEnum, IsOptional, IsString } from 'class-validator';
 
+import { CatalogItemType } from '../../../../generated/prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class QueryCatalogItemDto extends PaginationQueryDto {
@@ -17,4 +18,9 @@ export class QueryCatalogItemDto extends PaginationQueryDto {
   @IsOptional()
   @IsBooleanString({ message: 'Filtro de situação inválido.' })
   active?: string;
+
+  /// Material, mão de obra ou equipamento. Ausente traz as três naturezas.
+  @IsOptional()
+  @IsEnum(CatalogItemType, { message: 'Tipo de insumo inválido.' })
+  type?: CatalogItemType;
 }

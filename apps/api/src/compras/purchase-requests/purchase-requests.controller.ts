@@ -24,6 +24,7 @@ import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
 import { UpdatePurchaseRequestQuoteDto } from './dto/update-purchase-request-quote.dto';
+import { SetPurchaseRequestItemStockDto } from './dto/set-purchase-request-item-stock.dto';
 import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
 import { PurchaseRequestsService } from './purchase-requests.service';
 
@@ -75,6 +76,23 @@ export class PurchaseRequestsController {
     @CurrentUser('companyId') companyId: string,
   ) {
     return this.itemSuggestions.search(companyId, query.search, query.limit);
+  }
+
+  /// Insumos do CADASTRO que casam com o que está sendo digitado — a outra
+  /// fonte do autocomplete da solicitação, ao lado do histórico.
+  ///
+  /// Mora aqui, e com `compras.request`, pelo mesmo motivo da rota acima: ela
+  /// serve o formulário de solicitação. Pedir `catalogo.view` deixaria sem
+  /// catálogo quem pode solicitar e não mantém cadastro — o autocomplete
+  /// morreria em silêncio para esse perfil. O que sai é o mínimo para
+  /// escolher (código, nome, unidade), só de insumo ATIVO e da própria empresa.
+  @RequirePermissions('compras.request')
+  @Get('catalog-suggestions')
+  suggestCatalogItems(
+    @Query() query: QueryItemSuggestionDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.itemSuggestions.searchCatalog(companyId, query.search, query.limit);
   }
 
   @Get(':id')
@@ -142,6 +160,35 @@ export class PurchaseRequestsController {
     @CurrentUser('companyId') companyId: string,
   ) {
     return this.purchaseRequestsService.addItems(companyId, id, dto);
+  }
+
+  /// EXCLUIR um item de solicitação já enviada, enquanto ele não entrou em
+  /// ordem de compra.
+  ///
+  /// `compras.request`: quem pede e quem compra (o papel Compras também tem
+  /// `compras.request`). Não é permissão nova. As regras de status, de compra
+  /// já feita e de último item ficam no service.
+  @RequirePermissions('compras.request')
+  @Delete(':id/items/:itemId')
+  removeItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.purchaseRequestsService.removeItem(companyId, id, itemId);
+  }
+
+  /// Marcar (ou desmarcar) um item como EM ESTOQUE — material já existente,
+  /// que não será comprado. Mesma permissão e mesma janela da exclusão.
+  @RequirePermissions('compras.request')
+  @Patch(':id/items/:itemId/stock')
+  setItemStock(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: SetPurchaseRequestItemStockDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.purchaseRequestsService.setItemStock(companyId, id, itemId, dto.inStock);
   }
 
   /// Cotação: só Compras informa valor unitário, e só enquanto a solicitação

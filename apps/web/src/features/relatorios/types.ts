@@ -80,7 +80,10 @@ export interface ObraReportRow {
   state: string | null;
   startDate: string | null;
   expectedEndDate: string | null;
+  /// LEGADO: valor digitado na obra, sem vínculo com orçamento. Não é exibido.
   budgetAmount: string | null;
+  /// O orçamento oficial da obra e o preço final dele (custo direto + BDI).
+  officialBudget: { id: string; code: string; version: number; finalPrice: string } | null;
 }
 
 export interface CompraReportRow {

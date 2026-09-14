@@ -55,11 +55,16 @@ const columns: ReportColumn<ObraReportRow>[] = [
     render: (row) => formatDate(row.expectedEndDate),
   },
   {
-    key: 'budgetAmount',
-    label: 'Orçamento',
-    sortKey: 'budgetAmount',
+    // O valor orçado é o preço final do orçamento OFICIAL (Orçamentos). O
+    // antigo `budgetAmount` é legado e não aparece mais. Sem ordenação: o
+    // preço final é derivado, não uma coluna do banco.
+    key: 'officialBudget',
+    label: 'Orçamento oficial',
     align: 'right',
-    render: (row) => formatCurrency(row.budgetAmount),
+    render: (row) =>
+      row.officialBudget
+        ? `${formatCurrency(row.officialBudget.finalPrice)} (${row.officialBudget.code} v${row.officialBudget.version})`
+        : '—',
   },
 ];
 

@@ -91,6 +91,7 @@ export interface PurchaseRequestSource {
     notes: string | null;
     unavailable: boolean;
     unavailabilityNote: string | null;
+    inStock?: boolean;
     discountType: DiscountType;
     discountValue: Prisma.Decimal;
   }[];
@@ -238,6 +239,10 @@ function buildDescription(item: PurchaseRequestSource['items'][number]): string 
 
   if (item.notes?.trim()) {
     linhas.push(item.notes.trim());
+  }
+
+  if (item.inStock) {
+    linhas.push('Em estoque — não será comprado');
   }
 
   if (item.unavailable) {

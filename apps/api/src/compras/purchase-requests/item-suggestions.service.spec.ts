@@ -212,6 +212,103 @@ describe('Sugestão de material', () => {
   });
 });
 
+/// A outra fonte do autocomplete: o CADASTRO de insumos (ORC-01).
+describe('Sugestão do cadastro de insumos', () => {
+  const sqlDe = (consulta: ConsultaFeita) => consulta.sql.replace(/\s+/g, ' ');
+
+  it('uma letra já consulta o banco', async () => {
+    const { service, prisma } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'c');
+
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('termo vazio ou só espaços não vai ao banco', async () => {
+    const { service, prisma } = makeService();
+
+    expect(await service.searchCatalog(EMPRESA_A, '')).toEqual([]);
+    expect(await service.searchCatalog(EMPRESA_A, '   ')).toEqual([]);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('tolera acento e caixa — o termo passa pela mesma normalização da gravação', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'CIMENTÔ  CP');
+
+    // Espaço interno colapsado, como `normalizeCatalogKey` grava `searchKey`.
+    expect(consultas[0]!.valores).toContain('cimento cp%');
+    expect(consultas[0]!.valores).toContain('%cimento cp%');
+  });
+
+  it('procura também pelo código, em caixa alta', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'mat-00');
+
+    expect(consultas[0]!.valores).toContain('MAT-00%');
+  });
+
+  it('a empresa entra na CONSULTA, não num filtro depois', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'ci');
+
+    expect(consultas[0]!.valores).toContain(EMPRESA_A);
+    expect(sqlDe(consultas[0]!)).toContain('"companyId" =');
+  });
+
+  it('só sugere insumo ATIVO e não excluído', async () => {
+    // Desativar é tirar do uso: o insumo não pode voltar como sugestão.
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'ci');
+
+    const sql = sqlDe(consultas[0]!);
+    expect(sql).toContain('"deletedAt" IS NULL');
+    expect(sql).toContain('active = true');
+  });
+
+  it('só sugere MATERIAL — mão de obra e equipamento são recursos de composição', async () => {
+    // "Pedreiro" não se pede numa solicitação de compra, e sugeri-lo ligaria a
+    // linha de compra a um recurso de orçamento.
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'pe');
+
+    expect(sqlDe(consultas[0]!)).toContain(`AND type = 'MATERIAL'`);
+  });
+
+  it('devolve só identidade — nenhum preço', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'ci');
+
+    const sql = sqlDe(consultas[0]!);
+    expect(sql).toContain('SELECT id, code, name, unit FROM "CatalogItem"');
+    expect(sql.toLowerCase()).not.toContain('price');
+  });
+
+  it('o limite é sempre aplicado, e tem teto', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, 'c');
+    await service.searchCatalog(EMPRESA_A, 'c', 500);
+
+    expect(consultas[0]!.valores).toContain(8);
+    expect(consultas[1]!.valores).toContain(20);
+  });
+
+  it('curinga do LIKE é procurado como texto', async () => {
+    const { service, consultas } = makeService();
+
+    await service.searchCatalog(EMPRESA_A, '100%');
+
+    expect(consultas[0]!.valores).toContain('100\\%%');
+  });
+});
+
 /// A normalização é a peça que as TRÊS pontas compartilham: a gravação de
 /// `searchKey`, a consulta, e o `UPDATE` de backfill da migration. Se elas
 /// divergirem, dados gravados por uma ficam inalcançáveis pela outra.

@@ -344,3 +344,19 @@ describe('quote-totals — a conta da cotação', () => {
     });
   });
 });
+
+
+describe('Item em estoque', () => {
+  it('não entra na conta, mesmo com preço gravado', () => {
+    const linha = {
+      quantity: 10,
+      estimatedUnitPrice: 40,
+      unavailable: false,
+      inStock: true,
+      discountType: 'AMOUNT' as const,
+      discountValue: 0,
+    };
+    expect(isQuoted(linha)).toBe(false);
+    expect(calculateQuoteTotals([linha, { ...linha, inStock: false }], { type: 'AMOUNT', value: 0 }).total.toNumber()).toBe(400);
+  });
+});

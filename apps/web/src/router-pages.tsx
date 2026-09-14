@@ -60,6 +60,30 @@ export const PagamentosPage = lazy(() =>
 export const InsumosPage = lazy(() =>
   import('@/pages/engenharia/insumos-page').then((m) => ({ default: m.InsumosPage })),
 );
+export const ComposicoesPage = lazy(() =>
+  import('@/pages/engenharia/composicoes-page').then((m) => ({ default: m.ComposicoesPage })),
+);
+export const ComposicaoDetailPage = lazy(() =>
+  import('@/pages/engenharia/composicao-detail-page').then((m) => ({
+    default: m.ComposicaoDetailPage,
+  })),
+);
+export const OrcamentosPage = lazy(() =>
+  import('@/pages/engenharia/orcamentos-page').then((m) => ({ default: m.OrcamentosPage })),
+);
+export const OrcamentoDetailPage = lazy(() =>
+  import('@/pages/engenharia/orcamento-detail-page').then((m) => ({
+    default: m.OrcamentoDetailPage,
+  })),
+);
+export const BasesDeReferenciaPage = lazy(() =>
+  import('@/pages/engenharia/bases-de-referencia-page').then((m) => ({ default: m.BasesDeReferenciaPage })),
+);
+export const BaseDeReferenciaDetailPage = lazy(() =>
+  import('@/pages/engenharia/base-de-referencia-detail-page').then((m) => ({
+    default: m.BaseDeReferenciaDetailPage,
+  })),
+);
 export const FuncionariosPage = lazy(() =>
   import('@/pages/rh/funcionarios-page').then((m) => ({ default: m.FuncionariosPage })),
 );

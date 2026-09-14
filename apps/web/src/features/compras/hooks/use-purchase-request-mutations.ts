@@ -5,6 +5,8 @@ import {
   createPurchaseRequest,
   deletePurchaseRequest,
   downloadPurchaseRequestPdf,
+  removePurchaseRequestItem,
+  setPurchaseRequestItemStock,
   updatePurchaseRequest,
   updatePurchaseRequestQuote,
   updatePurchaseRequestStatus,
@@ -45,6 +47,27 @@ export function useAddPurchaseRequestItems(id: string) {
       // números de antes.
       queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
     },
+  });
+}
+
+/// Excluir item e marcar em estoque mudam total, saldo e atendimento: a
+/// listagem e o detalhe são recarregados.
+export function useRemovePurchaseRequestItem(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itemId: string) => removePurchaseRequestItem(id, itemId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+  });
+}
+
+export function useSetPurchaseRequestItemStock(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ itemId, inStock }: { itemId: string; inStock: boolean }) =>
+      setPurchaseRequestItemStock(id, itemId, inStock),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
   });
 }
 

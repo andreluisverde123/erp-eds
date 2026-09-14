@@ -15,6 +15,16 @@ vi.mock('../hooks/use-purchase-request-mutations', () => ({
 // não é o assunto, e uma chamada de rede no teste só traria intermitência.
 vi.mock('../item-suggestions', () => ({ searchItemSuggestions: vi.fn().mockResolvedValue([]) }));
 
+const { searchCatalogSuggestions } = vi.hoisted(() => ({ searchCatalogSuggestions: vi.fn() }));
+vi.mock('../catalog-suggestions', () => ({ searchCatalogSuggestions }));
+
+const CIMENTO_DO_CADASTRO = {
+  id: 'insumo-1',
+  code: 'MAT-0001',
+  name: 'Cimento CP II 50kg',
+  unit: 'SC',
+};
+
 function abrir() {
   const onOpenChange = vi.fn();
   const cliente = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -44,6 +54,8 @@ async function escolherUnidade(usuario: ReturnType<typeof userEvent.setup>, nome
 beforeEach(() => {
   mutateAsync.mockReset();
   mutateAsync.mockResolvedValue(undefined);
+  searchCatalogSuggestions.mockReset();
+  searchCatalogSuggestions.mockResolvedValue([]);
 });
 
 /// O botão "Incluir itens" precisa INCLUIR, ou dizer por que não.
@@ -89,5 +101,76 @@ describe('Incluir itens numa solicitação já enviada', () => {
 
     expect(await screen.findByText(/informe a unidade/i)).toBeTruthy();
     expect(mutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+/// O vínculo com o cadastro de insumos, de ponta a ponta na grade.
+describe('Item escolhido do cadastro de insumos', () => {
+  it('escolher do cadastro envia o insumo, com nome e unidade dele', async () => {
+    searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { usuario } = abrir();
+
+    await usuario.type(screen.getByLabelText(/item da linha 1/i), 'cim');
+    await usuario.click(await screen.findByText('Cimento CP II 50kg'));
+    await usuario.type(screen.getByLabelText(/quantidade da linha 1/i), '10');
+    await usuario.click(screen.getByRole('button', { name: /incluir itens/i }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync.mock.calls[0]![0]).toEqual([
+      {
+        catalogItemId: 'insumo-1',
+        description: 'Cimento CP II 50kg',
+        unit: 'SC',
+        quantity: 10,
+        notes: undefined,
+      },
+    ]);
+  });
+
+  it('a célula mostra o código do insumo escolhido', async () => {
+    searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { usuario } = abrir();
+
+    await usuario.type(screen.getByLabelText(/item da linha 1/i), 'cim');
+    await usuario.click(await screen.findByText('Cimento CP II 50kg'));
+
+    expect(await screen.findByTitle('Insumo do cadastro')).toHaveProperty(
+      'textContent',
+      'MAT-0001',
+    );
+  });
+
+  it('digitar por cima desfaz o vínculo: a linha vira texto livre', async () => {
+    searchCatalogSuggestions.mockResolvedValue([CIMENTO_DO_CADASTRO]);
+    const { usuario } = abrir();
+
+    const item = screen.getByLabelText(/item da linha 1/i);
+    await usuario.type(item, 'cim');
+    await usuario.click(await screen.findByText('Cimento CP II 50kg'));
+    await usuario.type(item, ' branco');
+    await usuario.keyboard('{Escape}');
+    await usuario.type(screen.getByLabelText(/quantidade da linha 1/i), '4');
+    await usuario.click(screen.getByRole('button', { name: /incluir itens/i }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    const [linha] = mutateAsync.mock.calls[0]![0];
+    expect(linha.catalogItemId).toBeUndefined();
+    expect(linha.description).toBe('Cimento CP II 50kg branco');
+    // A unidade que veio do insumo fica: é o que a pessoa vê na tela.
+    expect(linha.unit).toBe('SC');
+  });
+
+  it('sem cadastro, o texto livre segue funcionando como antes', async () => {
+    const { usuario } = abrir();
+
+    await usuario.type(screen.getByLabelText(/item da linha 1/i), 'Material inédito');
+    await escolherUnidade(usuario, /unidade/i);
+    await usuario.type(screen.getByLabelText(/quantidade da linha 1/i), '1');
+    await usuario.click(screen.getByRole('button', { name: /incluir itens/i }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    const [linha] = mutateAsync.mock.calls[0]![0];
+    expect(linha).toMatchObject({ description: 'Material inédito', unit: 'UN', quantity: 1 });
+    expect(linha.catalogItemId).toBeUndefined();
   });
 });

@@ -431,6 +431,10 @@ model Company {
   roles                   Role[]
   constructionSites       ConstructionSite[]
   catalogItems        CatalogItem[]
+  compositions        Composition[]
+  catalogItemPrices   CatalogItemPrice[]
+  budgets             Budget[]
+  referenceDatasetsImported ReferenceDataset[] @relation("ReferenceDatasetImportedByCompany")
   costCenters             CostCenter[]
   suppliers               Supplier[]
   purchaseRequests        PurchaseRequest[]
@@ -512,6 +516,10 @@ model User {
   purchaseRequests          PurchaseRequest[]
   /// Ordens que este usuário emitiu — é o nome que assina o PDF da ordem.
   purchaseOrders            PurchaseOrder[]        @relation("PurchaseOrderCreatedBy")
+  catalogItemPricesCreated CatalogItemPrice[] @relation("CatalogItemPriceCreatedBy")
+  budgetsCreated           Budget[]           @relation("BudgetCreatedBy")
+  budgetsClosed            Budget[]           @relation("BudgetClosedBy")
+  referenceDatasetsImported ReferenceDataset[] @relation("ReferenceDatasetImportedBy")
   /// Obras das quais este usuário é o responsável.
   responsibleForSites       ConstructionSite[]     @relation("ConstructionSiteResponsible")
   attachments               Attachment[]
@@ -710,10 +718,17 @@ model ConstructionSite {
   startDate         DateTime?
   expectedEndDate   DateTime?
   actualEndDate     DateTime?
+  /// LEGADO. Valor digitado antes de existir orçamento detalhado. Não é mais
+  /// editável por tela nenhuma nem fonte oficial: o valor orçado da obra é o
+  /// preço final do orçamento oficial (`currentBudget`). Mantido só para não
+  /// apagar dado histórico.
   budgetAmount      Decimal?           @db.Decimal(14, 2)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   deletedAt         DateTime?
+  /// ORÇAMENTO OFICIAL da obra: um `Budget` FECHADO desta obra, definido por
+  /// ação explícita. É a fonte do valor orçado; `budgetAmount` é legado.
+  currentBudgetId   String?            @db.Uuid
 
   company             Company                @relation(fields: [companyId], references: [id])
   responsible         User?                  @relation("ConstructionSiteResponsible", fields: [responsibleId], references: [id])
@@ -729,8 +744,12 @@ model ConstructionSite {
   accountsPayable     AccountPayable[]
   userAccess          UserConstructionSite[]
   dailyReports        DailyReport[]
+  budgets             Budget[]               @relation("BudgetConstructionSite")
+  /// FK composta (orçamento, obra): o banco recusa oficial de outra obra.
+  currentBudget       Budget?                @relation("ConstructionSiteCurrentBudget", fields: [currentBudgetId, id], references: [id, constructionSiteId], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([companyId, code])
+  @@unique([currentBudgetId, id])
   @@index([companyId])
   @@index([status])
   /// Índices trigram para as buscas por texto (`contains` + `mode: insensitive`,
@@ -780,17 +799,24 @@ model CostCenter {
 /// Fornecedor de materiais/serviços.
 /// Natureza do insumo.
 ///
-/// **Só `MATERIAL` está operacional.** Mão de obra e equipamento não entram
-/// como valores agora de propósito: cadastrá-los exigiria custo-hora por função
-/// e custo-hora de máquina, que o ERP não tem e que este prompt não deve
-/// inventar. Um valor de enum sem modelo de custo por trás seria um cadastro
-/// que aceita "Pedreiro" e não sabe responder quanto ele custa.
+/// - `MATERIAL` — o que se compra e se aplica (cimento, bloco, aço).
+/// - `LABOR` — mão de obra como RECURSO DE COMPOSIÇÃO ("Pedreiro", em H). Não
+///   é `Employee`: a composição diz "0,80 h de pedreiro por m²", e não quem é
+///   o pedreiro nem quanto ele ganha no RH.
+/// - `EQUIPMENT` — equipamento como recurso de composição ("Betoneira", em H).
+///   Não é gestão patrimonial: sem número de série, depreciação ou localização.
 ///
-/// O enum existe com um valor só porque estender enum no Postgres é aditivo
-/// (`ALTER TYPE ... ADD VALUE`) e barato — e porque deixa explícito, na leitura
-/// do schema, que a distinção de natureza é esperada.
+/// Nenhum dos três carrega preço. No ORC-01 mão de obra e equipamento ficaram
+/// de fora porque não havia onde pôr o custo deles; o ORC-02 pôs o preço na
+/// LINHA DA COMPOSIÇÃO (`CompositionItem.unitPrice`), e não aqui — é isso que
+/// torna os dois valores seguros de acrescentar.
+///
+/// `MATERIAL` continua sendo o default: todo insumo já gravado permanece
+/// exatamente como estava.
 enum CatalogItemType {
   MATERIAL
+  LABOR
+  EQUIPMENT
 }
 
 /// CADASTRO DE INSUMOS da empresa. A identidade que faltava.
@@ -848,6 +874,10 @@ model CatalogItem {
 
   company              Company               @relation(fields: [companyId], references: [id])
   purchaseRequestItems PurchaseRequestItem[]
+  compositionItems     CompositionItem[]
+  prices               CatalogItemPrice[]
+  budgetItems          BudgetItem[]
+  budgetItemComponents BudgetItemComponent[]
 
   @@unique([companyId, code])
   /// DUPLICIDADE, e a regra é determinística: dois insumos da mesma empresa não
@@ -863,6 +893,381 @@ model CatalogItem {
   @@index([searchKey(ops: raw("text_pattern_ops"))], map: "CatalogItem_searchKey_prefix_idx")
   @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "CatalogItem_searchKey_trgm_idx")
   @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "CatalogItem_code_trgm_idx")
+}
+
+/// COMPOSIÇÃO DE CUSTO: quanto custa produzir UMA unidade de um serviço.
+///
+/// "Alvenaria de vedação, por M2 = 25 UN de bloco + 0,80 H de pedreiro +
+/// 0,10 H de betoneira."
+///
+/// ## Sem coluna de custo
+///
+/// O custo unitário é Σ (coeficiente × preço) dos itens, calculado a cada
+/// leitura por `engenharia/compositions/composition-cost.ts`. Gravar o total
+/// seria um segundo número para o mesmo fato. A materialização só se
+/// justificará com composição dentro de composição (ORC-03), e aí com
+/// recálculo explícito.
+///
+/// ## Cadastro vivo, não documento
+///
+/// A composição lê o insumo por relação: renomear "Pedreiro" aparece aqui.
+/// Quem congela é o orçamento (ORC-04), ao COPIAR a composição no momento do
+/// uso — o mesmo padrão de `PurchaseOrderItem`, que copia da solicitação.
+model Composition {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  /// Sequencial por empresa: COMP-0001. Gerado no servidor, não editável.
+  code        String
+  name        String
+  /// `name` normalizado, só para busca. NÃO é unique, ao contrário do
+  /// insumo: duas "Alvenaria de vedação" com traços diferentes são
+  /// composições legítimas, e o código as distingue.
+  searchKey   String
+  description String?
+  /// A unidade do SERVIÇO produzido, da lista canônica. Os coeficientes dos
+  /// itens são "quanto do insumo por uma unidade desta".
+  unit        String
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  company     Company           @relation(fields: [companyId], references: [id])
+  items       CompositionItem[]
+  budgetItems BudgetItem[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([companyId, active])
+  @@index([searchKey(ops: raw("text_pattern_ops"))], map: "Composition_searchKey_prefix_idx")
+  @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "Composition_searchKey_trgm_idx")
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "Composition_code_trgm_idx")
+}
+
+/// Uma linha da composição: um insumo, quanto dele, e a que preço.
+///
+/// **Sem `totalCost`**: é `coefficient × unitPrice`, derivado no backend.
+///
+/// **Sem `unit`**: é a do insumo. O coeficiente é expresso nela — 12,5 de um
+/// insumo em KG, numa composição em M2, são 12,5 kg/m². Nenhuma conversão é
+/// feita. Por isso a unidade de insumo usado em composição não pode mudar
+/// (`CatalogItemsService.update`).
+///
+/// **Sem `companyId`**: a empresa é a da composição, como em
+/// `PurchaseRequestItem`.
+///
+/// Os bancos também têm CHECK `coefficient > 0` e `unitPrice >= 0` (ver a
+/// migration); o Prisma não os representa.
+model CompositionItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  compositionId String   @db.Uuid
+  catalogItemId String   @db.Uuid
+  /// Seis casas: coeficiente de base referencial chega a 0,000123 m³/m².
+  coefficient   Decimal  @db.Decimal(14, 6)
+  /// Preço de UMA unidade do insumo NESTA composição. Mora aqui, e não no
+  /// catálogo: o mesmo insumo pode ter preços diferentes em composições
+  /// diferentes, e o catálogo não vira fonte financeira. Quatro casas, como o
+  /// preço unitário da NF-e.
+  unitPrice     Decimal  @db.Decimal(14, 4)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  composition Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem @relation(fields: [catalogItemId], references: [id])
+
+  /// O mesmo insumo uma vez por composição: quem precisa de mais pedreiro
+  /// aumenta o coeficiente da linha que já existe.
+  @@unique([compositionId, catalogItemId])
+  @@index([catalogItemId])
+}
+
+/// Origem de um preço de referência.
+///
+/// - `MANUAL` — alguém autorizado informou o valor (cotação por telefone,
+///   tabela de fornecedor, pesquisa de mercado).
+/// - `PURCHASE` — o preço PRATICADO numa ordem de compra recebida, registrado
+///   explicitamente a partir da linha da ordem.
+///
+/// SINAPI, SICRO e IMPORT entram depois com `ALTER TYPE ... ADD VALUE`, que é
+/// aditivo. Nenhum valor foi criado antes de existir integração: uma origem
+/// sem caminho de entrada seria uma opção que ninguém consegue produzir.
+enum CatalogItemPriceSource {
+  MANUAL
+  PURCHASE
+}
+
+/// PREÇO DE REFERÊNCIA de um insumo numa data. Histórico, e só histórico.
+///
+/// ## Imutável
+///
+/// Não há `updatedAt`, rota de edição nem de exclusão. Corrigir um valor é
+/// registrar outro. Um histórico que se reescreve deixa de responder "quanto
+/// custava em 01/09?" — a pergunta para a qual ele existe.
+///
+/// ## Não é o preço do catálogo
+///
+/// `CatalogItem` continua sem preço. Esta tabela diz o que se SABIA sobre o
+/// preço em cada data; a composição COPIA o valor para a linha dela
+/// (`CompositionItem.unitPrice`) no momento em que alguém o escolhe, e uma
+/// referência nova nunca altera composição existente.
+///
+/// ## Regra temporal
+///
+/// O preço válido numa data D é o de maior `referenceDate <= D`; no empate de
+/// data, o registrado por último. Preço com data posterior a D nunca é usado
+/// para D.
+model CatalogItemPrice {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  companyId           String                 @db.Uuid
+  catalogItemId       String                 @db.Uuid
+  /// Preço de UMA unidade do insumo — a mesma escala de
+  /// `CompositionItem.unitPrice`.
+  unitPrice           Decimal                @db.Decimal(14, 4)
+  /// A unidade do insumo NO REGISTRO. O preço vale por ela: R$ 38,00 é
+  /// R$ 38,00 / SC. A unidade de insumo com preço registrado não muda
+  /// (`CatalogItemsService.update`), e a cópia aqui é a prova do que o valor
+  /// significava.
+  unit                String
+  source              CatalogItemPriceSource
+  /// DIA, sem hora. É a data a que o preço se refere, não a do cadastro.
+  referenceDate       DateTime               @db.Date
+  note                String?
+  /// Só em `PURCHASE`: a ordem de onde o preço veio. FK com `Restrict` — ordem
+  /// só sofre exclusão lógica, então isto nunca dispara.
+  purchaseOrderId     String?                @db.Uuid
+  /// Só em `PURCHASE`: a linha da ordem. SEM FK, de propósito: editar uma
+  /// ordem apaga e recria as linhas dela (`PurchaseOrdersService.update`), e
+  /// uma FK aqui ou travaria essa edição ou apagaria o histórico. A unique
+  /// impede registrar a mesma linha duas vezes.
+  purchaseOrderItemId String?                @unique @db.Uuid
+  createdById         String?                @db.Uuid
+  createdAt           DateTime               @default(now())
+
+  company       Company        @relation(fields: [companyId], references: [id])
+  catalogItem   CatalogItem    @relation(fields: [catalogItemId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  createdBy     User?          @relation("CatalogItemPriceCreatedBy", fields: [createdById], references: [id])
+  budgetItems   BudgetItem[]
+  budgetItemComponents BudgetItemComponent[]
+
+  @@index([companyId])
+  /// Serve as duas consultas: o histórico em ordem e "o mais recente até D".
+  @@index([catalogItemId, referenceDate(sort: Desc), createdAt(sort: Desc)])
+  @@index([purchaseOrderId])
+}
+
+/// Situação do orçamento.
+///
+/// - `DRAFT` — em elaboração: estrutura, itens, quantidades e custos editáveis.
+/// - `CLOSED` — versão fechada. Documento histórico: nenhuma rota altera
+///   estrutura, itens ou valores. Continuar o trabalho sobre ele será criar uma
+///   nova versão (ORC-05), nunca reabrir esta.
+///
+/// Aprovação, revisão e aditivo entram depois, com `ALTER TYPE ... ADD VALUE`.
+enum BudgetStatus {
+  DRAFT
+  CLOSED
+}
+
+/// De onde veio a linha do orçamento.
+enum BudgetItemSource {
+  COMPOSITION
+  CATALOG_ITEM
+  MANUAL
+  /// Item de base referencial (SINAPI, SICRO), com snapshot no próprio item.
+  REFERENCE
+}
+
+/// ORÇAMENTO DE UMA OBRA.
+///
+/// ## Documento, não cadastro
+///
+/// Tudo o que define o custo de uma linha é COPIADO para ela no momento da
+/// inclusão: descrição, unidade, custo unitário e, para composição, as linhas
+/// da composição (`BudgetItemComponent`). Os ids de origem ficam só para
+/// rastreio — nenhuma leitura de orçamento os usa para calcular.
+///
+/// ## Sem totais gravados
+///
+/// Total da linha, subtotal da EAP e total geral são derivados na leitura
+/// (`engenharia/budgets/budget-cost.ts`). Com o orçamento fechado nada muda, e
+/// a conta é a mesma a cada leitura.
+///
+/// ## Versionamento preparado
+///
+/// `version` começa em 1 e a unique é `(empresa, código, versão)`: a revisão
+/// do ORC-0001 será o ORC-0001 v2, uma cópia nova, e a v1 continua intacta.
+model Budget {
+  id                 String       @id @default(uuid()) @db.Uuid
+  companyId          String       @db.Uuid
+  constructionSiteId String       @db.Uuid
+  /// Sequencial por empresa: ORC-0001. Gerado no servidor, não editável.
+  code               String
+  version            Int          @default(1)
+  name               String
+  /// `name` normalizado, só para busca.
+  searchKey          String
+  description        String?
+  /// DATA-BASE. O preço de insumo sugerido é o vigente nesta data — nunca um
+  /// posterior. Mudá-la num rascunho NÃO reprecifica itens já incluídos.
+  referenceDate      DateTime     @db.Date
+  status             BudgetStatus @default(DRAFT)
+  closedAt           DateTime?
+  closedById         String?      @db.Uuid
+  createdById        String?      @db.Uuid
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  deletedAt          DateTime?
+  /// BDI em percentual (25 = 25%). Aplicado sobre o custo direto.
+  bdiPercent         Decimal      @default(0) @db.Decimal(7, 4)
+  bdiNote            String?
+  /// A versão de onde esta revisão foi copiada. Nulo na v1.
+  revisedFromId      String?      @db.Uuid
+
+  company          Company          @relation(fields: [companyId], references: [id])
+  constructionSite ConstructionSite @relation("BudgetConstructionSite", fields: [constructionSiteId], references: [id])
+  revisedFrom      Budget?          @relation("BudgetRevision", fields: [revisedFromId], references: [id])
+  revisions        Budget[]         @relation("BudgetRevision")
+  officialForSite  ConstructionSite? @relation("ConstructionSiteCurrentBudget")
+  createdBy        User?            @relation("BudgetCreatedBy", fields: [createdById], references: [id])
+  closedBy         User?            @relation("BudgetClosedBy", fields: [closedById], references: [id])
+  nodes            BudgetNode[]
+  items            BudgetItem[]
+
+  @@unique([companyId, code, version])
+  @@unique([id, constructionSiteId])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([constructionSiteId])
+}
+
+/// Um nó da EAP do orçamento: grupo, subgrupo, sub-subgrupo, sem limite.
+///
+/// **Não é `CostCenter`.** Centro de custo é plano, tem código único por
+/// empresa e é usado por seis módulos; a EAP é a estrutura de UM orçamento.
+///
+/// **O código ("2.1.3") não é gravado:** é derivado da posição entre irmãos na
+/// leitura. Gravado, apagar o 2.1 deixaria o 2.2 com um número que ninguém
+/// renumerou.
+///
+/// **Não vaza entre orçamentos:** o pai é referenciado por `(parentId,
+/// budgetId)`, então o banco recusa um pai de outro orçamento. O pai não se
+/// troca depois de criado, o que torna ciclo impossível.
+model BudgetNode {
+  id        String   @id @default(uuid()) @db.Uuid
+  budgetId  String   @db.Uuid
+  parentId  String?  @db.Uuid
+  name      String
+  /// Ordem entre irmãos.
+  position  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  budget   Budget       @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  parent   BudgetNode?  @relation("BudgetNodeTree", fields: [parentId, budgetId], references: [id, budgetId], onDelete: NoAction, onUpdate: NoAction)
+  children BudgetNode[] @relation("BudgetNodeTree")
+  items    BudgetItem[]
+
+  @@unique([id, budgetId])
+  @@index([budgetId])
+  @@index([parentId])
+}
+
+/// Uma linha do orçamento: quantidade × custo unitário, num nó da EAP.
+///
+/// Os campos que definem o custo são SNAPSHOT (ver `Budget`). A origem:
+///
+/// | `source` | `compositionId` | `catalogItemId` | custo unitário |
+/// | --- | --- | --- | --- |
+/// | COMPOSITION | obrigatório | nulo | custo da composição na inclusão, congelado; linhas em `components` |
+/// | CATALOG_ITEM | nulo | obrigatório | informado; sugerido pelo preço vigente na data-base |
+/// | MANUAL | nulo | nulo | informado |
+///
+/// A combinação é garantida por CHECK no banco (ver a migration).
+model BudgetItem {
+  id               String           @id @default(uuid()) @db.Uuid
+  budgetId         String           @db.Uuid
+  budgetNodeId     String           @db.Uuid
+  position         Int
+  source           BudgetItemSource
+  /// Rastreio da origem. NUNCA usado para calcular.
+  compositionId    String?          @db.Uuid
+  catalogItemId    String?          @db.Uuid
+  /// Só CATALOG_ITEM: o preço de referência cujo valor a linha usou, quando o
+  /// custo unitário é exatamente o vigente na data-base. Nulo se foi digitado.
+  referencePriceId String?          @db.Uuid
+  /// Código da origem na inclusão (COMP-0001, MAT-0001).
+  sourceCode       String?
+  /// Natureza do insumo na inclusão (só CATALOG_ITEM).
+  catalogItemType  CatalogItemType?
+  description      String
+  unit             String
+  quantity         Decimal          @db.Decimal(14, 4)
+  unitCost         Decimal          @db.Decimal(14, 4)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  /// Só REFERENCE — rastreio (vira nulo se a base sair) e SNAPSHOT (fica).
+  referenceDatasetId     String?                   @db.Uuid
+  referenceItemId        String?                   @db.Uuid
+  referenceCompositionId String?                   @db.Uuid
+  referenceSource        ReferenceSource?
+  /// "ITEM" ou "COMPOSITION".
+  referenceKind          String?
+  referenceCode          String?
+  referenceCompetence    String?                   @db.VarChar(7)
+  referenceUf            String?                   @db.VarChar(2)
+  referenceLocality      String?
+  referenceRegime        ReferenceRegime?
+  referenceVersionLabel  String?
+  /// Só COMPOSITION: preço histórico, fallback da composição, ou misto.
+  compositionPricing     BudgetCompositionPricing?
+
+  budget         Budget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  node           BudgetNode            @relation(fields: [budgetNodeId, budgetId], references: [id, budgetId], onDelete: NoAction, onUpdate: NoAction)
+  composition    Composition?          @relation(fields: [compositionId], references: [id], onDelete: Restrict)
+  catalogItem    CatalogItem?          @relation(fields: [catalogItemId], references: [id], onDelete: Restrict)
+  referencePrice CatalogItemPrice?     @relation(fields: [referencePriceId], references: [id], onDelete: Restrict)
+  components     BudgetItemComponent[]
+  referenceComponents  BudgetItemReferenceComponent[]
+  referenceDataset     ReferenceDataset?     @relation(fields: [referenceDatasetId], references: [id])
+  referenceItem        ReferenceItem?        @relation(fields: [referenceItemId], references: [id])
+  referenceComposition ReferenceComposition? @relation(fields: [referenceCompositionId], references: [id])
+
+  @@index([budgetId])
+  @@index([referenceDatasetId])
+  @@index([budgetNodeId])
+  @@index([compositionId])
+  @@index([catalogItemId])
+}
+
+/// Cópia de uma linha da composição no momento em que ela entrou no orçamento.
+///
+/// Existe como tabela, e não como JSON, porque a curva ABC por insumo e o
+/// orçado × realizado vão precisar somar por `catalogItemId`.
+model BudgetItemComponent {
+  id            String          @id @default(uuid()) @db.Uuid
+  budgetItemId  String          @db.Uuid
+  /// Rastreio. Código, nome, natureza e unidade abaixo são a cópia.
+  catalogItemId String          @db.Uuid
+  code          String
+  name          String
+  type          CatalogItemType
+  unit          String
+  coefficient   Decimal         @db.Decimal(14, 6)
+  unitPrice     Decimal         @db.Decimal(14, 4)
+  position      Int
+  /// De onde veio `unitPrice`: preço de referência vigente na data-base
+  /// (HISTORICAL) ou o preço da linha da composição (FALLBACK). Nulo nos
+  /// itens do ORC-04, anteriores a esta regra.
+  priceOrigin      BudgetComponentPriceOrigin?
+  referencePriceId String?                     @db.Uuid
+
+  budgetItem  BudgetItem  @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem @relation(fields: [catalogItemId], references: [id])
+  referencePrice CatalogItemPrice? @relation(fields: [referencePriceId], references: [id])
+
+  @@index([budgetItemId])
+  @@index([catalogItemId])
 }
 
 model Supplier {
@@ -1030,6 +1435,15 @@ model PurchaseRequestItem {
   /// aparece como tal na tela; sobrescrevê-la com um recado de Compras
   /// apagaria o que o solicitante escreveu.
   unavailabilityNote String?
+  /// EM ESTOQUE: alguém conferiu o estoque físico e o material já existe —
+  /// a linha NÃO precisa ser comprada. Específico da operação da EDS.
+  ///
+  /// Diferente de `unavailable` (o fornecedor não tem, e a linha continua a
+  /// comprar de outro): em estoque sai da cotação, do total, do saldo
+  /// pendente e da ordem de compra. A linha continua no documento, marcada.
+  /// Só pode ser marcada enquanto nenhuma ordem de compra ativa a atende; o
+  /// service limpa preço, indisponibilidade e desconto ao marcar.
+  inStock            Boolean      @default(false)
   /// DESCONTO DESTA LINHA, aplicado sobre `quantidade × preço unitário`.
   ///
   /// Só existe em item disponível e cotado: sem preço não há base sobre a
@@ -1142,6 +1556,7 @@ model PurchaseOrder {
   items           PurchaseOrderItem[]
   invoices        Invoice[]
   inboundInvoices InboundInvoice[]
+  referencePrices CatalogItemPrice[]
 
   @@unique([companyId, code])
   @@index([supplierId])
@@ -2840,4 +3255,174 @@ model DailyReportMedia {
 
   @@index([dailyReportId])
   @@index([createdById])
+}
+
+// =============================================================================
+// BASES REFERENCIAIS (ORC-05)
+// =============================================================================
+
+/// Fonte de uma base referencial. Fonte nova entra com `ALTER TYPE ADD VALUE`
+/// e um parser próprio; o domínio não muda.
+enum ReferenceSource {
+  SINAPI
+  SICRO
+}
+
+/// Regime de encargos sociais da referência.
+enum ReferenceRegime {
+  NAO_DESONERADO
+  DESONERADO
+  SEM_ENCARGOS
+}
+
+/// O que é uma linha analítica de composição de referência. SINAPI: INPUT e
+/// COMPOSITION. SICRO: as seções A–F do relatório analítico.
+enum ReferenceComponentKind {
+  INPUT
+  COMPOSITION
+  EQUIPMENT
+  LABOR
+  MATERIAL
+  AUXILIARY
+  FIXED_TIME
+  TRANSPORT
+}
+
+/// Como uma composição PRÓPRIA foi precificada ao entrar no orçamento.
+enum BudgetCompositionPricing {
+  HISTORICAL
+  FALLBACK
+  MIXED
+}
+
+enum BudgetComponentPriceOrigin {
+  HISTORICAL
+  FALLBACK
+}
+
+/// UMA IMPORTAÇÃO de base referencial: fonte + competência + UF + regime.
+///
+/// GLOBAL (sem `companyId`): SINAPI e SICRO são públicos e iguais para toda
+/// empresa. Imutável depois de importado — nenhuma rota altera itens ou
+/// composições de um dataset. Orçamento não depende dele: copia o que usa.
+model ReferenceDataset {
+  id                  String          @id @default(uuid()) @db.Uuid
+  source              ReferenceSource
+  /// "AAAA-MM".
+  competence          String          @db.VarChar(7)
+  /// Primeiro dia da competência — comparável com a data-base do orçamento.
+  referenceDate       DateTime        @db.Date
+  uf                  String          @db.VarChar(2)
+  locality            String?
+  regime              ReferenceRegime
+  /// "" na publicação original; "revisado" etc. numa republicação.
+  versionLabel        String          @default("")
+  publishedAt         DateTime?       @db.Date
+  fileNames           String[]
+  /// SHA-256 dos arquivos importados.
+  fileHash            String
+  itemCount           Int
+  compositionCount    Int
+  metadata            Json            @default("{}")
+  importedByCompanyId String          @db.Uuid
+  importedById        String?         @db.Uuid
+  importedAt          DateTime        @default(now())
+
+  importedByCompany Company                @relation("ReferenceDatasetImportedByCompany", fields: [importedByCompanyId], references: [id])
+  importedBy        User?                  @relation("ReferenceDatasetImportedBy", fields: [importedById], references: [id])
+  items             ReferenceItem[]
+  compositions      ReferenceComposition[]
+  budgetItems       BudgetItem[]
+
+  @@unique([source, competence, uf, regime, versionLabel])
+  @@index([source, uf, regime, referenceDate])
+}
+
+/// Insumo como a base o publica. NÃO é `CatalogItem`: cadastro próprio e
+/// referência externa não se misturam.
+model ReferenceItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  datasetId   String   @db.Uuid
+  code        String
+  description String
+  searchKey   String
+  unit        String
+  category    String?
+  /// Nulo = sem preço nesta UF (não houve coleta).
+  unitPrice   Decimal? @db.Decimal(14, 4)
+  metadata    Json     @default("{}")
+
+  dataset     ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  budgetItems BudgetItem[]
+
+  @@unique([datasetId, code])
+  @@index([datasetId, code(ops: raw("text_pattern_ops"))], map: "ReferenceItem_datasetId_code_prefix_idx")
+  @@index([datasetId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceItem_datasetId_searchKey_prefix_idx")
+  @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "ReferenceItem_searchKey_trgm_idx")
+}
+
+model ReferenceComposition {
+  id          String   @id @default(uuid()) @db.Uuid
+  datasetId   String   @db.Uuid
+  code        String
+  description String
+  searchKey   String
+  unit        String
+  group       String?
+  /// Custo OFICIAL. Nulo = sem custo nesta referência.
+  unitCost    Decimal? @db.Decimal(14, 4)
+  situation   String?
+  metadata    Json     @default("{}")
+
+  dataset     ReferenceDataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  components  ReferenceCompositionItem[]
+  budgetItems BudgetItem[]
+
+  @@unique([datasetId, code])
+  @@index([datasetId, code(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_datasetId_code_prefix_idx")
+  @@index([datasetId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_datasetId_searchKey_prefix_idx")
+  @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "ReferenceComposition_searchKey_trgm_idx")
+}
+
+/// Linha da composição analítica de referência.
+model ReferenceCompositionItem {
+  id            String                 @id @default(uuid()) @db.Uuid
+  compositionId String                 @db.Uuid
+  position      Int
+  section       String?
+  kind          ReferenceComponentKind
+  code          String
+  description   String
+  unit          String?
+  coefficient   Decimal?               @db.Decimal(18, 7)
+  unitPrice     Decimal?               @db.Decimal(14, 4)
+  totalCost     Decimal?               @db.Decimal(14, 4)
+  situation     String?
+  metadata      Json                   @default("{}")
+
+  composition ReferenceComposition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+
+  @@index([compositionId, position])
+}
+
+/// Linha analítica da composição de REFERÊNCIA copiada para o item do
+/// orçamento no momento da inclusão.
+model BudgetItemReferenceComponent {
+  id           String                 @id @default(uuid()) @db.Uuid
+  budgetItemId String                 @db.Uuid
+  position     Int
+  section      String?
+  kind         ReferenceComponentKind
+  code         String
+  description  String
+  unit         String?
+  coefficient  Decimal?               @db.Decimal(18, 7)
+  unitPrice    Decimal?               @db.Decimal(14, 4)
+  totalCost    Decimal?               @db.Decimal(14, 4)
+  situation    String?
+  metadata     Json                   @default("{}")
+
+  budgetItem BudgetItem @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+
+  @@index([budgetItemId])
 }

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { Prisma } from '../../../generated/prisma/client';
+import { CatalogItemType, Prisma } from '../../../generated/prisma/client';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
@@ -13,23 +13,40 @@ import { QueryCatalogItemDto } from './dto/query-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 
 const DUPLICADO = 'Já existe um insumo com este nome. Se for outro material, diferencie o nome.';
+const EM_USO =
+  'Este insumo já foi usado em solicitações de compra, composições ou preços de referência e não pode ser excluído. Desative-o para tirá-lo do uso.';
+const UNIDADE_EM_COMPOSICAO =
+  'Este insumo é usado em composições, e os coeficientes delas estão nesta unidade. Para mudar a unidade, cadastre um novo insumo.';
+const UNIDADE_COM_PRECOS =
+  'Este insumo tem preços de referência registrados nesta unidade. Para mudar a unidade, cadastre um novo insumo.';
 
-/// Prefixo do código sequencial. `MAT-` e não `INS-` porque só MATERIAL existe:
-/// no dia em que mão de obra entrar, ela terá o próprio prefixo, e os códigos
-/// já emitidos continuarão dizendo a verdade sobre o que são.
-const PREFIXO = 'MAT';
+/// Prefixo do código sequencial, POR NATUREZA.
+///
+/// `MAT-` continua sendo o do material, e cada natureza tem o próprio prefixo e
+/// a própria sequência: um código já emitido continua dizendo a verdade sobre o
+/// que é, e "MO-0001" não empurra a numeração dos materiais.
+export const CODE_PREFIX_BY_TYPE: Record<CatalogItemType, string> = {
+  MATERIAL: 'MAT',
+  LABOR: 'MO',
+  EQUIPMENT: 'EQP',
+};
 
 @Injectable()
 export class CatalogItemsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(companyId: string, dto: CreateCatalogItemDto) {
+    const type = dto.type ?? CatalogItemType.MATERIAL;
+
     // Mesmo gerador de `SOL-0001`, `OC-0001` e do código de contrato. A janela
     // de corrida do `count()` está documentada lá e é aceitável aqui pelo mesmo
     // motivo: código de cadastro não é documento fiscal.
+    //
+    // A contagem é da NATUREZA. Todo insumo gravado antes do ORC-02 é
+    // `MATERIAL`, então a sequência `MAT-` segue exatamente de onde estava.
     const code = await nextSequentialCode(
-      () => this.prisma.catalogItem.count({ where: { companyId } }),
-      PREFIXO,
+      () => this.prisma.catalogItem.count({ where: { companyId, type } }),
+      CODE_PREFIX_BY_TYPE[type],
     );
 
     try {
@@ -42,7 +59,7 @@ export class CatalogItemsService {
           unit: dto.unit,
           category: dto.category?.trim() || null,
           description: dto.description?.trim() || null,
-          type: dto.type,
+          type,
           active: dto.active,
         },
       });
@@ -60,14 +77,15 @@ export class CatalogItemsService {
     companyId: string,
     query: QueryCatalogItemDto,
   ): Promise<PaginatedResult<Prisma.CatalogItemGetPayload<object>>> {
-    const { page, limit, search, category, active } = query;
+    const { page, limit, search, category, active, type } = query;
 
     const where: Prisma.CatalogItemWhereInput = {
       companyId,
       deletedAt: null,
       category,
+      type,
       active: active === undefined ? undefined : active === 'true',
-      ...buscaPor(search),
+      ...catalogSearchWhere(search),
     };
 
     const [data, total] = await this.prisma.$transaction([
@@ -105,8 +123,32 @@ export class CatalogItemsService {
     return item;
   }
 
+  /// A natureza (`type`) não se edita — o DTO nem a aceita. Ela escolheu o
+  /// prefixo do código, e "MAT-0007" virando mão de obra passaria a mentir.
+  ///
+  /// **A unidade de insumo com dependência não muda.** Duas dependências leem
+  /// a unidade do insumo:
+  ///
+  /// - o coeficiente da composição — 12,5 de argamassa em KG são 12,5 kg/m²,
+  ///   e trocar para SC os transformaria em 12,5 sacos por m²;
+  /// - o preço de referência — R$ 38,00 registrados por SC passariam a parecer
+  ///   R$ 38,00 por KG.
+  ///
+  /// A solicitação de compra não tem esse problema porque grava a própria
+  /// unidade.
   async update(companyId: string, id: string, dto: UpdateCatalogItemDto) {
-    await this.assertExists(companyId, id);
+    const atual = await this.assertExists(companyId, id);
+
+    if (dto.unit !== undefined && dto.unit !== atual.unit) {
+      const [emComposicoes, precos] = await Promise.all([
+        this.prisma.compositionItem.count({
+          where: { catalogItemId: id, composition: { deletedAt: null } },
+        }),
+        this.prisma.catalogItemPrice.count({ where: { catalogItemId: id } }),
+      ]);
+      if (emComposicoes > 0) throw new ConflictException(UNIDADE_EM_COMPOSICAO);
+      if (precos > 0) throw new ConflictException(UNIDADE_COM_PRECOS);
+    }
 
     try {
       await this.prisma.catalogItem.update({
@@ -129,17 +171,30 @@ export class CatalogItemsService {
     }
   }
 
-  /// Exclusão LÓGICA, com o código e a chave embaralhados.
+  /// Exclusão LÓGICA, com o código e a chave embaralhados — e só de insumo
+  /// que NUNCA foi usado.
   ///
   /// As duas uniques — `(empresa, código)` e `(empresa, searchKey)` — não
   /// ignoram `deletedAt`. Sem embaralhar, um insumo excluído bloquearia para
   /// sempre o nome e o número dele.
   ///
-  /// A solicitação que apontava para este insumo **continua intacta**: a linha
-  /// guarda a própria descrição e unidade, e a FK é `RESTRICT` sobre uma linha
-  /// que nunca some da tabela.
+  /// **Insumo já usado não é excluído, é desativado.** Excluir embaralha o
+  /// código, e o código é a identidade estável que a linha de compra, a linha
+  /// de composição e o histórico de preços apontam. Excluir também tiraria o
+  /// histórico de preços de vista — insumo excluído não tem histórico
+  /// consultável. Desativar tira o insumo do uso sem mexer em nada disso.
   async remove(companyId: string, id: string): Promise<void> {
     const item = await this.assertExists(companyId, id);
+
+    const [emCompras, emComposicoes, precos] = await Promise.all([
+      this.prisma.purchaseRequestItem.count({ where: { catalogItemId: id } }),
+      // Inclusive composição excluída: a linha dela continua apontando para o
+      // insumo, e embaralhar o código a deixaria mostrando o código sujo.
+      this.prisma.compositionItem.count({ where: { catalogItemId: id } }),
+      this.prisma.catalogItemPrice.count({ where: { catalogItemId: id } }),
+    ]);
+    if (emCompras > 0 || emComposicoes > 0 || precos > 0) throw new ConflictException(EM_USO);
+
     await this.prisma.catalogItem.update({
       where: { id, companyId },
       data: {
@@ -167,7 +222,9 @@ export class CatalogItemsService {
 ///
 /// O código entra em caixa alta porque é assim que ele é gravado (`MAT-0001`),
 /// e quem digita costuma escrever "mat-1".
-function buscaPor(search: string | undefined): Prisma.CatalogItemWhereInput {
+///
+/// Exportada porque o editor de composição busca insumo com a MESMA regra.
+export function catalogSearchWhere(search: string | undefined): Prisma.CatalogItemWhereInput {
   const termo = search?.trim();
   if (!termo) return {};
 

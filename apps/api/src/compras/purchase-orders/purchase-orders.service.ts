@@ -295,7 +295,7 @@ export class PurchaseOrdersService {
 
     const solicitados = await tx.purchaseRequestItem.findMany({
       where: { purchaseRequestId },
-      select: { id: true, quantity: true, unit: true },
+      select: { id: true, quantity: true, unit: true, inStock: true },
     });
     const origemPorId = new Map(solicitados.map((item) => [item.id, item]));
 
@@ -304,6 +304,14 @@ export class PurchaseOrdersService {
       // `resolveItems` já garantiu a procedência de cada linha; isto é a rede
       // para quem chamar este método de outro lugar no futuro.
       if (!origem) continue;
+
+      // Conferido DENTRO da trava da solicitação: a marcação de estoque trava
+      // a mesma linha, então as duas operações não se cruzam.
+      if (origem.inStock) {
+        throw new BadRequestException(
+          `O item "${item.description}" está marcado como em estoque e não entra em ordem de compra.`,
+        );
+      }
 
       const jaComprado = (comprado.get(item.purchaseRequestItemId) ?? []).reduce(
         (total, entrada) => total.plus(entrada.quantity),

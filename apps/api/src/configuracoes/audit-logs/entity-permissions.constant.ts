@@ -2,7 +2,16 @@
 /// permissão que já protege o módulo dono daquele registro (confirmado lendo
 /// os controllers reais de cada módulo), nunca uma permissão nova.
 const ENTITY_TYPE_PERMISSIONS: Record<string, string> = {
+  Budget: 'orcamentos.view',
+  BudgetNode: 'orcamentos.view',
+  BudgetItem: 'orcamentos.view',
+  ReferenceDataset: 'orcamentos.view',
   CatalogItem: 'catalogo.view',
+  // Preço é informação financeira: o histórico do registro exige a mesma
+  // permissão que o próprio histórico de preços.
+  CatalogItemPrice: 'composicoes.view',
+  Composition: 'composicoes.view',
+  CompositionItem: 'composicoes.view',
   ConstructionSite: 'engenharia.view',
   CostCenter: 'engenharia.view',
   Supplier: 'compras.view',

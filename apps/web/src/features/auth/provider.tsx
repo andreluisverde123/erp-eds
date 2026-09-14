@@ -7,9 +7,33 @@ import * as authApi from './api';
 import { AuthContext, type AuthStatus } from './context';
 import type { AuthUser } from './types';
 
+/// Atalho de desenvolvimento — NÃO é login de verdade.
+///
+/// Só liga quando estamos no servidor de dev (`import.meta.env.DEV`, sempre
+/// `false` em `vite build`, inclusive staging e produção — o código abaixo nem
+/// entra no bundle publicado) E a flag opt-in `VITE_DEV_AUTH_BYPASS` está
+/// ativa (defina em `.env.local`, que não vai para o git). Serve para ver a
+/// interface local sem subir a API. Fora desses dois trilhos, é como se não
+/// existisse: o fluxo normal de login/refresh continua valendo.
+const DEV_AUTH_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH_BYPASS === 'true';
+
+/// Usuário fictício da sessão de dev. E-mail de propósito diferente de
+/// `admin@obrei.com` para que o aviso de atraso apareça na simulação.
+const DEV_MOCK_USER: AuthUser = {
+  id: 'dev-mock-user',
+  name: 'Usuário de Desenvolvimento',
+  email: 'dev@localhost',
+  roles: ['dev'],
+  permissions: [],
+  tenant: { id: 'dev', name: 'EDS (dev)', logoUrl: null, erpName: null },
+  mustChangePassword: false,
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>('loading');
-  const [user, setUser] = useState<AuthUser | null>(null);
+  // Com o atalho de dev, já nasce autenticado (estado semeado aqui, sem
+  // setState em efeito). Sem ele, o fluxo normal: 'loading' até o refresh.
+  const [status, setStatus] = useState<AuthStatus>(DEV_AUTH_BYPASS ? 'authenticated' : 'loading');
+  const [user, setUser] = useState<AuthUser | null>(DEV_AUTH_BYPASS ? DEV_MOCK_USER : null);
   // O refresh token é de uso único (rotação a cada chamada), então o boot
   // abaixo não pode disparar duas vezes: em StrictMode (dev) o React
   // invoca o efeito de montagem duas vezes, e a segunda chamada usaria um
@@ -46,6 +70,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // token expirado em pleno uso), tenta um refresh silencioso via cookie e
   // devolve o novo token para a chamada original ser repetida uma vez.
   useEffect(() => {
+    // Com o atalho de dev ligado não há API para renovar token: um 401 de
+    // alguma tela devolve `null` (a chamada falha e a página mostra seu estado
+    // de erro), mas NÃO derruba a sessão fictícia — senão o bypass se
+    // desfaria no primeiro fetch.
+    if (DEV_AUTH_BYPASS) {
+      setUnauthorizedHandler(async () => null);
+      return () => setUnauthorizedHandler(null);
+    }
+
     setUnauthorizedHandler(async () => {
       try {
         const session = await authApi.refresh();
@@ -67,6 +100,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (hasAttemptedBootRefresh.current) return;
     hasAttemptedBootRefresh.current = true;
+
+    // Atalho de dev: estado já nasceu autenticado (ver useState acima); aqui
+    // só registramos o token fictício no api-client, sem falar com a API.
+    // `setAccessToken` é sistema externo, não setState do React.
+    if (DEV_AUTH_BYPASS) {
+      setAccessToken('dev-mock-token');
+      return;
+    }
 
     authApi
       .refresh()

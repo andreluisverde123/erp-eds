@@ -24,8 +24,9 @@ export class CreateCatalogItemDto {
   @MaxLength(500, { message: 'Máximo de 500 caracteres.' })
   description?: string;
 
-  /// Só `MATERIAL` existe. O campo é aceito para o contrato já nascer explícito
-  /// — mão de obra e equipamento virão com modelo de custo próprio.
+  /// `MATERIAL` (padrão), `LABOR` ou `EQUIPMENT`. Escolhe o prefixo do código
+  /// (`MAT-`, `MO-`, `EQP-`) e por isso só é informado na criação — ver
+  /// `UpdateCatalogItemDto`. Nenhuma natureza tem preço.
   @IsOptional()
   @IsEnum(CatalogItemType, { message: 'Tipo de insumo inválido.' })
   type?: CatalogItemType;

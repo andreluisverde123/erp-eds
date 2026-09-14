@@ -48,6 +48,36 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     action: 'manage',
     description: 'Cadastrar, editar, ativar e excluir insumos.',
   },
+  /// Separadas de `catalogo.*` porque a composição carrega PREÇO e o catálogo
+  /// não. Compras consulta insumos para pedir material, e isso não deve abrir
+  /// junto o custo que a engenharia orça.
+  {
+    code: 'composicoes.view',
+    module: 'composicoes',
+    action: 'view',
+    description: 'Consultar composições de custo e o custo unitário delas.',
+  },
+  {
+    code: 'composicoes.manage',
+    module: 'composicoes',
+    action: 'manage',
+    description: 'Criar, editar e ativar composições, e manter os itens, coeficientes e preços.',
+  },
+  /// Orçamento da obra. Separado de `composicoes.*` porque é um documento
+  /// POR OBRA, com fechamento — e quem fecha orçamento não precisa ser quem
+  /// mantém o cadastro de composições.
+  {
+    code: 'orcamentos.view',
+    module: 'orcamentos',
+    action: 'view',
+    description: 'Consultar orçamentos de obra, a EAP, os itens e os totais.',
+  },
+  {
+    code: 'orcamentos.manage',
+    module: 'orcamentos',
+    action: 'manage',
+    description: 'Criar e editar orçamentos em rascunho, montar a EAP, incluir itens e fechar o orçamento.',
+  },
   {
     code: 'engenharia.view',
     module: 'engenharia',
@@ -235,6 +265,13 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       // O catálogo de insumos é mantido por quem conhece o material da obra.
       'catalogo.view',
       'catalogo.manage',
+      // E as composições de custo: é quem sabe quanto de cada insumo um metro
+      // quadrado consome.
+      'composicoes.view',
+      'composicoes.manage',
+      // E o orçamento da obra, que é montado a partir delas.
+      'orcamentos.view',
+      'orcamentos.manage',
       'terceiros.view',
       'terceiros.manage',
       // Abre a solicitação e manda para o setor de Compras — é o engenheiro
@@ -333,6 +370,10 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'terceiros.manage',
       'compras.approve',
       'financeiro.approve',
+      // Consulta o custo das composições; quem as mantém é Engenharia.
+      'composicoes.view',
+      // Consulta os orçamentos das obras; quem monta e fecha é Engenharia.
+      'orcamentos.view',
       // Entra no Diário, mas continua vendo só as obras em que foi colocada —
       // não há atalho de "diretor vê tudo" no Diário (ver `SiteAccessService`).
       'diario.access',

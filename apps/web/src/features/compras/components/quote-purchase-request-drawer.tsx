@@ -122,7 +122,10 @@ function QuotePurchaseRequestBody({
   request: PurchaseRequestDetail;
   onDone: () => void;
 }) {
-  const items = request.items;
+  // Item EM ESTOQUE não é cotado: não será comprado. Fica fora da grade e
+  // do que é enviado.
+  const items = request.items.filter((item) => !item.inStock);
+  const emEstoque = request.items.length - items.length;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, QuoteRow>>(() => initialRows(items));
   const [generalDiscount, setGeneralDiscount] = useState<Discount>(() =>
@@ -200,6 +203,14 @@ function QuotePurchaseRequestBody({
           <Alert variant="destructive">
             <AlertTitle>{submitError}</AlertTitle>
           </Alert>
+        )}
+
+        {emEstoque > 0 && (
+          <p className="text-sm text-muted-foreground" data-testid="itens-em-estoque">
+            {emEstoque === 1
+              ? '1 item está marcado como em estoque e fica fora da cotação.'
+              : `${emEstoque} itens estão marcados como em estoque e ficam fora da cotação.`}
+          </p>
         )}
 
         <div className="overflow-x-auto rounded-lg border border-border">

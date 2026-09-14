@@ -31,6 +31,15 @@ describe('A lista canônica de unidades', () => {
     }
   });
 
+  it('tem as unidades básicas de material', () => {
+    // A tonelada é `TON`, e não ganha um `T` ao lado: dois códigos para a
+    // mesma grandeza é exatamente o defeito que a lista existe para impedir.
+    for (const codigo of ['UN', 'KG', 'G', 'TON', 'M', 'M2', 'M3', 'L', 'ML', 'CX', 'SC']) {
+      expect(MEASUREMENT_UNIT_CODES).toContain(codigo);
+    }
+    expect(MEASUREMENT_UNIT_CODES).not.toContain('T');
+  });
+
   it('não tem código repetido', () => {
     expect(new Set(MEASUREMENT_UNIT_CODES).size).toBe(MEASUREMENT_UNIT_CODES.length);
   });

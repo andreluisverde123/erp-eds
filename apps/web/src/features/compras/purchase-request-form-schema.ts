@@ -17,6 +17,11 @@ function isValidNumber(value: string) {
 /// rascunho que já tenha valores não pode perdê-los ao ser editada.
 export const purchaseRequestItemFormSchema = z
   .object({
+    /// O insumo do cadastro, quando a linha foi ESCOLHIDA de lá. String vazia é
+    /// "texto livre" — o caso comum, e continua válido.
+    catalogItemId: z.string().optional(),
+    /// Só para a tela mostrar o código na célula. Não vai para a API.
+    catalogItemCode: z.string().optional(),
     description: z.string().trim(),
     unit: z.string().trim(),
     quantity: z.string(),
@@ -76,6 +81,8 @@ export type PurchaseRequestFormValues = z.infer<typeof purchaseRequestFormSchema
 export type PurchaseRequestItemFormValues = z.infer<typeof purchaseRequestItemFormSchema>;
 
 export const EMPTY_ITEM_ROW: PurchaseRequestItemFormValues = {
+  catalogItemId: '',
+  catalogItemCode: '',
   description: '',
   unit: '',
   quantity: '',
@@ -117,6 +124,12 @@ export function requestToFormValues(request: PurchaseRequestDetail): PurchaseReq
     costCenterId: request.costCenter?.id ?? '',
     notes: request.notes ?? '',
     items: request.items.map((item) => ({
+      // O vínculo precisa voltar para o formulário: a edição de rascunho
+      // substitui a lista inteira, e sem isto salvar apagaria o insumo da linha.
+      catalogItemId: item.catalogItemId ?? '',
+      catalogItemCode: item.catalogItem?.code ?? '',
+      // A descrição é a da LINHA, e não a do catálogo de hoje: editar o
+      // rascunho não pode reescrever o que foi pedido.
       description: item.description,
       unit: item.unit,
       quantity: item.quantity,
@@ -143,6 +156,7 @@ export function toPurchaseRequestInput(values: PurchaseRequestFormValues): Purch
     items: values.items
       .filter((item) => !isBlankItemRow(item))
       .map((item) => ({
+        catalogItemId: item.catalogItemId || undefined,
         description: item.description,
         unit: item.unit,
         quantity: Number(item.quantity),

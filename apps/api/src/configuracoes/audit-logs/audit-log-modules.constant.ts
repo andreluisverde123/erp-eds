@@ -5,6 +5,8 @@
 export const AUDIT_LOG_MODULES: Record<string, string[]> = {
   engenharia: ['ConstructionSite', 'CostCenter'],
   catalogo: ['CatalogItem'],
+  composicoes: ['Composition', 'CompositionItem', 'CatalogItemPrice'],
+  orcamentos: ['Budget', 'BudgetNode', 'BudgetItem', 'ReferenceDataset'],
   compras: ['PurchaseRequest', 'PurchaseOrder', 'Supplier'],
   financeiro: ['Invoice', 'AccountPayable', 'Payment'],
   rh: [

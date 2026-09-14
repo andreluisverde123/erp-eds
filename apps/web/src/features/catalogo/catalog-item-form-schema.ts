@@ -7,6 +7,7 @@ export const catalogItemFormSchema = z.object({
   unit: z.string().min(1, 'Escolha a unidade.'),
   category: z.string().trim().max(60, 'Máximo de 60 caracteres.').optional(),
   description: z.string().trim().max(500, 'Máximo de 500 caracteres.').optional(),
+  type: z.enum(['MATERIAL', 'LABOR', 'EQUIPMENT']),
   active: z.boolean(),
 });
 
@@ -17,5 +18,6 @@ export const CATALOG_ITEM_FORM_DEFAULTS: CatalogItemFormValues = {
   unit: '',
   category: '',
   description: '',
+  type: 'MATERIAL',
   active: true,
 };

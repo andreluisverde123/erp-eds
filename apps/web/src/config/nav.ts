@@ -2,6 +2,8 @@ import {
   BarChart3,
   CalendarCheck,
   Building2,
+  Calculator,
+  Database,
   ClipboardList,
   Coins,
   Clock,
@@ -11,6 +13,7 @@ import {
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  Layers,
   LayoutDashboard,
   Package,
   PlugZap,
@@ -56,10 +59,27 @@ export const navEntries: NavEntry[] = [
     label: 'Engenharia',
     items: [
       { title: 'Obras', path: '/engenharia/obras', icon: Building2, permission: 'engenharia.view' },
-      // Fica em Engenharia, e não num grupo "Orçamentos": o módulo de
-      // orçamento ainda não existe, e criar o grupo agora prometeria telas que
-      // não estão lá.
+      // Insumos, Composições, Orçamentos e Bases de Referência ficam em
+      // Engenharia, perto da obra, onde o orçamento nasce.
       { title: 'Insumos', path: '/engenharia/insumos', icon: Package, permission: 'catalogo.view' },
+      {
+        title: 'Composições',
+        path: '/engenharia/composicoes',
+        icon: Layers,
+        permission: 'composicoes.view',
+      },
+      {
+        title: 'Orçamentos',
+        path: '/engenharia/orcamentos',
+        icon: Calculator,
+        permission: 'orcamentos.view',
+      },
+      {
+        title: 'Bases de Referência',
+        path: '/engenharia/bases-de-referencia',
+        icon: Database,
+        permission: 'orcamentos.view',
+      },
       {
         title: 'Solicitações',
         path: '/engenharia/solicitacoes',

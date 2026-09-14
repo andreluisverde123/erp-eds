@@ -1,6 +1,21 @@
 import { memo } from 'react';
+import { MoreHorizontal, PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
 
-import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn } from '@repo/ui';
+import {
+  Badge,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  cn,
+} from '@repo/ui';
 
 import { calculateLine, centsToNumber, discountFromItem } from '../quote-totals';
 import type { FulfillmentStatus, PurchaseRequestItem } from '../types';
@@ -45,10 +60,21 @@ function formatPercent(value: string): string {
   return `${Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 }
 
+/// Ações por item na solicitação já enviada: excluir e marcar em estoque.
+/// Ausente = tabela só de leitura. Linha que já está em ordem de compra não
+/// oferece ação — a API recusaria.
+export interface PurchaseRequestItemActions {
+  onToggleStock: (item: PurchaseRequestItem) => void;
+  onRemove: (item: PurchaseRequestItem) => void;
+  disabled?: boolean;
+}
+
 export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable({
   items,
+  actions,
 }: {
   items: PurchaseRequestItem[];
+  actions?: PurchaseRequestItemActions;
 }) {
   return (
     <Table>
@@ -72,19 +98,20 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
               aparece no resumo financeiro, somado. */}
           <TableHead className="text-right">Total</TableHead>
           <TableHead>Observação</TableHead>
+          {actions && <TableHead className="w-10" />}
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.map((item) => {
           const quantity = Number(item.quantity);
           const unitPrice = item.estimatedUnitPrice ? Number(item.estimatedUnitPrice) : 0;
-          const hasPrice = Boolean(item.estimatedUnitPrice) && !item.unavailable;
+          const hasPrice = Boolean(item.estimatedUnitPrice) && !item.unavailable && !item.inStock;
           // A mesma conta da gaveta de cotação e do backend — ver
           // `quote-totals.ts`.
           const linha = calculateLine(
             item.quantity,
             item.estimatedUnitPrice ?? '',
-            !item.unavailable,
+            !item.unavailable && !item.inStock,
             discountFromItem(item),
           );
 
@@ -92,7 +119,11 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
             // Esmaecida quando o fornecedor não tem o item — mesmo sinal que a
             // grade de cotação e o seletor da ordem usam para "linha fora
             // desta conta". A linha continua ali: ela não saiu da solicitação.
-            <TableRow key={item.id} className={cn(item.unavailable && 'opacity-60')}>
+            <TableRow
+              key={item.id}
+              className={cn((item.unavailable || item.inStock) && 'opacity-60')}
+              data-testid={`item-${item.description}`}
+            >
               <TableCell className="font-medium text-foreground">
                 <div className="flex flex-wrap items-center gap-2">
                   <span>{item.description}</span>
@@ -101,7 +132,15 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
                       Não disponível
                     </Badge>
                   )}
-                  <FulfillmentBadge status={item.fulfillment.status} />
+                  {/* Em estoque não é "atendido por compra": a etiqueta de
+                      atendimento dá lugar a esta. */}
+                  {item.inStock ? (
+                    <Badge variant="outline" className="border-sky-600/40 font-normal text-sky-700 dark:text-sky-400">
+                      Em estoque
+                    </Badge>
+                  ) : (
+                    <FulfillmentBadge status={item.fulfillment.status} />
+                  )}
                 </div>
                 {/* O motivo é de Compras e fica junto do estado que o
                     explica — a coluna "Observação" é do solicitante. */}
@@ -173,6 +212,30 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
                 {hasPrice ? formatCurrency(centsToNumber(linha.net)) : '—'}
               </TableCell>
               <TableCell className="text-muted-foreground">{item.notes ?? '—'}</TableCell>
+              {actions && (
+                <TableCell>
+                  {item.fulfillment.entries.length === 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8" disabled={actions.disabled}>
+                          <MoreHorizontal className="size-4" />
+                          <span className="sr-only">Ações de {item.description}</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => actions.onToggleStock(item)}>
+                          {item.inStock ? <ShoppingCart /> : <PackageCheck />}
+                          {item.inStock ? 'Voltar para compra' : 'Marcar como em estoque'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => actions.onRemove(item)}>
+                          <Trash2 />
+                          Excluir item
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </TableCell>
+              )}
             </TableRow>
           );
         })}

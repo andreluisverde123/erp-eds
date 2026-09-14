@@ -31,11 +31,18 @@ import { usePurchaseRequest } from '@/features/compras/hooks/use-purchase-reques
 import {
   useDeletePurchaseRequest,
   useDownloadPurchaseRequestPdf,
+  useRemovePurchaseRequestItem,
+  useSetPurchaseRequestItemStock,
   useUpdatePurchaseRequestStatus,
 } from '@/features/compras/hooks/use-purchase-request-mutations';
 import { usePurchaseOrders } from '@/features/compras/hooks/use-purchase-orders';
 import { getAllowedTransitions } from '@/features/compras/purchase-request-status';
-import type { PurchaseRequestDetail, PurchaseRequestStatus } from '@/features/compras/types';
+import type {
+  PurchaseRequestDetail,
+  PurchaseRequestItem,
+  PurchaseRequestStatus,
+} from '@/features/compras/types';
+import { ApiError } from '@/lib/api-client';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR');
@@ -167,6 +174,10 @@ export function SolicitacaoDetailPage() {
   const [generateOrderOpen, setGenerateOrderOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
+  const [itemParaExcluir, setItemParaExcluir] = useState<PurchaseRequestItem | null>(null);
+  const [erroDeItem, setErroDeItem] = useState<string | null>(null);
+  const removeItemMutation = useRemovePurchaseRequestItem(id ?? '');
+  const stockMutation = useSetPurchaseRequestItemStock(id ?? '');
 
   if (!id) {
     return <Navigate to="/engenharia/solicitacoes" replace />;
@@ -212,6 +223,21 @@ export function SolicitacaoDetailPage() {
   const canAddItems =
     canRequest && (request.status === 'PENDING' || request.status === 'QUOTING');
   const temOrdens = (ordersData?.data.length ?? 0) > 0;
+  // EXCLUIR item ou marcar EM ESTOQUE: quem pede e quem compra (os dois têm
+  // `compras.request`), da chegada em Compras até depois da aprovação, enquanto
+  // a linha não está em ordem de compra — a tabela esconde a ação nessa linha,
+  // e a API aplica as mesmas regras.
+  const canChangeItems =
+    canRequest && ['PENDING', 'QUOTING', 'APPROVED'].includes(request.status);
+
+  async function alterarItem(acao: () => Promise<unknown>, falha: string) {
+    setErroDeItem(null);
+    try {
+      await acao();
+    } catch (error) {
+      setErroDeItem(error instanceof ApiError ? error.message : falha);
+    }
+  }
 
   async function handleTransition(status: PurchaseRequestStatus) {
     await updateStatusMutation.mutateAsync(status);
@@ -391,7 +417,27 @@ export function SolicitacaoDetailPage() {
       <Card>
         <CardContent className="flex flex-col gap-4">
           <h2 className="text-base font-semibold text-foreground">Itens</h2>
-          <PurchaseRequestItemsTable items={request.items} />
+          {erroDeItem && (
+            <Alert variant="destructive">
+              <AlertTitle>{erroDeItem}</AlertTitle>
+            </Alert>
+          )}
+          <PurchaseRequestItemsTable
+            items={request.items}
+            actions={
+              canChangeItems
+                ? {
+                    disabled: removeItemMutation.isPending || stockMutation.isPending,
+                    onToggleStock: (item) =>
+                      alterarItem(
+                        () => stockMutation.mutateAsync({ itemId: item.id, inStock: !item.inStock }),
+                        'Não foi possível alterar o item.',
+                      ),
+                    onRemove: setItemParaExcluir,
+                  }
+                : undefined
+            }
+          />
           <QuoteTotalsSummary request={request} />
         </CardContent>
       </Card>
@@ -475,6 +521,23 @@ export function SolicitacaoDetailPage() {
         variant="destructive"
         isLoading={updateStatusMutation.isPending}
         onConfirm={confirmCancel}
+      />
+
+      <ConfirmDialog
+        open={Boolean(itemParaExcluir)}
+        onOpenChange={(aberto) => !aberto && setItemParaExcluir(null)}
+        title="Excluir item"
+        description={`Excluir "${itemParaExcluir?.description}" desta solicitação? A exclusão fica registrada no histórico.`}
+        confirmLabel="Excluir item"
+        variant="destructive"
+        isLoading={removeItemMutation.isPending}
+        onConfirm={async () => {
+          const item = itemParaExcluir;
+          setItemParaExcluir(null);
+          if (item) {
+            await alterarItem(() => removeItemMutation.mutateAsync(item.id), 'Não foi possível excluir o item.');
+          }
+        }}
       />
 
       <ConfirmDialog

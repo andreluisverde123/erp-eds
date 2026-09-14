@@ -1,7 +1,17 @@
 import { Injectable } from '@nestjs/common';
 
+import { normalizeCatalogKey } from '../../engenharia/catalog-items/catalog-key';
 import { PrismaService } from '../../prisma/prisma.service';
 import { escapeLikePattern, normalizeForSearch } from './search-key';
+
+/// Um insumo do CADASTRO, com o mínimo para ser escolhido numa linha de
+/// solicitação. Sem preço: o catálogo não tem.
+export interface CatalogSuggestion {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
 
 /// Um material já pedido antes, com o que se sabe dele.
 export interface ItemSuggestion {
@@ -116,6 +126,69 @@ export class ItemSuggestionsService {
        -- Casamento mais forte primeiro; entre iguais, o mais pedido; e o uso
        -- mais recente desempata o resto.
        ORDER BY relevancia, "timesUsed" DESC, "createdAt" DESC
+       LIMIT ${teto}
+    `;
+  }
+
+  /// Insumos do CADASTRO que casam com o que está sendo digitado.
+  ///
+  /// A outra fonte do autocomplete da solicitação. As duas respondem a
+  /// perguntas diferentes e por isso não se fundem numa consulta: o histórico
+  /// diz "o que já pedimos", com a grafia de quem pediu; o cadastro diz "o que
+  /// existe", com código e unidade canônicos. Escolher daqui é o que liga a
+  /// linha ao insumo (`catalogItemId`).
+  ///
+  /// **Só ATIVO e não excluído.** Desativar é justamente tirar do uso: um
+  /// insumo desativado não pode reaparecer como sugestão de pedido novo.
+  ///
+  /// **Só MATERIAL.** Desde o ORC-02 o cadastro também tem mão de obra e
+  /// equipamento como recursos de COMPOSIÇÃO. "Pedreiro" não é algo que se
+  /// pede numa solicitação de compra, e sugeri-lo ali ligaria a linha de
+  /// compra a um recurso de orçamento. Contratar serviço é assunto de
+  /// Terceirizados.
+  ///
+  /// **Mesma estratégia de busca do histórico e da tela de Insumos:** o termo
+  /// passa pela normalização que gravou `searchKey` (`normalizeCatalogKey`), o
+  /// prefixo é servido pelo índice btree desde a primeira letra e o trecho no
+  /// meio pelo GIN trigram. O código também é procurado, em caixa alta, porque
+  /// quem conhece o material costuma digitar "MAT-0007".
+  ///
+  /// **ISOLAMENTO** na consulta, pelo mesmo motivo de `search`: o `LIMIT`
+  /// corta antes de qualquer filtro em memória.
+  async searchCatalog(
+    companyId: string,
+    search: string,
+    limit = 8,
+  ): Promise<CatalogSuggestion[]> {
+    const termo = normalizeCatalogKey(search);
+
+    if (termo.length < MINIMO_DE_LETRAS) return [];
+
+    const teto = Math.min(Math.max(limit, 1), 20);
+    const alvo = escapeLikePattern(termo);
+    const codigo = escapeLikePattern(search.trim().toUpperCase());
+
+    return this.prisma.$queryRaw<CatalogSuggestion[]>`
+      SELECT id, code, name, unit
+        FROM "CatalogItem"
+       WHERE "companyId" = ${companyId}::uuid
+         AND "deletedAt" IS NULL
+         AND active = true
+         AND type = 'MATERIAL'
+         AND (
+               "searchKey" LIKE ${alvo + '%'} ESCAPE '\\'
+            OR "searchKey" LIKE ${'%' + alvo + '%'} ESCAPE '\\'
+            OR code LIKE ${codigo + '%'} ESCAPE '\\'
+         )
+       -- Mesmas faixas do histórico: começa com, alguma palavra começa, meio.
+       -- Entre iguais, ordem alfabética — o cadastro não tem frequência.
+       ORDER BY CASE
+                  WHEN "searchKey" LIKE ${alvo + '%'} ESCAPE '\\'
+                    OR code LIKE ${codigo + '%'} ESCAPE '\\' THEN 0
+                  WHEN "searchKey" LIKE ${'% ' + alvo + '%'} ESCAPE '\\' THEN 1
+                  ELSE 2
+                END,
+                name
        LIMIT ${teto}
     `;
   }

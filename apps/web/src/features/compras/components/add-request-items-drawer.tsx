@@ -107,6 +107,7 @@ function AddRequestItemsBody({
     try {
       await mutation.mutateAsync(
         itens.map((item) => ({
+          catalogItemId: item.catalogItemId || undefined,
           description: item.description.trim(),
           unit: item.unit,
           quantity: Number(item.quantity),

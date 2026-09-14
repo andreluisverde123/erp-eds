@@ -30,6 +30,7 @@ import {
   catalogItemFormSchema,
   type CatalogItemFormValues,
 } from '../catalog-item-form-schema';
+import { CATALOG_ITEM_TYPE_LABELS, CATALOG_ITEM_TYPES } from '../catalog-item-type';
 import {
   useCreateCatalogItem,
   useMeasurementUnits,
@@ -42,7 +43,8 @@ import type { CatalogItem } from '../types';
 /// **Não há campo de preço, e isso é a regra do módulo**: o catálogo responde
 /// "o que é este insumo", nunca "quanto custa". Um preço aqui viraria um quinto
 /// número — ao lado do cotado, do comprado, do faturado e do referencial — sem
-/// data e sem fornecedor, e pareceria a resposta certa.
+/// data e sem fornecedor, e pareceria a resposta certa. O preço usado numa
+/// composição é informado na própria composição.
 export function CatalogItemFormDrawer({
   open,
   onOpenChange,
@@ -62,7 +64,7 @@ export function CatalogItemFormDrawer({
           <SheetDescription>
             {editando
               ? `Insumo ${item!.code}. O código não muda.`
-              : 'O código é gerado automaticamente (MAT-0001).'}
+              : 'O código é gerado automaticamente conforme a natureza (MAT-0001, MO-0001, EQP-0001).'}
           </SheetDescription>
         </div>
 
@@ -82,6 +84,7 @@ function itemToValues(item: CatalogItem): CatalogItemFormValues {
     unit: item.unit,
     category: item.category ?? '',
     description: item.description ?? '',
+    type: item.type,
     active: item.active,
   };
 }
@@ -108,8 +111,10 @@ function Corpo({ item, onDone }: { item?: CatalogItem; onDone: () => void }) {
     };
 
     try {
+      // A natureza vai só na criação. Na edição a API a recusa: ela escolheu o
+      // prefixo do código, e "MAT-0007" virando mão de obra passaria a mentir.
       if (item) await updateMutation.mutateAsync(input);
-      else await createMutation.mutateAsync(input);
+      else await createMutation.mutateAsync({ ...input, type: values.type });
       onDone();
     } catch (error) {
       // A recusa por nome duplicado vem do backend com o texto que resolve o
@@ -145,6 +150,36 @@ function Corpo({ item, onDone }: { item?: CatalogItem; onDone: () => void }) {
                   <FormControl>
                     <Input placeholder="Ex.: Cimento CP II 50kg" {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Natureza</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={Boolean(item)}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {CATALOG_ITEM_TYPES.map((tipo) => (
+                        <SelectItem key={tipo} value={tipo}>
+                          {CATALOG_ITEM_TYPE_LABELS[tipo]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {item
+                      ? 'A natureza não muda depois do cadastro.'
+                      : 'Mão de obra e equipamento são recursos de composição de custo — não são colaboradores nem patrimônio.'}
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

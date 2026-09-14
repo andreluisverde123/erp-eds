@@ -93,14 +93,14 @@ export class FulfillmentService {
   /// O atendimento de cada linha de uma solicitação, pronto para a tela.
   async byItem(
     purchaseRequestId: string,
-    items: { id: string; quantity: Prisma.Decimal }[],
+    items: { id: string; quantity: Prisma.Decimal; inStock?: boolean }[],
   ): Promise<Map<string, ItemFulfillment>> {
     const entries = await this.entriesByItem(purchaseRequestId);
 
     return new Map(
       items.map((item) => [
         item.id,
-        buildItemFulfillment(item.quantity, entries.get(item.id) ?? []),
+        buildItemFulfillment(item.quantity, entries.get(item.id) ?? [], item.inStock),
       ]),
     );
   }
@@ -111,7 +111,7 @@ export class FulfillmentService {
   /// mesmo cuidado que `withFinancialStatus` já toma nas ordens de compra. A
   /// listagem não precisa do histórico item a item, só do agregado.
   async summaryByRequest(
-    requests: { id: string; items: { id: string; quantity: Prisma.Decimal }[] }[],
+    requests: { id: string; items: { id: string; quantity: Prisma.Decimal; inStock?: boolean }[] }[],
   ): Promise<Map<string, RequestFulfillment>> {
     const itemIds = requests.flatMap((request) => request.items.map((item) => item.id));
     if (itemIds.length === 0) {
@@ -149,7 +149,7 @@ export class FulfillmentService {
                 supplierName: '',
                 quantity: compradoPorItem.get(item.id) ?? new Prisma.Decimal(0),
               },
-            ]),
+            ], item.inStock),
           ),
         ),
       ]),

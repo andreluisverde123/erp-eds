@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
-import { Package, Plus, Search } from 'lucide-react';
+import { CircleDollarSign, Package, Plus, Search } from 'lucide-react';
 import {
+  Alert,
+  AlertTitle,
   Badge,
   Button,
   DropdownMenu,
@@ -29,15 +31,22 @@ import {
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useAuth } from '@/features/auth/context';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { ApiError } from '@/lib/api-client';
 
+import {
+  CATALOG_ITEM_TYPE_LABELS,
+  CATALOG_ITEM_TYPES,
+} from '@/features/catalogo/catalog-item-type';
 import { CatalogItemFormDrawer } from '@/features/catalogo/components/catalog-item-form-drawer';
+import { CatalogItemPricesDrawer } from '@/features/catalogo/components/catalog-item-prices-drawer';
 import {
   useCatalogCategories,
   useCatalogItems,
   useDeleteCatalogItem,
 } from '@/features/catalogo/hooks/use-catalog-items';
-import type { CatalogItem } from '@/features/catalogo/types';
+import type { CatalogItem, CatalogItemType } from '@/features/catalogo/types';
 
 /// Cadastro de insumos.
 ///
@@ -45,13 +54,21 @@ import type { CatalogItem } from '@/features/catalogo/types';
 /// ainda não existe, e criar o grupo agora prometeria uma tela que não está
 /// lá. Engenharia é quem conhece o material da obra e quem mantém o cadastro —
 /// Compras consulta.
+///
+/// A tabela continua sem preço. Os preços de referência abrem numa gaveta
+/// própria, e só para quem tem `composicoes.view`: preço é informação
+/// financeira, e consultar o catálogo não dá acesso a ele.
 const PAGE_SIZE = 10;
 const TODOS = 'ALL';
 
 export function InsumosPage() {
+  const { user } = useAuth();
+  const podeVerPrecos = user?.permissions.includes('composicoes.view') ?? false;
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(TODOS);
+  const [type, setType] = useState(TODOS);
   const [active, setActive] = useState(TODOS);
   const buscaComPausa = useDebouncedValue(search);
 
@@ -67,6 +84,7 @@ export function InsumosPage() {
     limit: PAGE_SIZE,
     search: buscaComPausa || undefined,
     category: category === TODOS ? undefined : category,
+    type: type === TODOS ? undefined : (type as CatalogItemType),
     active: active === TODOS ? undefined : active,
   });
   const { data: categorias } = useCatalogCategories();
@@ -75,6 +93,8 @@ export function InsumosPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editando, setEditando] = useState<CatalogItem | undefined>();
   const [excluindo, setExcluindo] = useState<CatalogItem | null>(null);
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  const [precosDe, setPrecosDe] = useState<CatalogItem | null>(null);
 
   const abrirEdicao = useCallback((item: CatalogItem) => {
     setEditando(item);
@@ -83,7 +103,19 @@ export function InsumosPage() {
 
   async function confirmarExclusao() {
     if (!excluindo) return;
-    await deleteMutation.mutateAsync(excluindo.id);
+    setErroExclusao(null);
+    try {
+      await deleteMutation.mutateAsync(excluindo.id);
+    } catch (error) {
+      // O caso esperado é o insumo já usado em solicitação, composição ou
+      // histórico de preços, que a API recusa dizendo para desativar. A
+      // mensagem vai como veio: é ela que diz o que fazer em vez de excluir.
+      setErroExclusao(
+        error instanceof ApiError
+          ? error.message
+          : 'Não foi possível excluir o insumo. Tente novamente.',
+      );
+    }
     setExcluindo(null);
   }
 
@@ -97,7 +129,8 @@ export function InsumosPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Insumos</h1>
           <p className="text-sm text-muted-foreground">
-            Cadastro de materiais da empresa. Identifica o insumo — preço vem das compras.
+            Materiais, mão de obra e equipamentos da empresa. Identifica o insumo — preço vem das
+            compras e das composições.
           </p>
         </div>
         <Button
@@ -121,6 +154,20 @@ export function InsumosPage() {
             className="pl-8"
           />
         </div>
+
+        <Select value={type} onValueChange={trocarE(setType)}>
+          <SelectTrigger className="sm:w-[170px]" aria-label="Natureza">
+            <SelectValue placeholder="Natureza" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS}>Todas as naturezas</SelectItem>
+            {CATALOG_ITEM_TYPES.map((tipo) => (
+              <SelectItem key={tipo} value={tipo}>
+                {CATALOG_ITEM_TYPE_LABELS[tipo]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select value={category} onValueChange={trocarE(setCategory)}>
           <SelectTrigger className="sm:w-[180px]" aria-label="Categoria">
@@ -148,17 +195,23 @@ export function InsumosPage() {
         </Select>
       </div>
 
+      {erroExclusao && (
+        <Alert variant="destructive">
+          <AlertTitle>{erroExclusao}</AlertTitle>
+        </Alert>
+      )}
+
       {isError && <ErrorState message="Não foi possível carregar os insumos. Tente novamente." />}
 
       {!isError && isLoading && !data && (
-        <TableSkeleton columns={5} rows={PAGE_SIZE} message="Carregando insumos..." />
+        <TableSkeleton columns={6} rows={PAGE_SIZE} message="Carregando insumos..." />
       )}
 
       {data && data.data.length === 0 && (
         <EmptyState
           icon={Package}
           title="Nenhum insumo encontrado"
-          description="Ajuste os filtros ou cadastre o primeiro material."
+          description="Ajuste os filtros ou cadastre o primeiro insumo."
         />
       )}
 
@@ -169,6 +222,7 @@ export function InsumosPage() {
               <TableRow>
                 <TableHead>Código</TableHead>
                 <TableHead>Nome</TableHead>
+                <TableHead>Natureza</TableHead>
                 <TableHead>Unidade</TableHead>
                 <TableHead>Categoria</TableHead>
                 <TableHead>Situação</TableHead>
@@ -187,6 +241,9 @@ export function InsumosPage() {
                       <p className="text-xs text-muted-foreground">{item.description}</p>
                     )}
                   </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {CATALOG_ITEM_TYPE_LABELS[item.type]}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{item.unit}</TableCell>
                   <TableCell className="text-muted-foreground">{item.category ?? '—'}</TableCell>
                   <TableCell>
@@ -203,6 +260,12 @@ export function InsumosPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {podeVerPrecos && (
+                          <DropdownMenuItem onClick={() => setPrecosDe(item)}>
+                            <CircleDollarSign />
+                            Preços
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => abrirEdicao(item)}>
                           <Pencil />
                           Editar
@@ -241,11 +304,19 @@ export function InsumosPage() {
 
       <CatalogItemFormDrawer open={drawerOpen} onOpenChange={setDrawerOpen} item={editando} />
 
+      {podeVerPrecos && (
+        <CatalogItemPricesDrawer
+          open={Boolean(precosDe)}
+          onOpenChange={(aberto) => !aberto && setPrecosDe(null)}
+          item={precosDe}
+        />
+      )}
+
       <ConfirmDialog
         open={Boolean(excluindo)}
         onOpenChange={(aberto) => !aberto && setExcluindo(null)}
         title="Excluir insumo"
-        description={`Excluir "${excluindo?.name}"? As solicitações que já usaram este insumo continuam intactas.`}
+        description={`Excluir "${excluindo?.name}"? Só é possível excluir insumo que nunca foi usado em solicitação de compra — se já foi, desative-o.`}
         confirmLabel="Excluir"
         isLoading={deleteMutation.isPending}
         onConfirm={confirmarExclusao}
