@@ -207,11 +207,13 @@ describe('BDI', () => {
     );
   });
 
-  it('fechado: recusado, nada gravado', async () => {
+  it('fechado: continua editável, e a mudança fica na auditoria', async () => {
     const { service, prisma, auditLogger } = makeService({ status: 'CLOSED' });
-    await expect(service.update(EMPRESA, V1, { bdiPercent: 10 })).rejects.toThrow(ConflictException);
-    expect(prisma.budget.update).not.toHaveBeenCalled();
-    expect(auditLogger.log).not.toHaveBeenCalled();
+    await service.update(EMPRESA, V1, { bdiPercent: 10 });
+    expect(prisma.budget.update).toHaveBeenCalled();
+    expect(auditLogger.log).toHaveBeenCalledWith(
+      expect.objectContaining({ changes: { bdiPercent: { from: '0.0000', to: '10.0000' } } }),
+    );
   });
 
   it('o contrato recusa BDI negativo e com casas demais', async () => {

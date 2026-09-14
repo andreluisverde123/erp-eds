@@ -66,8 +66,9 @@ import { AddBudgetItemSheet } from './add-budget-item-sheet';
 /// grupo aparecem logo abaixo dele, antes dos subgrupos. Subtotal e totais são
 /// os do servidor.
 ///
-/// Com o orçamento fechado (`canEdit` falso), tudo é só leitura: nenhum campo,
-/// botão ou menu de alteração é desenhado.
+/// Sem permissão de gerenciar (`canEdit` falso), tudo é só leitura: nenhum
+/// campo, botão ou menu de alteração é desenhado. Orçamento fechado continua
+/// editável para quem gerencia.
 export function BudgetEapEditor({ budget, canEdit }: { budget: Budget; canEdit: boolean }) {
   const [erro, setErro] = useState<string | null>(null);
   const [novoGrupo, setNovoGrupo] = useState('');

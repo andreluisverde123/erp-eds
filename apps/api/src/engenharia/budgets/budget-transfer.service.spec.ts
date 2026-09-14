@@ -104,7 +104,7 @@ function makeService(opcoes: { nosExistentes?: number } = {}) {
   };
 
   const budgets = {
-    lockDraft: jest.fn(async () => ({ id: ORCAMENTO, code: 'ORC-0001', status: 'DRAFT' })),
+    lockEditable: jest.fn(async () => ({ id: ORCAMENTO, code: 'ORC-0001', status: 'DRAFT' })),
     findOne: jest.fn(async () => ({
       code: 'ORC-0001',
       version: 1,
@@ -244,7 +244,7 @@ describe('Importação de orçamento por planilha', () => {
   it('trava o orçamento FOR UPDATE (rascunho) antes de ler qualquer coisa', async () => {
     const { service, budgets } = makeService();
     await service.preview(EMPRESA, ORCAMENTO, await planilha(VALIDA), { referenceDatasetId: 'ds-sicro' });
-    expect(budgets.lockDraft).toHaveBeenCalledWith(expect.anything(), EMPRESA, ORCAMENTO, 'UPDATE');
+    expect(budgets.lockEditable).toHaveBeenCalledWith(expect.anything(), EMPRESA, ORCAMENTO, 'UPDATE');
   });
 });
 

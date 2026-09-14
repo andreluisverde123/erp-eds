@@ -1100,26 +1100,30 @@ describe('Fechamento', () => {
     await expect(service.close(EMPRESA, orcamento.id, USUARIO)).rejects.toThrow(ConflictException);
   });
 
-  it('FECHADO: nenhuma alteração estrutural ou financeira passa, e nada muda', async () => {
+  it('FECHADO continua editável: cabeçalho, EAP e itens mudam, e o status continua fechado', async () => {
     const { service, orcamento, no, item, nos, itens, orcamentos } = await comItem();
     await service.close(EMPRESA, orcamento.id, USUARIO);
 
-    const tentativas = [
-      service.update(EMPRESA, orcamento.id, { name: 'Outro' }),
-      service.remove(EMPRESA, orcamento.id),
-      service.addNode(EMPRESA, orcamento.id, { name: 'Novo grupo' }),
-      service.updateNode(EMPRESA, orcamento.id, no, { name: 'Renomeado' }),
-      service.moveNode(EMPRESA, orcamento.id, no, { direction: 'DOWN' }),
-      service.removeNode(EMPRESA, orcamento.id, no),
-      service.addItem(EMPRESA, orcamento.id, manual(no, 'Extra', 'UN', 1, 1)),
-      service.updateItem(EMPRESA, orcamento.id, item, { quantity: 999 }),
-      service.removeItem(EMPRESA, orcamento.id, item),
-    ];
+    await service.update(EMPRESA, orcamento.id, { name: 'Outro' });
+    await service.addNode(EMPRESA, orcamento.id, { name: 'Novo grupo' });
+    await service.updateNode(EMPRESA, orcamento.id, no, { name: 'Renomeado' });
+    await service.addItem(EMPRESA, orcamento.id, manual(no, 'Extra', 'UN', 1, 1));
+    await service.updateItem(EMPRESA, orcamento.id, item, { quantity: 120 });
 
-    for (const tentativa of tentativas) await expect(tentativa).rejects.toThrow(/fechado e não pode ser alterado/);
-    expect(orcamentos[0]).toMatchObject({ name: 'Orçamento executivo', deletedAt: null });
-    expect(nos.map((n) => n.name)).toEqual(['Canteiro']);
-    expect(itens.map((i) => i.quantity.toString())).toEqual(['100']);
+    expect(orcamentos[0]).toMatchObject({ name: 'Outro', status: 'CLOSED' });
+    expect(nos.map((n) => n.name)).toEqual(['Renomeado', 'Novo grupo']);
+    expect(itens.map((i) => i.quantity.toString())).toEqual(['120', '1']);
+  });
+
+  it('FECHADO não é excluído e não fica sem itens', async () => {
+    const { service, orcamento, no, item, orcamentos, itens } = await comItem();
+    await service.close(EMPRESA, orcamento.id, USUARIO);
+
+    await expect(service.remove(EMPRESA, orcamento.id)).rejects.toThrow(/Só rascunho pode ser excluído/);
+    await expect(service.removeItem(EMPRESA, orcamento.id, item)).rejects.toThrow(/não pode ficar sem itens/);
+    await expect(service.removeNode(EMPRESA, orcamento.id, no)).rejects.toThrow(/não pode ficar sem itens/);
+    expect(orcamentos[0]!.deletedAt).toBeNull();
+    expect(itens).toHaveLength(1);
   });
 
   it('FECHADO continua legível, com os mesmos totais', async () => {

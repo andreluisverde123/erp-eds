@@ -73,8 +73,11 @@ import {
 const PREFIXO = 'ORC';
 
 const NAO_ENCONTRADO = 'Orçamento não encontrado.';
-export const FECHADO =
-  'Este orçamento está fechado e não pode ser alterado. Para revisá-lo, crie uma nova versão.';
+export const FECHADO = 'Este orçamento já está fechado.';
+const SO_RASCUNHO_EXCLUI =
+  'Só rascunho pode ser excluído. Orçamento fechado fica como histórico — para substituí-lo, crie uma nova revisão.';
+const FECHADO_SEM_ITENS =
+  'Orçamento fechado não pode ficar sem itens. Inclua o item novo antes de remover o último.';
 const CODIGO_COLIDIU =
   'Não foi possível reservar o próximo código de orçamento. Tente salvar de novo.';
 const OBRA_NAO_ENCONTRADA = 'Obra não encontrada.';
@@ -130,15 +133,22 @@ type BudgetDetail = Prisma.BudgetGetPayload<{ include: typeof DETALHE }>;
 ///
 /// ## Rascunho e fechado
 ///
+/// Fechar marca o orçamento como documento concluído — é o que permite
+/// defini-lo como oficial e revisá-lo —, mas NÃO o congela: a EDS precisa
+/// ajustar orçamento fechado sem abrir nova versão. Toda alteração continua
+/// registrada no histórico (auditoria). O que o fechado não aceita é ser
+/// excluído, fechado de novo ou ficar sem itens. Quem quiser preservar a
+/// versão como está cria uma revisão antes de mexer.
+///
 /// Toda escrita acontece numa transação que começa TRAVANDO a linha do
-/// orçamento e conferindo que ele é rascunho:
+/// orçamento:
 ///
 /// - escrita de EAP e de item: `FOR SHARE` — várias podem correr juntas;
 /// - cabeçalho, BDI, exclusão, importação e fechamento: `FOR UPDATE`.
 ///
-/// Os dois modos se excluem: um fechamento espera as escritas em andamento
-/// terminarem, e uma escrita que chega durante o fechamento espera ele acabar
-/// e então lê `CLOSED` e é recusada.
+/// Os dois modos se excluem: um fechamento (ou uma revisão, que copia a
+/// versão) espera as escritas em andamento terminarem, e nunca lê um
+/// orçamento pela metade.
 ///
 /// ## Versões
 ///
@@ -277,7 +287,7 @@ export class BudgetsService {
     const bdiNote = dto.bdiNote === undefined ? undefined : dto.bdiNote.trim() || null;
 
     const mudancas = await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, id, 'UPDATE');
+      await this.lockEditable(tx, companyId, id, 'UPDATE');
 
       const alteracoes: Record<string, { from: unknown; to: unknown }> = {};
       if (bdiPercent !== undefined || bdiNote !== undefined) {
@@ -329,7 +339,8 @@ export class BudgetsService {
   /// Exclusão LÓGICA, e só de rascunho. Orçamento fechado é histórico.
   async remove(companyId: string, id: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const orcamento = await this.lockDraft(tx, companyId, id, 'UPDATE');
+      const orcamento = await this.lockEditable(tx, companyId, id, 'UPDATE');
+      if (orcamento.status !== 'DRAFT') throw new ConflictException(SO_RASCUNHO_EXCLUI);
       await tx.budget.update({
         where: { id },
         data: { deletedAt: new Date(), code: mangleDeletedCode(orcamento.code, orcamento.id) },
@@ -344,7 +355,9 @@ export class BudgetsService {
   /// muda o status. O `updateMany` condicionado a `DRAFT` é a segunda barreira.
   async close(companyId: string, id: string, userId: string) {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, id, 'UPDATE');
+      const orcamento = await this.lockEditable(tx, companyId, id, 'UPDATE');
+      if (orcamento.status !== 'DRAFT') throw new ConflictException(FECHADO);
+
 
       const { bdiPercent } = await tx.budget.findFirstOrThrow({
         where: { id },
@@ -763,7 +776,7 @@ export class BudgetsService {
 
   async addNode(companyId: string, budgetId: string, dto: CreateBudgetNodeDto) {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      await this.lockEditable(tx, companyId, budgetId, 'SHARE');
 
       const parentId = dto.parentId ?? null;
       if (parentId) {
@@ -797,7 +810,7 @@ export class BudgetsService {
   /// Só o nome. O pai não se troca: é o que torna ciclo impossível.
   async updateNode(companyId: string, budgetId: string, nodeId: string, dto: UpdateBudgetNodeDto) {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      await this.lockEditable(tx, companyId, budgetId, 'SHARE');
       await this.assertNode(tx, budgetId, nodeId);
       await tx.budgetNode.update({ where: { id: nodeId }, data: { name: dto.name.trim() } });
     });
@@ -809,7 +822,7 @@ export class BudgetsService {
   /// por inclusões simultâneas.
   async moveNode(companyId: string, budgetId: string, nodeId: string, dto: MoveBudgetNodeDto) {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      await this.lockEditable(tx, companyId, budgetId, 'SHARE');
       const node = await this.assertNode(tx, budgetId, nodeId);
 
       const irmaos = (
@@ -836,7 +849,7 @@ export class BudgetsService {
   /// subárvore inteira sai num DELETE só.
   async removeNode(companyId: string, budgetId: string, nodeId: string) {
     const removidos = await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      const orcamento = await this.lockEditable(tx, companyId, budgetId, 'SHARE');
       const node = await this.assertNode(tx, budgetId, nodeId);
 
       const nodes = await tx.budgetNode.findMany({
@@ -844,6 +857,13 @@ export class BudgetsService {
         select: { id: true, parentId: true },
       });
       const ids = subtreeIds(nodes, nodeId);
+
+      if (orcamento.status === 'CLOSED') {
+        const restantes = await tx.budgetItem.findMany({ where: { budgetId }, select: { budgetNodeId: true } });
+        if (restantes.every((linha) => ids.includes(linha.budgetNodeId))) {
+          throw new BadRequestException(FECHADO_SEM_ITENS);
+        }
+      }
 
       const itens = await tx.budgetItem.deleteMany({
         where: { budgetId, budgetNodeId: { in: ids } },
@@ -878,7 +898,7 @@ export class BudgetsService {
     const quantity = exigir(quantityProblem, dto.quantity);
 
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      await this.lockEditable(tx, companyId, budgetId, 'SHARE');
 
       const node = await tx.budgetNode.findFirst({
         where: { id: dto.budgetNodeId, budgetId },
@@ -915,7 +935,7 @@ export class BudgetsService {
   /// unidade só de manual.
   async updateItem(companyId: string, budgetId: string, itemId: string, dto: UpdateBudgetItemDto) {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      await this.lockEditable(tx, companyId, budgetId, 'SHARE');
       const item = await tx.budgetItem.findFirst({ where: { id: itemId, budgetId } });
       if (!item) throw new NotFoundException(ITEM_NAO_ENCONTRADO);
 
@@ -954,9 +974,13 @@ export class BudgetsService {
 
   async removeItem(companyId: string, budgetId: string, itemId: string) {
     const removido = await this.prisma.$transaction(async (tx) => {
-      await this.lockDraft(tx, companyId, budgetId, 'SHARE');
+      const orcamento = await this.lockEditable(tx, companyId, budgetId, 'SHARE');
       const item = await tx.budgetItem.findFirst({ where: { id: itemId, budgetId } });
       if (!item) throw new NotFoundException(ITEM_NAO_ENCONTRADO);
+      if (orcamento.status === 'CLOSED') {
+        const restantes = await tx.budgetItem.findMany({ where: { budgetId }, select: { id: true } });
+        if (restantes.length <= 1) throw new BadRequestException(FECHADO_SEM_ITENS);
+      }
       await tx.budgetItem.delete({ where: { id: itemId } });
       return item;
     });
@@ -991,8 +1015,10 @@ export class BudgetsService {
   // Para a importação de planilha
   // ---------------------------------------------------------------------------
 
-  /// Trava a linha do orçamento até o fim da transação e confere que é rascunho.
-  async lockDraft(tx: Tx, companyId: string, id: string, modo: 'SHARE' | 'UPDATE') {
+  /// Trava a linha do orçamento até o fim da transação e devolve o status.
+  /// Rascunho e fechado são editáveis; quem só vale para rascunho (excluir,
+  /// fechar) confere o status devolvido.
+  async lockEditable(tx: Tx, companyId: string, id: string, modo: 'SHARE' | 'UPDATE') {
     const linhas =
       modo === 'UPDATE'
         ? await tx.$queryRaw<{ id: string; code: string; status: string }[]>`
@@ -1006,7 +1032,6 @@ export class BudgetsService {
 
     const orcamento = linhas[0];
     if (!orcamento) throw new NotFoundException(NAO_ENCONTRADO);
-    if (orcamento.status !== 'DRAFT') throw new ConflictException(FECHADO);
     return orcamento;
   }
 

@@ -83,7 +83,9 @@ export function OrcamentoDetailPage() {
   }
 
   const rascunho = orcamento.status === 'DRAFT';
-  const podeEditar = canManage && rascunho;
+  // Fechado continua editável (decisão da EDS): o que só vale para rascunho é
+  // excluir e fechar. A API aplica a mesma regra.
+  const podeEditar = canManage;
 
   async function executar(acao: () => Promise<unknown>, falha: string) {
     setErro(null);
@@ -155,6 +157,10 @@ export function OrcamentoDetailPage() {
                   Importar planilha
                 </Button>
               )}
+            </>
+          )}
+          {podeEditar && rascunho && (
+            <>
               <Button variant="outline" onClick={() => setConfirmarExclusao(true)}>
                 <Trash2 />
                 Excluir
@@ -194,8 +200,9 @@ export function OrcamentoDetailPage() {
           <AlertTitle>Orçamento fechado</AlertTitle>
           <AlertDescription>
             Fechado{orcamento.closedAt ? ` em ${new Date(orcamento.closedAt).toLocaleDateString('pt-BR')}` : ''}
-            {orcamento.closedBy ? ` por ${orcamento.closedBy.name}` : ''}. É um documento histórico: estrutura,
-            itens e valores não podem mais ser alterados. Para mudar, crie uma nova revisão.
+            {orcamento.closedBy ? ` por ${orcamento.closedBy.name}` : ''}. Ele continua editável, e cada
+            alteração fica registrada no histórico. Para guardar esta versão como está, crie uma nova
+            revisão antes de alterar.
           </AlertDescription>
         </Alert>
       )}
@@ -244,11 +251,16 @@ export function OrcamentoDetailPage() {
           <BudgetFormDrawer open={editando} onOpenChange={setEditando} budget={orcamento} />
           <BudgetBdiDialog open={editandoBdi} onOpenChange={setEditandoBdi} budget={orcamento} />
           <BudgetImportDialog open={importando} onOpenChange={setImportando} budget={orcamento} />
+        </>
+      )}
+
+      {podeEditar && rascunho && (
+        <>
           <ConfirmDialog
             open={confirmarFechamento}
             onOpenChange={setConfirmarFechamento}
             title="Fechar orçamento"
-            description="Depois de fechado, a EAP, os itens, o BDI e os valores não podem mais ser alterados. Para revisar, será preciso criar uma nova versão."
+            description="O orçamento fechado pode ser definido como oficial da obra e revisado. Ele continua editável, e as alterações ficam registradas no histórico."
             confirmLabel="Fechar orçamento"
             isLoading={fechar.isPending}
             onConfirm={async () => {

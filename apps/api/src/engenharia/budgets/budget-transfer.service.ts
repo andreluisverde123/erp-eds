@@ -72,7 +72,7 @@ const VAZIO: BudgetImportSummary = {
 ///
 /// ## Importação
 ///
-/// Só num RASCUNHO SEM EAP — importar por cima de uma estrutura existente
+/// Só num orçamento SEM EAP (rascunho ou fechado) — importar por cima de uma estrutura existente
 /// obrigaria a decidir o que fazer com cada grupo e item que já estava lá, e a
 /// planilha não tem como dizer. A planilha inteira entra numa transação, com o
 /// orçamento travado `FOR UPDATE`; qualquer linha com erro desfaz tudo.
@@ -200,7 +200,7 @@ export class BudgetTransferService {
     rows: BudgetSheetRow[],
     referenceDatasetId: string | undefined,
   ): Promise<ImportRun> {
-    await this.budgets.lockDraft(tx, companyId, budgetId, 'UPDATE');
+    await this.budgets.lockEditable(tx, companyId, budgetId, 'UPDATE');
     const orcamento = await tx.budget.findFirstOrThrow({
       where: { id: budgetId },
       select: { referenceDate: true, _count: { select: { nodes: true } } },

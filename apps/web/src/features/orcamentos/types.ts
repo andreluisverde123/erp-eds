@@ -163,6 +163,7 @@ export interface BudgetQuery {
   limit?: number;
   search?: string;
   status?: BudgetStatus;
+  constructionSiteId?: string;
 }
 
 export interface ConstructionSiteOption {

@@ -20,6 +20,7 @@ import { useDeleteConstructionSite } from '@/features/engenharia/hooks/use-const
 import { useConstructionSite } from '@/features/engenharia/hooks/use-construction-site';
 import { useDeleteCostCenter } from '@/features/engenharia/hooks/use-cost-center-mutations';
 import { getStatusLabel } from '@/features/engenharia/construction-site-status';
+import { ObraBudgetsCard } from '@/features/orcamentos/components/obra-budgets-card';
 import type { CostCenter } from '@/features/engenharia/types';
 
 function formatDate(iso: string | null): string {
@@ -90,6 +91,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export function ObraDetailPage() {
   const { user } = useAuth();
   const canManage = user?.permissions.includes('engenharia.manage') ?? false;
+  const canViewBudgets = user?.permissions.includes('orcamentos.view') ?? false;
+  const canManageBudgets = user?.permissions.includes('orcamentos.manage') ?? false;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: site, isLoading, isError } = useConstructionSite(id);
@@ -259,6 +262,8 @@ export function ObraDetailPage() {
           />
         </CardContent>
       </Card>
+
+      {canViewBudgets && <ObraBudgetsCard constructionSiteId={site.id} canManage={canManageBudgets} />}
 
       <Card>
         <CardContent className="flex flex-col gap-4">

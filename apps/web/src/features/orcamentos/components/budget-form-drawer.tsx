@@ -42,17 +42,19 @@ type Valores = z.infer<typeof schema>;
 /// Cabeçalho do orçamento: obra, nome, data-base e descrição.
 ///
 /// A data-base decide qual preço de referência é sugerido para insumo. Mudá-la
-/// num rascunho não reprecifica o que já está no orçamento — só as próximas
-/// sugestões.
+/// não reprecifica o que já está no orçamento — só as próximas sugestões.
 export function BudgetFormDrawer({
   open,
   onOpenChange,
   budget,
+  constructionSiteId,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   budget?: Budget;
+  /// Obra já escolhida — quando o orçamento nasce na tela da obra.
+  constructionSiteId?: string;
   onSaved?: (budget: Budget) => void;
 }) {
   return (
@@ -69,6 +71,7 @@ export function BudgetFormDrawer({
         <Corpo
           key={open ? (budget?.id ?? 'novo') : 'fechado'}
           budget={budget}
+          constructionSiteId={constructionSiteId}
           onDone={(salvo) => {
             onOpenChange(false);
             if (salvo) onSaved?.(salvo);
@@ -79,7 +82,15 @@ export function BudgetFormDrawer({
   );
 }
 
-function Corpo({ budget, onDone }: { budget?: Budget; onDone: (salvo?: Budget) => void }) {
+function Corpo({
+  budget,
+  constructionSiteId,
+  onDone,
+}: {
+  budget?: Budget;
+  constructionSiteId?: string;
+  onDone: (salvo?: Budget) => void;
+}) {
   const [erro, setErro] = useState<string | null>(null);
   const { data: obras } = useConstructionSiteOptions();
   const criar = useCreateBudget();
@@ -94,7 +105,7 @@ function Corpo({ budget, onDone }: { budget?: Budget; onDone: (salvo?: Budget) =
           referenceDate: budget.referenceDate,
           description: budget.description ?? '',
         }
-      : { constructionSiteId: '', name: '', referenceDate: todayInSaoPaulo(), description: '' },
+      : { constructionSiteId: constructionSiteId ?? '', name: '', referenceDate: todayInSaoPaulo(), description: '' },
   });
 
   async function salvar(valores: Valores) {

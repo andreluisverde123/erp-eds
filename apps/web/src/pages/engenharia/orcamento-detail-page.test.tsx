@@ -416,7 +416,7 @@ describe('Fechamento', () => {
 
     await usuario.click(screen.getByRole('button', { name: /Fechar orçamento/ }));
     const confirmacao = await screen.findByRole('alertdialog');
-    expect(confirmacao.textContent).toMatch(/não podem mais ser alterados/);
+    expect(confirmacao.textContent).toMatch(/definido como oficial da obra e revisado/);
     await usuario.click(within(confirmacao).getByRole('button', { name: 'Fechar orçamento' }));
 
     await waitFor(() => expect(mutacoes.fechar).toHaveBeenCalledTimes(1));
@@ -432,18 +432,18 @@ describe('Fechamento', () => {
     expect(await screen.findByText(/não tem nenhum item/)).toBeDefined();
   });
 
-  it('FECHADO: só visualização — nenhum campo, botão ou menu de alteração', () => {
+  it('FECHADO continua editável para quem gerencia; não exclui nem fecha de novo', () => {
     orcamento = { ...exemplo(), status: 'CLOSED', closedAt: '2026-09-14T15:00:00.000Z', closedBy: { name: 'Engenheira Ana' } };
     abrir();
 
     expect(screen.getByText('Orçamento fechado')).toBeDefined();
-    expect(screen.getByText(/por Engenheira Ana/)).toBeDefined();
+    expect(screen.getByText(/por Engenheira Ana.*continua editável/)).toBeDefined();
+    expect(screen.getByLabelText('Nome do novo grupo')).toBeDefined();
+    expect(screen.getByLabelText('Quantidade de Tapume provisório')).toBeDefined();
+    expect(screen.getByRole('button', { name: /Editar informações/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /^BDI$/ })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /^Excluir$|Fechar orçamento/ })).toBeNull();
     expect(screen.getByTestId('total-geral').textContent).toMatch(/R\$\s?12\.650,50/);
-    expect(screen.queryByLabelText('Nome do novo grupo')).toBeNull();
-    expect(screen.queryByLabelText(/Quantidade de/)).toBeNull();
-    expect(screen.queryByRole('button', { name: /Ações do grupo/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Excluir|Fechar orçamento|Editar informações/ })).toBeNull();
-    expect(linha('Tapume provisório').textContent).toMatch(/100.*R\$\s?45,00.*R\$\s?4\.500,00/);
   });
 
   it('quem só consulta vê o rascunho sem poder alterar', () => {
@@ -603,7 +603,6 @@ describe('Versões e orçamento oficial (ORC-05)', () => {
     mutacoes.revisar.mockResolvedValue({ ...fechado(), id: 'b2', version: 2, status: 'DRAFT' });
     const usuario = abrir();
 
-    expect(screen.queryByRole('button', { name: /^BDI$/ })).toBeNull();
     await usuario.click(screen.getByRole('button', { name: /Nova revisão/ }));
     const confirmacao = await screen.findByRole('alertdialog');
     expect(confirmacao.textContent).toMatch(/v2 em rascunho.*v1 continua fechada/);
