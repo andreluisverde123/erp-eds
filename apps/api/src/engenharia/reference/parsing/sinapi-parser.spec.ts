@@ -77,6 +77,13 @@ describe('Parser SINAPI (formato oficial 2026)', () => {
     expect(base.compositions.find((c) => c.code === '104658')!.unitCost).toBe('204.51');
   });
 
+  it('sem encargos: a aba ISE traz as UFs só no cabeçalho das colunas, e é lida', async () => {
+    const base = await parseSinapiReference(AMOSTRA, { uf: 'SP', regime: 'SEM_ENCARGOS' });
+    expect(base.errors).toEqual([]);
+    expect(base.items.length).toBeGreaterThan(0);
+    expect(base.compositions.find((c) => c.code === '104658')!.unitCost).not.toBeNull();
+  });
+
   it('UF que a planilha não tem vira erro', async () => {
     const base = await parseSinapiReference(AMOSTRA, { uf: 'XX', regime: 'NAO_DESONERADO' });
     expect(base.errors.map((e) => e.code)).toContain('UF_AUSENTE');

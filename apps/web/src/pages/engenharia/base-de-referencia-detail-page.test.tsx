@@ -49,7 +49,7 @@ vi.mock('@/features/bases-referencia/hooks', () => ({
       },
     };
   },
-  useReferenceComposition: (id: string | null) => {
+  useReferenceComposition: (_datasetId: string, id: string | null) => {
     analiticaPedida = id;
     return {
       isLoading: false,

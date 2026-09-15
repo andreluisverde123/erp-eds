@@ -107,6 +107,11 @@ export const envValidationSchema = Joi.object({
   /// cópia local do banco de produção não saia consultando a SEFAZ com o
   /// certificado real — e, pior, avançando o NSU compartilhado.
   FISCAL_SYNC_ENABLED: Joi.boolean().default(false),
+  /// Liga a atualização semanal do SINAPI e do SICRO (baixados da CAIXA e do
+  /// DNIT). Desligada por padrão: a carga inicial roda pela linha de comando
+  /// (`npm run bases:carregar:<ambiente>`), e ler a pasta do SINAPI ocupa
+  /// ~660 MB de memória por alguns segundos.
+  REFERENCE_BASES_AUTO_UPDATE: Joi.boolean().default(false),
 
   STORAGE_DRIVER: Joi.string().valid('local', 's3').default('local'),
   STORAGE_LOCAL_ROOT: Joi.string().default('uploads'),

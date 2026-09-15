@@ -36,11 +36,11 @@ export function useReferenceCompositions(id: string, query: ReferenceSearchQuery
   });
 }
 
-export function useReferenceComposition(compositionId: string | null) {
+export function useReferenceComposition(datasetId: string, compositionId: string | null) {
   return useQuery({
-    queryKey: ['reference-composition', compositionId],
-    queryFn: () => getReferenceComposition(compositionId!),
-    enabled: Boolean(compositionId),
+    queryKey: ['reference-composition', datasetId, compositionId],
+    queryFn: () => getReferenceComposition(datasetId, compositionId!),
+    enabled: Boolean(datasetId && compositionId),
   });
 }
 

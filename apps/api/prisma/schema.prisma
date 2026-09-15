@@ -3300,13 +3300,11 @@ enum BudgetComponentPriceOrigin {
   FALLBACK
 }
 
-/// UMA IMPORTAÇÃO de base referencial: fonte + competência + UF + regime.
-///
-/// GLOBAL (sem `companyId`): SINAPI e SICRO são públicos e iguais para toda
-/// empresa. Imutável depois de importado — nenhuma rota altera itens ou
-/// composições de um dataset. Orçamento não depende dele: copia o que usa.
+/// UMA BASE: a tabela de preços de uma UF e um regime, dentro de uma edição.
+/// Fonte, competência e rótulo repetem os da edição para os filtros e a unique.
 model ReferenceDataset {
   id                  String          @id @default(uuid()) @db.Uuid
+  editionId           String          @db.Uuid
   source              ReferenceSource
   /// "AAAA-MM".
   competence          String          @db.VarChar(7)
@@ -3328,63 +3326,113 @@ model ReferenceDataset {
   importedById        String?         @db.Uuid
   importedAt          DateTime        @default(now())
 
-  importedByCompany Company                @relation("ReferenceDatasetImportedByCompany", fields: [importedByCompanyId], references: [id])
-  importedBy        User?                  @relation("ReferenceDatasetImportedBy", fields: [importedById], references: [id])
-  items             ReferenceItem[]
-  compositions      ReferenceComposition[]
+  edition           ReferenceEdition            @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  importedByCompany Company                     @relation("ReferenceDatasetImportedByCompany", fields: [importedByCompanyId], references: [id])
+  importedBy        User?                       @relation("ReferenceDatasetImportedBy", fields: [importedById], references: [id])
+  itemPrices        ReferenceItemPrice[]
+  compositionPrices ReferenceCompositionPrice[]
   budgetItems       BudgetItem[]
 
   @@unique([source, competence, uf, regime, versionLabel])
   @@index([source, uf, regime, referenceDate])
+  @@index([editionId])
 }
 
-/// Insumo como a base o publica. NÃO é `CatalogItem`: cadastro próprio e
-/// referência externa não se misturam.
-model ReferenceItem {
-  id          String   @id @default(uuid()) @db.Uuid
-  datasetId   String   @db.Uuid
-  code        String
-  description String
-  searchKey   String
-  unit        String
-  category    String?
-  /// Nulo = sem preço nesta UF (não houve coleta).
-  unitPrice   Decimal? @db.Decimal(14, 4)
-  metadata    Json     @default("{}")
+/// UMA EDIÇÃO: a publicação de uma fonte numa competência. A estrutura
+/// (insumos, composições, linhas) é da edição e vale para todas as UFs.
+model ReferenceEdition {
+  id            String          @id @default(uuid()) @db.Uuid
+  source        ReferenceSource
+  competence    String          @db.VarChar(7)
+  referenceDate DateTime        @db.Date
+  versionLabel  String          @default("")
+  createdAt     DateTime        @default(now())
 
-  dataset     ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  datasets     ReferenceDataset[]
+  items        ReferenceItem[]
+  compositions ReferenceComposition[]
+
+  @@unique([source, competence, versionLabel])
+}
+
+/// Insumo da edição (estrutura). O preço é por base, em `ReferenceItemPrice`.
+model ReferenceItem {
+  id            String  @id @default(uuid()) @db.Uuid
+  editionId     String  @db.Uuid
+  code          String
+  description   String
+  searchKey     String
+  unit          String
+  category      String?
+  /// Mesma estrutura em todas as UFs = mesmo hash = uma linha só.
+  structureHash String
+
+  edition     ReferenceEdition     @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  prices      ReferenceItemPrice[]
   budgetItems BudgetItem[]
 
-  @@unique([datasetId, code])
-  @@index([datasetId, code(ops: raw("text_pattern_ops"))], map: "ReferenceItem_datasetId_code_prefix_idx")
-  @@index([datasetId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceItem_datasetId_searchKey_prefix_idx")
+  @@unique([editionId, code, structureHash])
+  @@index([editionId, code(ops: raw("text_pattern_ops"))], map: "ReferenceItem_editionId_code_prefix_idx")
+  @@index([editionId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceItem_editionId_searchKey_prefix_idx")
   @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "ReferenceItem_searchKey_trgm_idx")
 }
 
-model ReferenceComposition {
-  id          String   @id @default(uuid()) @db.Uuid
-  datasetId   String   @db.Uuid
-  code        String
-  description String
-  searchKey   String
-  unit        String
-  group       String?
-  /// Custo OFICIAL. Nulo = sem custo nesta referência.
-  unitCost    Decimal? @db.Decimal(14, 4)
-  situation   String?
-  metadata    Json     @default("{}")
+/// Preço do insumo numa base (UF + regime). Nulo = sem coleta nesta UF.
+model ReferenceItemPrice {
+  datasetId String   @db.Uuid
+  itemId    String   @db.Uuid
+  unitPrice Decimal? @db.Decimal(14, 4)
+  metadata  Json     @default("{}")
 
-  dataset     ReferenceDataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  dataset ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  item    ReferenceItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([datasetId, itemId])
+  @@index([itemId])
+}
+
+/// Composição da edição (estrutura). Custo por base, em `ReferenceCompositionPrice`.
+model ReferenceComposition {
+  id            String  @id @default(uuid()) @db.Uuid
+  editionId     String  @db.Uuid
+  code          String
+  description   String
+  searchKey     String
+  unit          String
+  group         String?
+  metadata      Json    @default("{}")
+  structureHash String
+
+  edition     ReferenceEdition            @relation(fields: [editionId], references: [id], onDelete: Cascade)
   components  ReferenceCompositionItem[]
+  prices      ReferenceCompositionPrice[]
   budgetItems BudgetItem[]
 
-  @@unique([datasetId, code])
-  @@index([datasetId, code(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_datasetId_code_prefix_idx")
-  @@index([datasetId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_datasetId_searchKey_prefix_idx")
+  @@unique([editionId, code, structureHash])
+  @@index([editionId, code(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_editionId_code_prefix_idx")
+  @@index([editionId, searchKey(ops: raw("text_pattern_ops"))], map: "ReferenceComposition_editionId_searchKey_prefix_idx")
   @@index([searchKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "ReferenceComposition_searchKey_trgm_idx")
 }
 
-/// Linha da composição analítica de referência.
+/// Custo da composição numa base (UF + regime), com as exceções das linhas.
+model ReferenceCompositionPrice {
+  datasetId          String   @db.Uuid
+  compositionId      String   @db.Uuid
+  /// Custo OFICIAL. Nulo = sem custo nesta referência.
+  unitCost           Decimal? @db.Decimal(14, 4)
+  situation          String?
+  metadata           Json     @default("{}")
+  /// Só o que a regra de recálculo das linhas não reproduz, por posição.
+  componentOverrides Json     @default("{}")
+
+  dataset     ReferenceDataset     @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  composition ReferenceComposition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+
+  @@id([datasetId, compositionId])
+  @@index([compositionId])
+}
+
+/// Linha da composição (estrutura), sem preço: o preço é recalculado da base.
 model ReferenceCompositionItem {
   id            String                 @id @default(uuid()) @db.Uuid
   compositionId String                 @db.Uuid
@@ -3395,8 +3443,6 @@ model ReferenceCompositionItem {
   description   String
   unit          String?
   coefficient   Decimal?               @db.Decimal(18, 7)
-  unitPrice     Decimal?               @db.Decimal(14, 4)
-  totalCost     Decimal?               @db.Decimal(14, 4)
   situation     String?
   metadata      Json                   @default("{}")
 

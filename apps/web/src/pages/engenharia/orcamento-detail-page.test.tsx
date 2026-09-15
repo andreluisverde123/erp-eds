@@ -546,7 +546,7 @@ describe('Resumo, BDI e exportação (ORC-05)', () => {
     await usuario.click(within(gaveta).getByRole('button', { name: 'Incluir' }));
 
     await waitFor(() => expect(mutacoes.addItem).toHaveBeenCalledTimes(1));
-    expect(mutacoes.addItem.mock.calls[0]![0]).toEqual({ budgetNodeId: 'n2', source: 'REFERENCE', referenceCompositionId: 'rc1', quantity: 12.5 });
+    expect(mutacoes.addItem.mock.calls[0]![0]).toEqual({ budgetNodeId: 'n2', source: 'REFERENCE', referenceDatasetId: 'ds1', referenceCompositionId: 'rc1', quantity: 12.5 });
   });
 
   it('importação por planilha: analisar mostra a prévia, e só então confirma com o hash', async () => {

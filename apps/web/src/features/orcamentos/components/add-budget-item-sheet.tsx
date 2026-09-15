@@ -119,11 +119,11 @@ function Corpo({ budget, node, onDone }: { budget: Budget; node: BudgetNode; onD
       if (!composicao) return setErro('Escolha a composição.');
       input = { budgetNodeId: node.id, source: 'COMPOSITION', compositionId: composicao.id, quantity: qtd };
     } else if (origem === 'REFERENCE') {
-      if (!referencia) return setErro('Escolha o item da base de referência.');
+      if (!referencia || !base) return setErro('Escolha o item da base de referência.');
       input =
         referencia.kind === 'COMPOSITION'
-          ? { budgetNodeId: node.id, source: 'REFERENCE', referenceCompositionId: referencia.id, quantity: qtd }
-          : { budgetNodeId: node.id, source: 'REFERENCE', referenceItemId: referencia.id, quantity: qtd };
+          ? { budgetNodeId: node.id, source: 'REFERENCE', referenceDatasetId: base.id, referenceCompositionId: referencia.id, quantity: qtd }
+          : { budgetNodeId: node.id, source: 'REFERENCE', referenceDatasetId: base.id, referenceItemId: referencia.id, quantity: qtd };
     } else if (origem === 'CATALOG_ITEM') {
       if (!insumo) return setErro('Escolha o insumo.');
       if (custo === '') return setErro('Informe o custo unitário.');

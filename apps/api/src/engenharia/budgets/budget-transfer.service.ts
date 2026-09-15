@@ -14,6 +14,7 @@ import { StorageService } from '../../storage/storage.module';
 import { latestReferencePriceRows } from '../catalog-item-prices/latest-prices';
 import { dateToDateOnly } from '../catalog-item-prices/reference-date';
 import { lotes } from '../reference/reference-datasets.service';
+import { loadPricedComposition, type PricedReferenceComposition } from '../reference/reference-pricing';
 import { lineTotalExact, moneyPair } from './budget-cost';
 import {
   buildBudgetDocument,
@@ -37,6 +38,14 @@ import { BudgetsService } from './budgets.service';
 import type { BudgetImportDto } from './dto/budget.dto';
 
 type Tx = Prisma.TransactionClient;
+
+interface ReferenceItemRow {
+  id: string;
+  code: string;
+  description: string;
+  unit: string;
+  unitPrice: Prisma.Decimal | null;
+}
 
 export interface BudgetImportSummary {
   groupCount: number;
@@ -255,24 +264,31 @@ export class BudgetTransferService {
       /^\d+$/.test(codigo) ? [codigo, codigo.padStart(7, '0')] : [codigo],
     );
     let dataset: Prisma.ReferenceDatasetGetPayload<object> | null = null;
-    const refInsumos = new Map<string, Prisma.ReferenceItemGetPayload<object>>();
-    const refComposicoes = new Map<
-      string,
-      Prisma.ReferenceCompositionGetPayload<{ include: { components: true } }>
-    >();
+    const refInsumos = new Map<string, ReferenceItemRow>();
+    const refComposicoes = new Map<string, PricedReferenceComposition>();
     if (codigosDeReferencia.length > 0 && referenceDatasetId) {
       dataset = await tx.referenceDataset.findUnique({ where: { id: referenceDatasetId } });
       if (dataset) {
-        for (const item of await tx.referenceItem.findMany({
-          where: { datasetId: dataset.id, code: { in: codigosDeReferencia } },
+        for (const linha of await tx.referenceItemPrice.findMany({
+          where: { datasetId: dataset.id, item: { code: { in: codigosDeReferencia } } },
+          include: { item: true },
         })) {
-          refInsumos.set(item.code, item);
+          refInsumos.set(linha.item.code, {
+            id: linha.item.id,
+            code: linha.item.code,
+            description: linha.item.description,
+            unit: linha.item.unit,
+            unitPrice: linha.unitPrice,
+          });
         }
-        for (const composicao of await tx.referenceComposition.findMany({
-          where: { datasetId: dataset.id, code: { in: codigosDeReferencia } },
-          include: { components: { orderBy: { position: 'asc' } } },
-        })) {
-          refComposicoes.set(composicao.code, composicao);
+        const encontradas = await tx.referenceCompositionPrice.findMany({
+          where: { datasetId: dataset.id, composition: { code: { in: codigosDeReferencia } } },
+          select: { compositionId: true },
+        });
+        // Uma consulta de linhas por composição DISTINTA usada na planilha.
+        for (const { compositionId } of encontradas) {
+          const precificada = await loadPricedComposition(tx, dataset.id, compositionId);
+          if (precificada) refComposicoes.set(precificada.composition.code, precificada);
         }
       }
     }
@@ -361,8 +377,8 @@ export class BudgetTransferService {
       vigentes: Parameters<typeof compositionSnapshot>[1];
       dataset: Prisma.ReferenceDatasetGetPayload<object> | null;
       referenceDatasetId: string | undefined;
-      refInsumos: Map<string, Prisma.ReferenceItemGetPayload<object>>;
-      refComposicoes: Map<string, Prisma.ReferenceCompositionGetPayload<{ include: { components: true } }>>;
+      refInsumos: Map<string, ReferenceItemRow>;
+      refComposicoes: Map<string, PricedReferenceComposition>;
       dataBase: Date;
     },
   ): Snapshot {
@@ -419,10 +435,10 @@ export class BudgetTransferService {
           return referenceSnapshot(
             {
               kind: 'COMPOSITION',
-              id: composicao.id,
-              code: composicao.code,
-              description: composicao.description,
-              unit: composicao.unit,
+              id: composicao.composition.id,
+              code: composicao.composition.code,
+              description: composicao.composition.description,
+              unit: composicao.composition.unit,
               price: composicao.unitCost,
               components: composicao.components,
             },

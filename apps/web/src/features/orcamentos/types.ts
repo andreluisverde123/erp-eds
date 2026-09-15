@@ -246,6 +246,8 @@ export type BudgetItemInput =
   | {
       budgetNodeId: string;
       source: 'REFERENCE';
+      /// A base (UF + regime) de onde vêm preço e custo.
+      referenceDatasetId: string;
       referenceItemId?: string;
       referenceCompositionId?: string;
       quantity: number;

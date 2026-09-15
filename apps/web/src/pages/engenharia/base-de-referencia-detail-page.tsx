@@ -179,13 +179,21 @@ export function BaseDeReferenciaDetailPage() {
         </TabsContent>
       </Tabs>
 
-      <ComposicaoAnalitica compositionId={analitica} onClose={() => setAnalitica(null)} />
+      <ComposicaoAnalitica datasetId={id} compositionId={analitica} onClose={() => setAnalitica(null)} />
     </div>
   );
 }
 
-function ComposicaoAnalitica({ compositionId, onClose }: { compositionId: string | null; onClose: () => void }) {
-  const { data, isLoading } = useReferenceComposition(compositionId);
+function ComposicaoAnalitica({
+  datasetId,
+  compositionId,
+  onClose,
+}: {
+  datasetId: string;
+  compositionId: string | null;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useReferenceComposition(datasetId, compositionId);
   const metadados = (data?.metadata ?? {}) as Record<string, string | null>;
 
   return (

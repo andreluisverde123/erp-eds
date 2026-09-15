@@ -36,6 +36,7 @@ import {
   toDecimal,
 } from '../compositions/composition-cost';
 import { lotes } from '../reference/reference-datasets.service';
+import { loadPricedComposition, loadPricedItem } from '../reference/reference-pricing';
 import { BDI_SCALE, budgetPrice } from './budget-bdi';
 import { closingProblems } from './budget-closing';
 import {
@@ -725,7 +726,6 @@ export class BudgetsService {
     if (!termo) return [];
 
     const filtro = {
-      datasetId: query.datasetId,
       OR: [
         { code: { startsWith: termo.toUpperCase() } },
         { searchKey: { contains: escapeLikePattern(normalizeCatalogKey(termo)) } },
@@ -733,13 +733,16 @@ export class BudgetsService {
     };
 
     if (query.kind === 'ITEM') {
-      const itens = await this.prisma.referenceItem.findMany({
-        where: { ...filtro, unitPrice: { not: null } },
-        orderBy: { code: 'asc' },
+      const itens = await this.prisma.referenceItemPrice.findMany({
+        where: { datasetId: query.datasetId, unitPrice: { not: null }, item: filtro },
+        orderBy: { item: { code: 'asc' } },
         take: 20,
-        select: { id: true, code: true, description: true, unit: true, category: true, unitPrice: true },
+        select: {
+          unitPrice: true,
+          item: { select: { id: true, code: true, description: true, unit: true, category: true } },
+        },
       });
-      return itens.map(({ unitPrice, ...item }) => ({
+      return itens.map(({ unitPrice, item }) => ({
         ...item,
         kind: 'ITEM' as const,
         unitCost: unitPrice!.toFixed(UNIT_COST_SCALE),
@@ -747,21 +750,25 @@ export class BudgetsService {
       }));
     }
 
-    const composicoes = await this.prisma.referenceComposition.findMany({
-      where: { ...filtro, unitCost: { not: null } },
-      orderBy: { code: 'asc' },
+    const composicoes = await this.prisma.referenceCompositionPrice.findMany({
+      where: { datasetId: query.datasetId, unitCost: { not: null }, composition: filtro },
+      orderBy: { composition: { code: 'asc' } },
       take: 20,
       select: {
-        id: true,
-        code: true,
-        description: true,
-        unit: true,
-        group: true,
         unitCost: true,
-        _count: { select: { components: true } },
+        composition: {
+          select: {
+            id: true,
+            code: true,
+            description: true,
+            unit: true,
+            group: true,
+            _count: { select: { components: true } },
+          },
+        },
       },
     });
-    return composicoes.map(({ unitCost, _count, group, ...composicao }) => ({
+    return composicoes.map(({ unitCost, composition: { _count, group, ...composicao } }) => ({
       ...composicao,
       category: group,
       kind: 'COMPOSITION' as const,
@@ -1046,7 +1053,7 @@ export class BudgetsService {
     budgetId: string,
     dto: CreateBudgetItemDto,
   ): Promise<Snapshot> {
-    const REFERENCIA: (keyof CreateBudgetItemDto)[] = ['referenceItemId', 'referenceCompositionId'];
+    const REFERENCIA: (keyof CreateBudgetItemDto)[] = ['referenceDatasetId', 'referenceItemId', 'referenceCompositionId'];
 
     switch (dto.source) {
       case 'COMPOSITION': {
@@ -1115,6 +1122,7 @@ export class BudgetsService {
 
       case 'REFERENCE': {
         proibir(dto, ['compositionId', 'catalogItemId', 'unitCost', 'description', 'unit'], 'Item de base referencial usa o código, a descrição, a unidade e o custo publicados pela base.');
+        if (!dto.referenceDatasetId) throw new BadRequestException('Escolha a base de referência (fonte, competência, UF e regime).');
         if (Boolean(dto.referenceItemId) === Boolean(dto.referenceCompositionId)) {
           throw new BadRequestException('Escolha um insumo OU uma composição da base referencial.');
         }
@@ -1122,33 +1130,35 @@ export class BudgetsService {
         const dataBase = await this.dataBase(tx, budgetId);
 
         if (dto.referenceItemId) {
-          const insumo = await tx.referenceItem.findUnique({
-            where: { id: dto.referenceItemId },
-            include: { dataset: true },
-          });
-          if (!insumo) throw new BadRequestException('Insumo da base referencial não encontrado.');
+          const insumo = await loadPricedItem(tx, dto.referenceDatasetId, dto.referenceItemId);
+          if (!insumo) throw new BadRequestException('Insumo não encontrado nesta base de referência.');
           return comoRecusa(() =>
             referenceSnapshot(
-              { kind: 'ITEM', id: insumo.id, code: insumo.code, description: insumo.description, unit: insumo.unit, price: insumo.unitPrice, components: [] },
+              {
+                kind: 'ITEM',
+                id: insumo.item.id,
+                code: insumo.item.code,
+                description: insumo.item.description,
+                unit: insumo.item.unit,
+                price: insumo.unitPrice,
+                components: [],
+              },
               insumo.dataset,
               dataBase,
             ),
           );
         }
 
-        const composicao = await tx.referenceComposition.findUnique({
-          where: { id: dto.referenceCompositionId },
-          include: { dataset: true, components: { orderBy: { position: 'asc' } } },
-        });
-        if (!composicao) throw new BadRequestException('Composição da base referencial não encontrada.');
+        const composicao = await loadPricedComposition(tx, dto.referenceDatasetId, dto.referenceCompositionId!);
+        if (!composicao) throw new BadRequestException('Composição não encontrada nesta base de referência.');
         return comoRecusa(() =>
           referenceSnapshot(
             {
               kind: 'COMPOSITION',
-              id: composicao.id,
-              code: composicao.code,
-              description: composicao.description,
-              unit: composicao.unit,
+              id: composicao.composition.id,
+              code: composicao.composition.code,
+              description: composicao.composition.description,
+              unit: composicao.composition.unit,
               price: composicao.unitCost,
               components: composicao.components,
             },

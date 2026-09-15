@@ -13,6 +13,8 @@ import { ConstructionSitesController } from './construction-sites/construction-s
 import { ConstructionSitesService } from './construction-sites/construction-sites.service';
 import { CostCentersController } from './cost-centers/cost-centers.controller';
 import { CostCentersService } from './cost-centers/cost-centers.service';
+import { ReferenceBasesLoaderService } from './reference/loader/reference-bases-loader.service';
+import { ReferenceBasesJob } from './reference/loader/reference-bases.job';
 import { ReferenceDatasetsController } from './reference/reference-datasets.controller';
 import { ReferenceDatasetsService } from './reference/reference-datasets.service';
 
@@ -35,6 +37,8 @@ import { ReferenceDatasetsService } from './reference/reference-datasets.service
     BudgetsService,
     BudgetTransferService,
     ReferenceDatasetsService,
+    ReferenceBasesLoaderService,
+    ReferenceBasesJob,
   ],
 })
 export class EngenhariaModule {}

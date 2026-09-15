@@ -184,8 +184,32 @@ function makeService(inicial: Partial<Estado> = {}) {
         precos.filter((p) => where.catalogItemId.in.includes(p.catalogItemId) && p.referenceDate <= where.referenceDate.lte),
       ),
     },
-    referenceItem: { findUnique: jest.fn(async () => null) },
-    referenceComposition: { findUnique: jest.fn(async () => composicaoDeReferencia) },
+    /// A base referencial no modelo estrutura × preço: o custo e as exceções
+    /// ficam no preço da composição; a linha analítica, na estrutura; o preço
+    /// da linha é recalculado do preço do insumo nesta base.
+    referenceItemPrice: {
+      findUnique: jest.fn(async () => null),
+      findMany: jest.fn(async () => [{ unitPrice: D('20.33'), metadata: {}, item: { code: '36178' } }]),
+    },
+    referenceCompositionPrice: {
+      findUnique: jest.fn(async () => ({
+        unitCost: composicaoDeReferencia.unitCost,
+        situation: 'COM CUSTO',
+        metadata: {},
+        componentOverrides: {},
+        dataset: composicaoDeReferencia.dataset,
+        composition: {
+          id: composicaoDeReferencia.id,
+          code: composicaoDeReferencia.code,
+          description: composicaoDeReferencia.description,
+          unit: composicaoDeReferencia.unit,
+          group: null,
+          metadata: {},
+          components: composicaoDeReferencia.components.map(({ unitPrice: _p, totalCost: _t, ...linha }) => linha),
+        },
+      })),
+      findMany: jest.fn(async () => []),
+    },
   };
 
   const auditLogger = { log: jest.fn(async () => undefined) };
@@ -231,7 +255,13 @@ describe('BDI', () => {
 });
 
 describe('Item de base referencial', () => {
-  const dto = { budgetNodeId: NO, source: 'REFERENCE' as const, quantity: 10, referenceCompositionId: 'dddddddd-0000-4000-8000-000000000001' };
+  const dto = {
+    budgetNodeId: NO,
+    source: 'REFERENCE' as const,
+    quantity: 10,
+    referenceDatasetId: 'ffffffff-0000-4000-8000-000000000001',
+    referenceCompositionId: 'dddddddd-0000-4000-8000-000000000001',
+  };
 
   it('snapshot com fonte, código, competência, UF, regime, custo e linhas analíticas', async () => {
     const { service, criados } = makeService();
@@ -254,7 +284,8 @@ describe('Item de base referencial', () => {
       referenceRegime: 'NAO_DESONERADO',
     });
     expect((criados.item!.referenceComponents as { create: object[] }).create).toEqual([
-      expect.objectContaining({ code: '36178', coefficient: D('6.4375'), totalCost: D('130.87') }),
+      // Preço da linha recalculado do preço do insumo NESTA base: TRUNC(6,4375 × 20,33; 2).
+      expect.objectContaining({ code: '36178', coefficient: '6.4375', unitPrice: '20.33', totalCost: '130.87' }),
     ]);
   });
 
@@ -274,6 +305,12 @@ describe('Item de base referencial', () => {
     const { service, composicaoDeReferencia } = makeService();
     composicaoDeReferencia.unitCost = null;
     await expect(service.addItem(EMPRESA, V1, dto)).rejects.toThrow(/não tem custo nesta referência/);
+  });
+
+  it('exige a base (UF + regime)', async () => {
+    const { service } = makeService();
+    const { referenceDatasetId: _base, ...semBase } = dto;
+    await expect(service.addItem(EMPRESA, V1, semBase)).rejects.toThrow(/Escolha a base de referência/);
   });
 
   it('exige insumo OU composição da base', async () => {

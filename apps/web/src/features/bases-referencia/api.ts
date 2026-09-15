@@ -32,8 +32,9 @@ export function searchReferenceCompositions(
   return apiClient.get(`/reference-datasets/${id}/compositions${toQueryString(query)}`);
 }
 
-export function getReferenceComposition(compositionId: string): Promise<ReferenceCompositionDetail> {
-  return apiClient.get(`/reference-datasets/compositions/${compositionId}`);
+/// A composição analítica precificada numa base (UF + regime).
+export function getReferenceComposition(datasetId: string, compositionId: string): Promise<ReferenceCompositionDetail> {
+  return apiClient.get(`/reference-datasets/${datasetId}/compositions/${compositionId}`);
 }
 
 function formulario(input: ReferenceImportInput, fileHash?: string): FormData {

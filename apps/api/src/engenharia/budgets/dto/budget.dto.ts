@@ -116,7 +116,7 @@ export class MoveBudgetNodeDto {
 /// | COMPOSITION | `compositionId` | `unitCost`, `description`, `unit`, `catalogItemId`, referência |
 /// | CATALOG_ITEM | `catalogItemId`, `unitCost` | `description`, `unit`, `compositionId`, referência |
 /// | MANUAL | `description`, `unit`, `unitCost` | `compositionId`, `catalogItemId`, referência |
-/// | REFERENCE | `referenceItemId` OU `referenceCompositionId` | `unitCost`, `description`, `unit`, `compositionId`, `catalogItemId` |
+/// | REFERENCE | `referenceDatasetId` + (`referenceItemId` OU `referenceCompositionId`) | `unitCost`, `description`, `unit`, `compositionId`, `catalogItemId` |
 ///
 /// `totalCost` não existe aqui: é derivado.
 export class CreateBudgetItemDto {
@@ -136,6 +136,11 @@ export class CreateBudgetItemDto {
   @IsOptional()
   @IsUUID('all', { message: 'Insumo inválido.' })
   catalogItemId?: string;
+
+  /// A base (UF + regime) de onde vêm o preço e o custo.
+  @IsOptional()
+  @IsUUID('all', { message: 'Base de referência inválida.' })
+  referenceDatasetId?: string;
 
   @IsOptional()
   @IsUUID('all', { message: 'Insumo da base referencial inválido.' })

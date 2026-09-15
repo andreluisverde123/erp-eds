@@ -170,11 +170,11 @@ export interface ReferenceEntrySource {
     code: string;
     description: string;
     unit: string | null;
-    coefficient: Prisma.Decimal | null;
-    unitPrice: Prisma.Decimal | null;
-    totalCost: Prisma.Decimal | null;
+    coefficient: Prisma.Decimal | string | null;
+    unitPrice: Prisma.Decimal | string | null;
+    totalCost: Prisma.Decimal | string | null;
     situation: string | null;
-    metadata: Prisma.JsonValue;
+    metadata: Prisma.JsonValue | Record<string, unknown>;
   }[];
 }
 

@@ -74,13 +74,19 @@ function makeService(opcoes: { nosExistentes?: number } = {}) {
       ),
     },
     referenceDataset: { findUnique: jest.fn(async ({ where }: { where: { id: string } }) => (where.id === dataset.id ? dataset : null)) },
-    referenceItem: { findMany: jest.fn(async () => []) },
-    referenceComposition: {
-      findMany: jest.fn(async ({ where }: { where: { code: { in: string[] } } }) =>
-        where.code.in.includes('0307731')
-          ? [{ id: 'rc', code: '0307731', description: 'Aparelho de apoio', unit: 'dm³', unitCost: D('170.38'), components: [] }]
-          : [],
+    referenceItemPrice: { findMany: jest.fn(async () => []) },
+    referenceCompositionPrice: {
+      findMany: jest.fn(async ({ where }: { where: { composition?: { code?: { in: string[] } } } }) =>
+        where.composition?.code?.in.includes('0307731') ? [{ compositionId: 'rc' }] : [],
       ),
+      findUnique: jest.fn(async () => ({
+        unitCost: D('170.38'),
+        situation: null,
+        metadata: {},
+        componentOverrides: {},
+        dataset,
+        composition: { id: 'rc', code: '0307731', description: 'Aparelho de apoio', unit: 'dm³', group: null, metadata: {}, components: [] },
+      })),
     },
     budgetNode: { createMany: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => pendente.nodes.push(...data)) },
     budgetItem: { createMany: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => pendente.items.push(...data)) },

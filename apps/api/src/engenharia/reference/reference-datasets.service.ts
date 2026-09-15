@@ -20,10 +20,18 @@ import {
   ReferenceImportDto,
 } from './dto/reference.dto';
 import { competenceStartDate } from './parsing/locations';
+import {
+  normalizeDataset,
+  type CompositionStructure,
+  type ItemStructure,
+} from './parsing/reference-normalizer';
 import type { ImportIssue, ParsedReferenceDataset } from './parsing/reference-types';
 import { parseSicroReports } from './parsing/sicro-parser';
 import { parseSinapiReference } from './parsing/sinapi-parser';
 import { XlsxInvalidoError } from './parsing/xlsx-rows';
+import { fixed, loadPricedComposition } from './reference-pricing';
+
+type Tx = Prisma.TransactionClient;
 
 export interface UploadedReferenceFile {
   originalname: string;
@@ -59,8 +67,16 @@ const TEMPO_DA_IMPORTACAO_MS = 10 * 60 * 1000;
 /// ## Prévia sem gravar, importação sem estado parcial
 ///
 /// A prévia só lê o arquivo. A confirmação reenvia o arquivo com o hash que a
-/// prévia devolveu; o arquivo é lido de novo, e dataset, insumos, composições e
-/// linhas analíticas entram numa transação só. Qualquer falha desfaz tudo.
+/// prévia devolveu; o arquivo é lido de novo, e tudo entra numa transação só.
+/// Qualquer falha desfaz tudo.
+///
+/// ## Estrutura uma vez, preço por UF e regime
+///
+/// A estrutura (insumos, composições, linhas) é da EDIÇÃO (fonte +
+/// competência) e é a mesma em todas as UFs; cada base (UF + regime) grava só
+/// preços e custos — ver `parsing/reference-normalizer.ts`. A primeira base de
+/// uma competência grava a estrutura; as seguintes reaproveitam o que já
+/// existe e acrescentam só a variação, se houver.
 @Injectable()
 export class ReferenceDatasetsService {
   constructor(
@@ -84,6 +100,23 @@ export class ReferenceDatasetsService {
     }
 
     const parsed = await this.parse(dto, files);
+    return this.importParsed(companyId, userId, parsed, {
+      versionLabel: dto.versionLabel,
+      fileNames: files.map((arquivo) => arquivo.originalname),
+      fileHash,
+    });
+  }
+
+  /// Grava uma base JÁ LIDA. É o caminho da tela (depois da prévia) e da carga
+  /// das bases oficiais (`loader/`), que lê a pasta do SINAPI uma vez para as
+  /// 27 UFs e grava uma UF por vez.
+  async importParsed(
+    companyId: string,
+    userId: string | null,
+    parsed: ParsedReferenceDataset,
+    arquivos: { versionLabel?: string; fileNames: string[]; fileHash: string },
+  ) {
+    const { fileNames, fileHash } = arquivos;
     if (parsed.errors.length > 0) {
       throw new BadRequestException(
         `A base tem ${parsed.errors.length} erro(s) e não foi importada: ${parsed.errors
@@ -95,7 +128,7 @@ export class ReferenceDatasetsService {
     const { competence, uf } = parsed;
     if (!competence || !uf) throw new BadRequestException('Competência ou UF não identificadas.');
 
-    const versionLabel = (dto.versionLabel ?? '').trim();
+    const versionLabel = (arquivos.versionLabel ?? '').trim();
     if (await this.findDuplicate(parsed, versionLabel)) {
       throw new ConflictException(
         `A base ${parsed.source} ${competence} ${uf} ${parsed.regime}${versionLabel ? ` (${versionLabel})` : ''} já foi importada. Para uma republicação, informe um rótulo de versão.`,
@@ -103,15 +136,35 @@ export class ReferenceDatasetsService {
     }
 
     const datasetId = randomUUID();
-    const composicoes = parsed.compositions.map((composicao) => ({ id: randomUUID(), composicao }));
-    const componentCount = composicoes.reduce((total, { composicao }) => total + composicao.components.length, 0);
+    const normalizada = normalizeDataset(parsed);
+    const componentCount = parsed.compositions.reduce((total, composicao) => total + composicao.components.length, 0);
 
     try {
       await this.prisma.$transaction(
         async (tx) => {
+          const edicao = await tx.referenceEdition.upsert({
+            where: { source_competence_versionLabel: { source: parsed.source, competence, versionLabel } },
+            create: {
+              source: parsed.source,
+              competence,
+              versionLabel,
+              referenceDate: dateOnlyToDate(competenceStartDate(competence)),
+            },
+            update: {},
+            select: { id: true },
+          });
+
+          const insumos = await gravarInsumos(tx, edicao.id, normalizada.items.map((item) => item.structure));
+          const composicoes = await gravarComposicoes(
+            tx,
+            edicao.id,
+            normalizada.compositions.map((composicao) => composicao.structure),
+          );
+
           await tx.referenceDataset.create({
             data: {
               id: datasetId,
+              editionId: edicao.id,
               source: parsed.source,
               competence,
               referenceDate: dateOnlyToDate(competenceStartDate(competence)),
@@ -120,66 +173,38 @@ export class ReferenceDatasetsService {
               regime: parsed.regime,
               versionLabel,
               publishedAt: parsed.publishedAt ? dateOnlyToDate(parsed.publishedAt) : null,
-              fileNames: files.map((arquivo) => arquivo.originalname),
+              fileNames,
               fileHash,
               itemCount: parsed.items.length,
               compositionCount: parsed.compositions.length,
-              metadata: parsed.metadata as Prisma.InputJsonValue,
+              metadata: { ...parsed.metadata, overrideCount: normalizada.overrideCount } as Prisma.InputJsonValue,
               importedByCompanyId: companyId,
               importedById: userId,
             },
           });
 
-          for (const lote of lotes(parsed.items, 8)) {
-            await tx.referenceItem.createMany({
-              data: lote.map((item) => ({
+          for (const lote of lotes(normalizada.items, 4)) {
+            await tx.referenceItemPrice.createMany({
+              data: lote.map(({ structure, price }) => ({
                 datasetId,
-                code: item.code,
-                description: item.description,
-                searchKey: normalizeCatalogKey(item.description),
-                unit: item.unit,
-                category: item.category,
-                unitPrice: item.unitPrice,
-                metadata: item.metadata as Prisma.InputJsonValue,
+                itemId: insumos.get(chave(structure))!,
+                unitPrice: price.unitPrice,
+                metadata: price.metadata as Prisma.InputJsonValue,
               })),
             });
           }
 
-          for (const lote of lotes(composicoes, 10)) {
-            await tx.referenceComposition.createMany({
-              data: lote.map(({ id, composicao }) => ({
-                id,
+          for (const lote of lotes(normalizada.compositions, 6)) {
+            await tx.referenceCompositionPrice.createMany({
+              data: lote.map(({ structure, price }) => ({
                 datasetId,
-                code: composicao.code,
-                description: composicao.description,
-                searchKey: normalizeCatalogKey(composicao.description),
-                unit: composicao.unit,
-                group: composicao.group,
-                unitCost: composicao.unitCost,
-                situation: composicao.situation,
-                metadata: composicao.metadata as Prisma.InputJsonValue,
+                compositionId: composicoes.get(chave(structure))!,
+                unitCost: price.unitCost,
+                situation: price.situation,
+                metadata: price.metadata as Prisma.InputJsonValue,
+                componentOverrides: price.overrides as Prisma.InputJsonValue,
               })),
             });
-          }
-
-          const linhas = composicoes.flatMap(({ id, composicao }) =>
-            composicao.components.map((componente) => ({
-              compositionId: id,
-              position: componente.position,
-              section: componente.section,
-              kind: componente.kind,
-              code: componente.code,
-              description: componente.description,
-              unit: componente.unit,
-              coefficient: componente.coefficient,
-              unitPrice: componente.unitPrice,
-              totalCost: componente.totalCost,
-              situation: componente.situation,
-              metadata: componente.metadata as Prisma.InputJsonValue,
-            })),
-          );
-          for (const lote of lotes(linhas, 13)) {
-            await tx.referenceCompositionItem.createMany({ data: lote });
           }
         },
         { timeout: TEMPO_DA_IMPORTACAO_MS, maxWait: 10_000 },
@@ -190,7 +215,7 @@ export class ReferenceDatasetsService {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002' &&
-        JSON.stringify(error.meta ?? {}).includes('versionLabel')
+        JSON.stringify(error.meta ?? {}).includes('regime')
       ) {
         throw new ConflictException('Esta base acabou de ser importada por outra pessoa.');
       }
@@ -245,20 +270,26 @@ export class ReferenceDatasetsService {
   async searchItems(datasetId: string, query: QueryReferenceSearchDto) {
     await this.findOne(datasetId);
     const { page, limit } = query;
-    const where: Prisma.ReferenceItemWhereInput = { datasetId, ...busca(query.search) };
+    const where: Prisma.ReferenceItemPriceWhereInput = { datasetId, item: busca(query.search) };
     const [linhas, total] = await this.prisma.$transaction([
-      this.prisma.referenceItem.findMany({ where, orderBy: { code: 'asc' }, skip: (page - 1) * limit, take: limit }),
-      this.prisma.referenceItem.count({ where }),
+      this.prisma.referenceItemPrice.findMany({
+        where,
+        orderBy: { item: { code: 'asc' } },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { item: true },
+      }),
+      this.prisma.referenceItemPrice.count({ where }),
     ]);
     return paginate(
-      linhas.map((item) => ({
-        id: item.id,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        category: item.category,
-        unitPrice: item.unitPrice?.toFixed(4) ?? null,
-        metadata: item.metadata,
+      linhas.map((linha) => ({
+        id: linha.item.id,
+        code: linha.item.code,
+        description: linha.item.description,
+        unit: linha.item.unit,
+        category: linha.item.category,
+        unitPrice: linha.unitPrice?.toFixed(4) ?? null,
+        metadata: linha.metadata,
       })),
       total,
       page,
@@ -269,27 +300,27 @@ export class ReferenceDatasetsService {
   async searchCompositions(datasetId: string, query: QueryReferenceSearchDto) {
     await this.findOne(datasetId);
     const { page, limit } = query;
-    const where: Prisma.ReferenceCompositionWhereInput = { datasetId, ...busca(query.search) };
+    const where: Prisma.ReferenceCompositionPriceWhereInput = { datasetId, composition: busca(query.search) };
     const [linhas, total] = await this.prisma.$transaction([
-      this.prisma.referenceComposition.findMany({
+      this.prisma.referenceCompositionPrice.findMany({
         where,
-        orderBy: { code: 'asc' },
+        orderBy: { composition: { code: 'asc' } },
         skip: (page - 1) * limit,
         take: limit,
-        include: { _count: { select: { components: true } } },
+        include: { composition: { include: { _count: { select: { components: true } } } } },
       }),
-      this.prisma.referenceComposition.count({ where }),
+      this.prisma.referenceCompositionPrice.count({ where }),
     ]);
     return paginate(
-      linhas.map((composicao) => ({
-        id: composicao.id,
-        code: composicao.code,
-        description: composicao.description,
-        unit: composicao.unit,
-        group: composicao.group,
-        unitCost: composicao.unitCost?.toFixed(4) ?? null,
-        situation: composicao.situation,
-        componentCount: composicao._count.components,
+      linhas.map((linha) => ({
+        id: linha.composition.id,
+        code: linha.composition.code,
+        description: linha.composition.description,
+        unit: linha.composition.unit,
+        group: linha.composition.group,
+        unitCost: linha.unitCost?.toFixed(4) ?? null,
+        situation: linha.situation,
+        componentCount: linha.composition._count.components,
       })),
       total,
       page,
@@ -297,35 +328,32 @@ export class ReferenceDatasetsService {
     );
   }
 
-  /// A composição ANALÍTICA: cada linha com coeficiente, unidade, preço e
-  /// contribuição de custo, como a base publicou.
-  async findComposition(id: string) {
-    const composicao = await this.prisma.referenceComposition.findUnique({
-      where: { id },
-      include: { dataset: true, components: { orderBy: { position: 'asc' } } },
-    });
-    if (!composicao) throw new NotFoundException('Composição de referência não encontrada.');
+  /// A composição ANALÍTICA numa base: cada linha com coeficiente, unidade,
+  /// preço e contribuição de custo, como a base publicou.
+  async findComposition(datasetId: string, compositionId: string) {
+    const composicao = await loadPricedComposition(this.prisma, datasetId, compositionId);
+    if (!composicao) throw new NotFoundException('Composição não encontrada nesta base de referência.');
     return {
-      id: composicao.id,
-      code: composicao.code,
-      description: composicao.description,
-      unit: composicao.unit,
-      group: composicao.group,
+      id: composicao.composition.id,
+      code: composicao.composition.code,
+      description: composicao.composition.description,
+      unit: composicao.composition.unit,
+      group: composicao.composition.group,
       unitCost: composicao.unitCost?.toFixed(4) ?? null,
       situation: composicao.situation,
-      metadata: composicao.metadata,
+      metadata: { ...(composicao.composition.metadata as object), ...(composicao.metadata as object) },
       dataset: apresentarDataset(composicao.dataset),
       components: composicao.components.map((linha) => ({
-        id: linha.id,
+        id: `${composicao.composition.id}:${linha.position}`,
         position: linha.position,
         section: linha.section,
         kind: linha.kind,
         code: linha.code,
         description: linha.description,
         unit: linha.unit,
-        coefficient: linha.coefficient?.toFixed(7) ?? null,
-        unitPrice: linha.unitPrice?.toFixed(4) ?? null,
-        totalCost: linha.totalCost?.toFixed(4) ?? null,
+        coefficient: fixed(linha.coefficient, 7),
+        unitPrice: fixed(linha.unitPrice, 4),
+        totalCost: fixed(linha.totalCost, 4),
         situation: linha.situation,
         metadata: linha.metadata,
       })),
@@ -409,6 +437,103 @@ export function hashDosArquivos(files: UploadedReferenceFile[]): string {
     hash.update(createHash('sha256').update(arquivo.buffer).digest('hex'));
   }
   return hash.digest('hex');
+}
+
+const chave = (estrutura: { code: string; hash: string }) => `${estrutura.code}|${estrutura.hash}`;
+
+/// Quantos códigos por consulta `IN` — bem abaixo do limite de parâmetros.
+const CODIGOS_POR_CONSULTA = 5_000;
+
+/// Grava os insumos da edição que ainda não existem e devolve o id de cada
+/// estrutura (código + hash). `skipDuplicates`: duas importações simultâneas
+/// de UFs diferentes da mesma competência não colidem — a segunda espera a
+/// primeira e reaproveita.
+async function gravarInsumos(tx: Tx, editionId: string, estruturas: ItemStructure[]): Promise<Map<string, string>> {
+  const unicas = [...new Map(estruturas.map((estrutura) => [chave(estrutura), estrutura])).values()];
+  for (const lote of lotes(unicas, 8)) {
+    await tx.referenceItem.createMany({
+      data: lote.map((estrutura) => ({
+        id: randomUUID(),
+        editionId,
+        code: estrutura.code,
+        description: estrutura.description,
+        searchKey: normalizeCatalogKey(estrutura.description),
+        unit: estrutura.unit,
+        category: estrutura.category,
+        structureHash: estrutura.hash,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  const ids = new Map<string, string>();
+  const codigos = [...new Set(unicas.map((estrutura) => estrutura.code))];
+  for (let inicio = 0; inicio < codigos.length; inicio += CODIGOS_POR_CONSULTA) {
+    const linhas = await tx.referenceItem.findMany({
+      where: { editionId, code: { in: codigos.slice(inicio, inicio + CODIGOS_POR_CONSULTA) } },
+      select: { id: true, code: true, structureHash: true },
+    });
+    for (const linha of linhas) ids.set(`${linha.code}|${linha.structureHash}`, linha.id);
+  }
+  return ids;
+}
+
+/// Mesmo processo das composições; as linhas só entram para a composição que
+/// ESTA importação criou (a que já existia já tem as suas).
+async function gravarComposicoes(
+  tx: Tx,
+  editionId: string,
+  estruturas: CompositionStructure[],
+): Promise<Map<string, string>> {
+  const unicas = [...new Map(estruturas.map((estrutura) => [chave(estrutura), estrutura])).values()];
+  const tentadas = new Map(unicas.map((estrutura) => [chave(estrutura), { id: randomUUID(), estrutura }]));
+
+  for (const lote of lotes([...tentadas.values()], 9)) {
+    await tx.referenceComposition.createMany({
+      data: lote.map(({ id, estrutura }) => ({
+        id,
+        editionId,
+        code: estrutura.code,
+        description: estrutura.description,
+        searchKey: normalizeCatalogKey(estrutura.description),
+        unit: estrutura.unit,
+        group: estrutura.group,
+        metadata: estrutura.metadata as Prisma.InputJsonValue,
+        structureHash: estrutura.hash,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  const ids = new Map<string, string>();
+  const codigos = [...new Set(unicas.map((estrutura) => estrutura.code))];
+  for (let inicio = 0; inicio < codigos.length; inicio += CODIGOS_POR_CONSULTA) {
+    const linhas = await tx.referenceComposition.findMany({
+      where: { editionId, code: { in: codigos.slice(inicio, inicio + CODIGOS_POR_CONSULTA) } },
+      select: { id: true, code: true, structureHash: true },
+    });
+    for (const linha of linhas) ids.set(`${linha.code}|${linha.structureHash}`, linha.id);
+  }
+
+  const novas = [...tentadas.entries()].filter(([k, { id }]) => ids.get(k) === id);
+  const linhas = novas.flatMap(([, { id, estrutura }]) =>
+    estrutura.components.map((linha) => ({
+      compositionId: id,
+      position: linha.position,
+      section: linha.section,
+      kind: linha.kind,
+      code: linha.code,
+      description: linha.description,
+      unit: linha.unit,
+      coefficient: linha.coefficient,
+      situation: linha.situation,
+      metadata: linha.metadata as Prisma.InputJsonValue,
+    })),
+  );
+  for (const lote of lotes(linhas, 10)) {
+    await tx.referenceCompositionItem.createMany({ data: lote });
+  }
+  return ids;
 }
 
 export function lotes<T>(linhas: T[], colunas: number): T[][] {

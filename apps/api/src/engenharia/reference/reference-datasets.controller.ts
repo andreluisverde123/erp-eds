@@ -89,11 +89,6 @@ export class ReferenceDatasetsController {
     return this.referenceDatasets.import(companyId, userId, dto, nomesEmUtf8(files));
   }
 
-  @RequirePermissions('orcamentos.view')
-  @Get('compositions/:compositionId')
-  findComposition(@Param('compositionId', ParseUUIDPipe) compositionId: string) {
-    return this.referenceDatasets.findComposition(compositionId);
-  }
 
   @RequirePermissions('orcamentos.view')
   @Get(':id')
@@ -105,6 +100,16 @@ export class ReferenceDatasetsController {
   @Get(':id/items')
   searchItems(@Param('id', ParseUUIDPipe) id: string, @Query() query: QueryReferenceSearchDto) {
     return this.referenceDatasets.searchItems(id, query);
+  }
+
+  /// A composição analítica PRECIFICADA nesta base (UF + regime).
+  @RequirePermissions('orcamentos.view')
+  @Get(':id/compositions/:compositionId')
+  findComposition(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('compositionId', ParseUUIDPipe) compositionId: string,
+  ) {
+    return this.referenceDatasets.findComposition(id, compositionId);
   }
 
   @RequirePermissions('orcamentos.view')
