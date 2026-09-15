@@ -12,8 +12,9 @@ import { ReferenceBasesLoaderService } from './reference-bases-loader.service';
 /// inicial feita, a execução normal só sonda os meses que faltam — cada base
 /// nova custa alguns segundos.
 ///
-/// A janela é de 12 competências, e a limpeza remove as automáticas mais
-/// antigas que ela (ver `ReferenceBasesLoaderService.limpar`).
+/// Mantém só a publicação mais recente (SINAPI do mês e SICRO de cada UF,
+/// procurados nos últimos 6 meses). Quando sai uma nova, a anterior é removida,
+/// a menos que algum orçamento a use — ver `ReferenceBasesLoaderService`.
 ///
 /// Desligado por padrão (`REFERENCE_BASES_AUTO_UPDATE=false`): ler a pasta
 /// nacional do SINAPI ocupa ~660 MB de memória por alguns segundos, e a carga
@@ -37,13 +38,15 @@ export class ReferenceBasesJob {
     if (!this.enabled || this.rodando) return;
     this.rodando = true;
     try {
-      const relatorio = await this.loader.load({ months: 12, purge: true });
+      const relatorio = await this.loader.load({ months: 6, latestOnly: true, purge: true });
       this.logger.log(
         `Bases referenciais ${relatorio.window.from} a ${relatorio.window.to}: ${relatorio.imported.length} importada(s), ` +
           `${relatorio.alreadyLoaded} já existiam, ${relatorio.failed.length} falha(s), ${relatorio.purgedDatasets} removida(s).`,
       );
     } catch (error) {
-      this.logger.error(`Atualização das bases referenciais falhou: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(
+        `Atualização das bases referenciais falhou: ${error instanceof Error ? error.message : error}`,
+      );
     } finally {
       this.rodando = false;
     }

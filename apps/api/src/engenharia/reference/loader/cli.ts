@@ -3,11 +3,15 @@
  * comando. É o caminho da carga inicial; depois o job semanal mantém.
  *
  * Uso (dentro de apps/api):
- *   npm run bases:carregar:local
- *   npm run bases:carregar:staging -- --meses 12
+ *   npm run bases:carregar:staging -- --ultima
+ *   npm run bases:carregar:production -- --ultima
+ *   npm run bases:carregar:local -- --meses 12
  *
  * Opções:
- *   --meses N          competências para trás (padrão 12)
+ *   --ultima           só a publicação mais recente (SINAPI do mês, SICRO de
+ *                      cada UF) e remove as automáticas anteriores
+ *   --meses N          competências para trás (padrão 12; com --ultima, até
+ *                      onde procurar, padrão 6)
  *   --fontes A,B       SINAPI, SICRO (padrão as duas)
  *   --ufs SP,RJ        padrão as 27
  *   --empresa <slug>   empresa registrada como importadora (padrão a mais antiga)
@@ -33,10 +37,13 @@ function lista(nome: string): string[] | undefined {
 }
 
 async function main() {
-  const meses = Number(argumento('meses') ?? 12);
-  if (!Number.isInteger(meses) || meses < 1 || meses > 36) throw new Error('--meses precisa ser um inteiro entre 1 e 36.');
+  const ultima = process.argv.includes('--ultima');
+  const meses = Number(argumento('meses') ?? (ultima ? 6 : 12));
+  if (!Number.isInteger(meses) || meses < 1 || meses > 36)
+    throw new Error('--meses precisa ser um inteiro entre 1 e 36.');
   const fontes = lista('fontes');
-  if (fontes?.some((fonte) => fonte !== 'SINAPI' && fonte !== 'SICRO')) throw new Error('--fontes aceita SINAPI e SICRO.');
+  if (fontes?.some((fonte) => fonte !== 'SINAPI' && fonte !== 'SICRO'))
+    throw new Error('--fontes aceita SINAPI e SICRO.');
 
   const prisma = new PrismaService();
   await prisma.$connect();
@@ -56,17 +63,25 @@ async function main() {
     const inicio = Date.now();
     const relatorio = await loader.load({
       months: meses,
+      latestOnly: ultima,
       sources: fontes as OfficialSource[] | undefined,
       ufs: lista('ufs'),
       companyId,
       purge: !process.argv.includes('--sem-limpeza'),
     });
 
-    console.log(`\nJanela: ${relatorio.window.from} a ${relatorio.window.to} (${Math.round((Date.now() - inicio) / 1000)} s)`);
+    console.log(`\nModo: ${ultima ? 'só a última publicação' : `janela de ${meses} meses`}`);
+    console.log(
+      `Busca: ${relatorio.window.from} a ${relatorio.window.to} (${Math.round((Date.now() - inicio) / 1000)} s)`,
+    );
     console.log(`Importadas: ${relatorio.imported.length}`);
     console.log(`Já existiam: ${relatorio.alreadyLoaded}`);
-    console.log(`Não publicadas pela fonte: ${relatorio.unavailable.length ? relatorio.unavailable.join('; ') : 'nenhuma'}`);
-    console.log(`Removidas (fora da janela): ${relatorio.purgedDatasets} base(s), ${relatorio.purgedEditions} edição(ões)`);
+    console.log(
+      `Não publicadas pela fonte: ${relatorio.unavailable.length ? relatorio.unavailable.join('; ') : 'nenhuma'}`,
+    );
+    console.log(
+      `Removidas (${ultima ? 'publicações anteriores' : 'fora da janela'}): ${relatorio.purgedDatasets} base(s), ${relatorio.purgedEditions} edição(ões)`,
+    );
     if (relatorio.failed.length > 0) {
       console.log(`\nFALHAS (${relatorio.failed.length}) — rode de novo para tentar só estas:`);
       for (const falha of relatorio.failed) console.log(`  ${falha.base}: ${falha.message}`);

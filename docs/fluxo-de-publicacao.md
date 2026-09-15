@@ -73,7 +73,19 @@ migration que ainda não chegou à produção.
 
 ## Bases SINAPI/SICRO
 
-A carga (`npm run bases:carregar:<ambiente>`) ocupa cerca de 375 MB por
-competência. **O plano Free do Neon (0,5 GB) não comporta a carga.** Ela fica
-suspensa até a troca de plano. Quando acontecer, a ordem é a mesma: staging
-primeiro, depois produção.
+Os dois ambientes guardam **só a publicação mais recente**: o SINAPI do mês
+mais novo (27 UFs × 3 regimes) e o SICRO mais novo de cada UF. Isso ocupa
+cerca de 400 MB. Quando sai uma publicação nova, a anterior é removida, a
+menos que algum orçamento a use.
+
+A carga segue a mesma ordem das migrations: staging primeiro, depois produção.
+
+```
+npm run bases:carregar:staging --workspace api -- --ultima
+npm run bases:carregar:production --workspace api -- --ultima
+```
+
+A primeira carga leva de 15 a 30 minutos. Pode ser interrompida e rodada de
+novo: ela continua de onde parou. A atualização semanal automática existe, mas
+fica desligada (`REFERENCE_BASES_AUTO_UPDATE`) até ser aprovada para cada
+ambiente.

@@ -57,7 +57,8 @@ export async function downloadPackage(
       return buffer;
     } catch (erro) {
       ultimoErro = erro;
-      if (tentativa < tentativas) await new Promise((resolve) => setTimeout(resolve, esperaMs * tentativa));
+      if (tentativa < tentativas)
+        await new Promise((resolve) => setTimeout(resolve, esperaMs * tentativa));
     }
   }
 

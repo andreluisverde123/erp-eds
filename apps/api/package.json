@@ -27,6 +27,7 @@
     "seed:production": "DOTENV_CONFIG_PATH=.env.production prisma db seed",
     "bases:carregar:local": "nest build && node --env-file=.env.local dist/engenharia/reference/loader/cli.js",
     "bases:carregar:staging": "nest build && node --env-file=.env.staging dist/engenharia/reference/loader/cli.js",
+    "bases:carregar:production": "nest build && node --env-file=.env.production dist/engenharia/reference/loader/cli.js",
     "db:status:local": "DOTENV_CONFIG_PATH=.env.local prisma migrate status",
     "db:status:development": "DOTENV_CONFIG_PATH=.env.development prisma migrate status",
     "db:status:staging": "DOTENV_CONFIG_PATH=.env.staging prisma migrate status",
