@@ -155,6 +155,20 @@ export interface DocumentHighlight {
   caption?: string | null;
 }
 
+/// Uma cláusula de TEXTO CORRIDO (contratos): título opcional e parágrafos.
+///
+/// A numeração ("1.1.") já vem no texto — quem monta o documento é quem sabe
+/// a sequência. `title` nulo é o texto sem cabeçalho (preâmbulo, fecho).
+export interface DocumentClause {
+  title?: string | null;
+  paragraphs: string[];
+  /// Não se separa das assinaturas: se a cláusula e o bloco de assinaturas não
+  /// cabem juntos no que sobrou da página, os dois vão para a seguinte. É o
+  /// fecho do contrato ("E, por estarem justas…", local e data) — assinatura
+  /// sozinha numa folha, sem o texto que ela assina, não vale como contrato.
+  keepWithSignatures?: boolean;
+}
+
 export interface PrintableDocument {
   /// Nome que aparece no topo. Sempre existe (`Company.legalName` é NOT NULL).
   companyName: string;
@@ -177,6 +191,9 @@ export interface PrintableDocument {
   /// vende e quem compra, antes do que foi comprado. `null` some sem deixar
   /// espaço.
   highlight?: DocumentHighlight | null;
+  /// Texto corrido, desenhado depois dos blocos e antes da tabela. Documento
+  /// sem tabela (contrato) passa `columns` vazio e usa só isto.
+  clauses?: DocumentClause[];
   columns: readonly DocumentColumn[];
   rows: DocumentRow[];
   /// Texto exibido quando `rows` está vazio.
@@ -188,6 +205,9 @@ export interface PrintableDocument {
   /// Linhas para assinar à mão, lado a lado no fim do documento. Vazio quando
   /// o documento não é assinado.
   signatures?: DocumentSignature[];
+  /// Quantas assinaturas por linha. Ausente = todas numa linha só. O contrato
+  /// usa 2: partes numa linha, testemunhas na outra.
+  signaturesPerRow?: number;
 }
 
 export interface CompanySource {

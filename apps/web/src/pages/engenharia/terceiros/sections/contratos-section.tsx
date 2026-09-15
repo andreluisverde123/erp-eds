@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
+  Alert,
+  AlertTitle,
   Button,
   ErrorState,
   Input,
@@ -25,6 +27,7 @@ import { ContractsTable } from '@/features/terceiros/components/contracts-table'
 import {
   useCancelContract,
   useDeleteContract,
+  useDownloadContractPdf,
 } from '@/features/terceiros/hooks/use-contract-mutations';
 import { useContracts } from '@/features/terceiros/hooks/use-contracts';
 import { useContractors } from '@/features/terceiros/hooks/use-contractors';
@@ -62,6 +65,24 @@ export function ContratosSection() {
 
   const cancelMutation = useCancelContract();
   const deleteMutation = useDeleteContract();
+  const pdfMutation = useDownloadContractPdf();
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  /// Gera o PDF — pelo menu do contrato ou logo depois de criá-lo. Falha não
+  /// pode sumir em silêncio: o contrato já está salvo, e a pessoa precisa saber
+  /// que o documento não saiu e onde gerá-lo de novo.
+  function gerarPdf(contract: Contract) {
+    setPdfError(null);
+    pdfMutation.mutate(
+      { id: contract.id, code: contract.code },
+      {
+        onError: () =>
+          setPdfError(
+            `Não foi possível gerar o PDF do contrato ${contract.code}. Tente de novo pelo menu do contrato.`,
+          ),
+      },
+    );
+  }
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cancelingContract, setCancelingContract] = useState<Contract | null>(null);
@@ -155,6 +176,12 @@ export function ContratosSection() {
         </Select>
       </div>
 
+      {pdfError && (
+        <Alert variant="destructive">
+          <AlertTitle>{pdfError}</AlertTitle>
+        </Alert>
+      )}
+
       {isError && <ErrorState message="Não foi possível carregar os contratos. Tente novamente." />}
 
       {!isError && isLoading && !data && (
@@ -165,6 +192,7 @@ export function ContratosSection() {
         <>
           <ContractsTable
             contracts={data.data}
+            onGeneratePdf={gerarPdf}
             onCancel={setCancelingContract}
             onDelete={setDeletingContract}
           />
@@ -189,7 +217,7 @@ export function ContratosSection() {
         </>
       )}
 
-      <ContractFormDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <ContractFormDrawer open={drawerOpen} onOpenChange={setDrawerOpen} onCreated={gerarPdf} />
 
       <ConfirmDialog
         open={Boolean(cancelingContract)}

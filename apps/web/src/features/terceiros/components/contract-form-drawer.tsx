@@ -36,29 +36,57 @@ import {
 } from '../contract-form-schema';
 import { useCreateContract } from '../hooks/use-contract-mutations';
 import { useContractors } from '../hooks/use-contractors';
-import type { ContractInput } from '../types';
+import type { Contract, ContractInput } from '../types';
 
 interface ContractFormDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /// Chamado com o contrato criado — a seção gera o PDF em seguida.
+  onCreated?: (contract: Contract) => void;
 }
 
-export function ContractFormDrawer({ open, onOpenChange }: ContractFormDrawerProps) {
+/// NOVO CONTRATO: só o que muda de um contrato para outro.
+///
+/// Contratada, obra, objeto, prazo, preço e forma de pagamento. As demais
+/// cláusulas são o modelo padrão e entram sozinhas no PDF, gerado ao salvar
+/// (ver `contract-document.ts` na API).
+export function ContractFormDrawer({ open, onOpenChange, onCreated }: ContractFormDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-lg">
         <div className="border-b border-border px-6 py-5">
           <SheetTitle>Novo contrato</SheetTitle>
-          <SheetDescription>Vincule uma empresa terceirizada a uma obra.</SheetDescription>
+          <SheetDescription>
+            Preencha os dados do contrato. As demais cláusulas são padrão e o PDF é gerado ao
+            salvar.
+          </SheetDescription>
         </div>
 
-        <ContractFormBody key={open ? 'open' : 'closed'} onDone={() => onOpenChange(false)} />
+        <ContractFormBody
+          key={open ? 'open' : 'closed'}
+          onDone={() => onOpenChange(false)}
+          onCreated={onCreated}
+        />
       </SheetContent>
     </Sheet>
   );
 }
 
-function ContractFormBody({ onDone }: { onDone: () => void }) {
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <h3 className="pt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      {children}
+    </h3>
+  );
+}
+
+function ContractFormBody({
+  onDone,
+  onCreated,
+}: {
+  onDone: () => void;
+  onCreated?: (contract: Contract) => void;
+}) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const createMutation = useCreateContract();
 
@@ -81,6 +109,7 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
         contractorId: values.contractorId,
         constructionSiteId: values.constructionSiteId,
         scope: values.scope,
+        paymentTerms: values.paymentTerms,
         totalValue: Number(values.totalValue),
         startDate: values.startDate,
         endDate: values.endDate,
@@ -92,14 +121,16 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
           values.pricingType === 'UNIT' && values.unitPrice?.trim()
             ? Number(values.unitPrice)
             : undefined,
-        unitLabel: values.pricingType === 'UNIT' ? values.unitLabel?.trim() || undefined : undefined,
+        unitLabel:
+          values.pricingType === 'UNIT' ? values.unitLabel?.trim() || undefined : undefined,
         measuredQuantity:
           values.pricingType === 'UNIT' && values.measuredQuantity?.trim()
             ? Number(values.measuredQuantity)
             : undefined,
       };
-      await createMutation.mutateAsync(input);
+      const created = await createMutation.mutateAsync(input);
       onDone();
+      onCreated?.(created);
     } catch (error) {
       setSubmitError(
         error instanceof ApiError
@@ -125,16 +156,18 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
               </Alert>
             )}
 
+            <SectionTitle>Partes</SectionTitle>
+
             <FormField
               control={form.control}
               name="contractorId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Empresa Terceirizada</FormLabel>
+                  <FormLabel>Contratada</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Selecione a empresa" />
+                        <SelectValue placeholder="Selecione a empresa terceirizada" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -175,33 +208,27 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
               )}
             />
 
+            <SectionTitle>Objeto</SectionTitle>
+
             <FormField
               control={form.control}
               name="scope"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Escopo</FormLabel>
+                  <FormLabel>Objeto do contrato</FormLabel>
                   <FormControl>
-                    <Textarea rows={3} placeholder="Descreva o serviço contratado" {...field} />
+                    <Textarea
+                      rows={4}
+                      placeholder="Ex.: execução de alvenaria de vedação do bloco A, conforme projeto"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="totalValue"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Valor total (R$)</FormLabel>
-                  <FormControl>
-                    <NumberInput placeholder="0,00" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <SectionTitle>Prazo</SectionTitle>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField
@@ -209,7 +236,7 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                 name="startDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Data início</FormLabel>
+                    <FormLabel>Início</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
@@ -223,7 +250,7 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                 name="endDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Data fim</FormLabel>
+                    <FormLabel>Término</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
@@ -232,6 +259,8 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                 )}
               />
             </div>
+
+            <SectionTitle>Preço</SectionTitle>
 
             <FormField
               control={form.control}
@@ -250,6 +279,22 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                       <SelectItem value="UNIT">Preço unitário (por medição)</SelectItem>
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="totalValue"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {pricingType === 'UNIT' ? 'Valor total estimado (R$)' : 'Valor total (R$)'}
+                  </FormLabel>
+                  <FormControl>
+                    <NumberInput placeholder="0,00" {...field} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -303,6 +348,26 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
                 />
               </div>
             )}
+
+            <SectionTitle>Forma de pagamento</SectionTitle>
+
+            <FormField
+              control={form.control}
+              name="paymentTerms"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Condições de pagamento</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={3}
+                      placeholder="Ex.: medições quinzenais, com pagamento em até 10 dias após a aprovação da medição e a emissão da nota fiscal"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </form>
         </Form>
       </div>
@@ -312,7 +377,7 @@ function ContractFormBody({ onDone }: { onDone: () => void }) {
           Cancelar
         </Button>
         <Button type="submit" form="contract-form" disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? 'Salvando...' : 'Salvar'}
+          {form.formState.isSubmitting ? 'Salvando...' : 'Salvar e gerar PDF'}
         </Button>
       </div>
     </>

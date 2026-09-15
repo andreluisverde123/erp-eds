@@ -81,6 +81,7 @@ export async function renderDocumentPdf(document: PrintableDocument): Promise<Re
   drawCompanyHeader(doc, document, left, usableWidth);
   drawInfoBlocks(doc, document, left, usableWidth);
   drawHighlight(doc, document, left, usableWidth);
+  drawClauses(doc, document, left, usableWidth, bottomLimit);
   drawItemsTable(doc, document, left, usableWidth, bottomLimit);
   drawTotal(doc, document, left, usableWidth, bottomLimit);
   drawNotes(doc, document, left, usableWidth, bottomLimit);
@@ -156,8 +157,9 @@ const LOGO_GAP = 12;
 /// de propósito: expõe só `width` e `height`, que é tudo que a conta precisa,
 /// em vez de afrouxar o tipo do documento inteiro.
 function medirImagem(doc: Doc, src: Buffer): { width: number; height: number } {
-  return (doc as unknown as { openImage(src: Buffer): { width: number; height: number } })
-    .openImage(src);
+  return (
+    doc as unknown as { openImage(src: Buffer): { width: number; height: number } }
+  ).openImage(src);
 }
 
 /// A altura do bloco de texto da empresa, medida SEM desenhar.
@@ -341,9 +343,13 @@ function drawHighlight(doc: Doc, document: PrintableDocument, left: number, widt
   doc.restore();
 
   const top = doc.y + padding;
-  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text(highlight.title, left + padding, top, {
-    width: innerWidth,
-  });
+  doc
+    .font(FONT_BOLD)
+    .fontSize(8)
+    .fillColor(GRAY)
+    .text(highlight.title, left + padding, top, {
+      width: innerWidth,
+    });
   doc
     .font(FONT_BOLD)
     .fontSize(12)
@@ -428,6 +434,63 @@ function drawTableHeader(
   return lineY + 4;
 }
 
+const CLAUSE_FONT_SIZE = 9;
+
+/// Texto corrido em cláusulas (contratos).
+///
+/// Mesma regra do resto do arquivo — nada cortado: cada parágrafo é medido
+/// antes de ser desenhado e vai INTEIRO para a página seguinte quando não cabe.
+/// O título de uma cláusula só é desenhado junto com o primeiro parágrafo dela,
+/// para nunca ficar sozinho no pé da folha.
+function drawClauses(
+  doc: Doc,
+  document: PrintableDocument,
+  left: number,
+  usableWidth: number,
+  bottomLimit: number,
+) {
+  for (const clause of document.clauses ?? []) {
+    doc.font(FONT).fontSize(CLAUSE_FONT_SIZE);
+    const alturas = clause.paragraphs.map((paragrafo) =>
+      doc.heightOfString(paragrafo, { width: usableWidth, align: alinhamento(paragrafo) }),
+    );
+
+    if (clause.keepWithSignatures) {
+      // O fecho e as assinaturas inteiras, juntos — ver `DocumentClause`.
+      const alturaDaCláusula = alturas.reduce((total, altura) => total + altura + 4, 4);
+      ensureSpace(doc, alturaDaCláusula + signatureBlockHeight(document), bottomLimit);
+    }
+
+    if (clause.title) {
+      ensureSpace(doc, 20 + (alturas[0] ?? 0), bottomLimit);
+      doc.y += 4;
+      doc
+        .font(FONT_BOLD)
+        .fontSize(9.5)
+        .fillColor(BLACK)
+        .text(clause.title, left, doc.y, { width: usableWidth });
+      doc.y += 3;
+    }
+
+    clause.paragraphs.forEach((paragrafo, indice) => {
+      doc.font(FONT).fontSize(CLAUSE_FONT_SIZE);
+      ensureSpace(doc, alturas[indice]! + 4, bottomLimit);
+      doc
+        .fillColor(BLACK)
+        .text(paragrafo, left, doc.y, { width: usableWidth, align: alinhamento(paragrafo) });
+      doc.y += 4;
+    });
+    doc.y += 4;
+  }
+}
+
+/// Parágrafo com lacuna para preencher à mão ("CNPJ nº ______") sai alinhado
+/// à esquerda. Justificado, a lacuna — que não quebra — empurra o resto da
+/// linha e o pdfkit espalha as palavras com espaços enormes.
+function alinhamento(paragrafo: string): 'left' | 'justify' {
+  return paragrafo.includes('____') ? 'left' : 'justify';
+}
+
 function drawItemsTable(
   doc: Doc,
   document: PrintableDocument,
@@ -435,6 +498,9 @@ function drawItemsTable(
   usableWidth: number,
   bottomLimit: number,
 ) {
+  // Documento de texto corrido (contrato) não tem tabela nenhuma.
+  if (document.columns.length === 0) return;
+
   if (document.rows.length === 0) {
     doc
       .font(FONT)
@@ -631,11 +697,54 @@ function drawSignatures(
   const signatures = document.signatures ?? [];
   if (signatures.length === 0) return;
 
-  const ALTURA = 58;
-  ensureSpace(doc, ALTURA, bottomLimit);
+  const porLinha = assinaturasPorLinha(document);
+
+  // O bloco INTEIRO: as partes numa página e as testemunhas na outra deixam
+  // uma folha só com linhas para assinar.
+  ensureSpace(doc, signatureBlockHeight(document), bottomLimit);
+
+  for (let inicio = 0; inicio < signatures.length; inicio += porLinha) {
+    drawSignatureRow(
+      doc,
+      signatures.slice(inicio, inicio + porLinha),
+      porLinha,
+      left,
+      usableWidth,
+      bottomLimit,
+      SIGNATURE_ROW_HEIGHT,
+    );
+  }
+}
+
+const SIGNATURE_ROW_HEIGHT = 58;
+
+function assinaturasPorLinha(document: PrintableDocument): number {
+  const total = document.signatures?.length ?? 0;
+  return Math.max(1, document.signaturesPerRow ?? total);
+}
+
+/// Altura de todas as linhas de assinatura do documento; zero quando não há.
+function signatureBlockHeight(document: PrintableDocument): number {
+  const total = document.signatures?.length ?? 0;
+  return Math.ceil(total / assinaturasPorLinha(document)) * SIGNATURE_ROW_HEIGHT;
+}
+
+/// Uma linha de assinaturas. A largura da coluna é a da linha CHEIA, para as
+/// testemunhas ficarem alinhadas sob as partes mesmo quando a última linha
+/// tem menos assinaturas.
+function drawSignatureRow(
+  doc: Doc,
+  signatures: NonNullable<PrintableDocument['signatures']>,
+  porLinha: number,
+  left: number,
+  usableWidth: number,
+  bottomLimit: number,
+  altura: number,
+) {
+  ensureSpace(doc, altura, bottomLimit);
 
   const y = doc.y + 30;
-  const columnWidth = usableWidth / signatures.length;
+  const columnWidth = usableWidth / porLinha;
 
   for (const [index, signature] of signatures.entries()) {
     const x = left + columnWidth * index;
@@ -650,12 +759,16 @@ function drawSignatures(
       .stroke(BLACK);
 
     if (signature.name) {
-      doc.font(FONT_BOLD).fontSize(8).fillColor(BLACK).text(signature.name, x + 14, y + 4, {
-        width: lineWidth,
-        align: 'center',
-        lineBreak: false,
-        ellipsis: true,
-      });
+      doc
+        .font(FONT_BOLD)
+        .fontSize(8)
+        .fillColor(BLACK)
+        .text(signature.name, x + 14, y + 4, {
+          width: lineWidth,
+          align: 'center',
+          lineBreak: false,
+          ellipsis: true,
+        });
     }
 
     doc

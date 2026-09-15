@@ -1,6 +1,6 @@
 import { memo } from 'react';
 
-import { FileSignature, MoreHorizontal, Trash2, XCircle } from 'lucide-react';
+import { FileSignature, FileText, MoreHorizontal, Trash2, XCircle } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -35,12 +35,14 @@ function formatDaysRemaining(days: number): string {
 
 interface ContractsTableProps {
   contracts: Contract[];
+  onGeneratePdf: (contract: Contract) => void;
   onCancel: (contract: Contract) => void;
   onDelete: (contract: Contract) => void;
 }
 
 export const ContractsTable = memo(function ContractsTable({
   contracts,
+  onGeneratePdf,
   onCancel,
   onDelete,
 }: ContractsTableProps) {
@@ -101,6 +103,10 @@ export const ContractsTable = memo(function ContractsTable({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onGeneratePdf(contract)}>
+                    <FileText />
+                    Gerar PDF
+                  </DropdownMenuItem>
                   {contract.status === 'ACTIVE' && (
                     <DropdownMenuItem variant="destructive" onClick={() => onCancel(contract)}>
                       <XCircle />

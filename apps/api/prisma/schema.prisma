@@ -1934,6 +1934,11 @@ model ContractorContract {
   endDate            DateTime
   status             ContractStatus @default(ACTIVE)
 
+  /// FORMA DE PAGAMENTO, em texto livre ("medições quinzenais, pagamento em
+  /// até 10 dias após a aprovação"). Vai para a cláusula de pagamento do PDF.
+  /// Nula nos contratos anteriores ao campo: o PDF deixa a linha em branco.
+  paymentTerms String?
+
   /// Precificação da empreitada. Ver `ContractPricingType`.
   pricingType ContractPricingType @default(GLOBAL)
 

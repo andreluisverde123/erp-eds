@@ -6,11 +6,16 @@ import {
 } from '@nestjs/common';
 
 import { Prisma } from '../../../generated/prisma/client';
+import { loadCompanyLogo } from '../../common/pdf/company-logo';
+import { renderDocumentPdf, type RenderedPdf } from '../../common/pdf/pdf-renderer';
+import { COMPANY_HEADER_SELECT, SITE_ADDRESS_SELECT } from '../../common/pdf/printable-document';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { addDays, startOfDay } from '../../common/utils/date.util';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
 import { nextSequentialCode } from '../../common/utils/sequential-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../../storage/storage.module';
+import { buildContractDocument } from './pdf/contract-document';
 import {
   computeContractBadge,
   computeDaysRemaining,
@@ -41,7 +46,11 @@ function withComputedStatus(contract: ContractWithRelations) {
 
 @Injectable()
 export class ContractsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /// Só para o logo da empresa no PDF do contrato.
+    private readonly storage: StorageService,
+  ) {}
 
   async create(companyId: string, dto: CreateContractDto) {
     await this.assertContractor(companyId, dto.contractorId);
@@ -66,6 +75,7 @@ export class ContractsService {
           unitPrice: dto.unitPrice,
           unitLabel: dto.unitLabel,
           measuredQuantity: dto.measuredQuantity,
+          paymentTerms: dto.paymentTerms?.trim() || null,
           startDate: new Date(dto.startDate),
           endDate: new Date(dto.endDate),
         },
@@ -162,12 +172,59 @@ export class ContractsService {
         unitPrice: dto.unitPrice,
         unitLabel: dto.unitLabel,
         measuredQuantity: dto.measuredQuantity,
+        paymentTerms: dto.paymentTerms === undefined ? undefined : dto.paymentTerms.trim() || null,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       },
     });
 
     return this.findOne(companyId, id);
+  }
+
+  /// O PDF do contrato: os campos do cadastro dentro do modelo padrão de
+  /// cláusulas (ver `pdf/contract-document.ts`).
+  ///
+  /// SEGURANÇA: o contrato e a empresa saem do `companyId` do TOKEN; um id de
+  /// outra empresa não encontra contrato nenhum.
+  async generatePdf(companyId: string, id: string): Promise<RenderedPdf & { code: string }> {
+    const contract = await this.prisma.contractorContract.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: {
+        code: true,
+        scope: true,
+        totalValue: true,
+        pricingType: true,
+        unitPrice: true,
+        unitLabel: true,
+        startDate: true,
+        endDate: true,
+        paymentTerms: true,
+        createdAt: true,
+        contractor: {
+          select: {
+            legalName: true,
+            tradeName: true,
+            document: true,
+            responsibleName: true,
+            city: true,
+            state: true,
+          },
+        },
+        constructionSite: { select: SITE_ADDRESS_SELECT },
+      },
+    });
+    if (!contract) {
+      throw new NotFoundException('Contrato não encontrado.');
+    }
+
+    const company = await this.prisma.company.findFirstOrThrow({
+      where: { id: companyId },
+      select: COMPANY_HEADER_SELECT,
+    });
+    const logo = await loadCompanyLogo(this.storage, company.logoUrl);
+
+    const rendered = await renderDocumentPdf(buildContractDocument(contract, company, logo));
+    return { ...rendered, code: contract.code };
   }
 
   async updateStatus(companyId: string, id: string, status: 'CANCELLED') {

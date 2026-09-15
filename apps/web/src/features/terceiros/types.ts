@@ -83,6 +83,8 @@ export interface Contract {
   measuredQuantity: string | null;
   startDate: string;
   endDate: string;
+  /// Forma de pagamento, impressa no PDF. `null` nos contratos anteriores ao campo.
+  paymentTerms: string | null;
   status: 'ACTIVE' | 'CANCELLED';
   badgeStatus: ContractBadgeStatus;
   daysRemaining: number;
@@ -101,6 +103,7 @@ export interface ContractInput {
   measuredQuantity?: number;
   startDate: string;
   endDate: string;
+  paymentTerms?: string;
 }
 
 export interface ContractQuery {

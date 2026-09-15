@@ -1,7 +1,19 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { cancelContract, createContract, deleteContract, updateContract } from '../api';
+import {
+  cancelContract,
+  createContract,
+  deleteContract,
+  downloadContractPdf,
+  updateContract,
+} from '../api';
 import type { ContractInput } from '../types';
+
+export function useDownloadContractPdf() {
+  return useMutation({
+    mutationFn: ({ id, code }: { id: string; code: string }) => downloadContractPdf(id, code),
+  });
+}
 
 export function useCreateContract() {
   const queryClient = useQueryClient();

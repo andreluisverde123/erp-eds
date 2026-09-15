@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,7 +11,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
@@ -41,6 +44,22 @@ export class ContractsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('companyId') companyId: string) {
     return this.contractsService.findOne(companyId, id);
+  }
+
+  /// O PDF do contrato. Mesma permissão de VER o contrato: quem pode ver pode
+  /// imprimir.
+  @RequirePermissions('terceiros.view')
+  @Get(':id/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async pdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, code } = await this.contractsService.generatePdf(companyId, id);
+    res.setHeader('Content-Disposition', `inline; filename="${code}.pdf"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   @RequirePermissions('terceiros.manage')

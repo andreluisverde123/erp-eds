@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api-client';
+import { downloadFile } from '@/lib/download-file';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
@@ -49,6 +50,12 @@ export function createContract(input: ContractInput): Promise<Contract> {
 
 export function updateContract(id: string, input: Partial<ContractInput>): Promise<Contract> {
   return apiClient.patch(`/contracts/${id}`, input);
+}
+
+/// Baixa o PDF do contrato. `downloadFile` porque o token vai em header — um
+/// `<a href>` simples voltaria 401.
+export function downloadContractPdf(id: string, code: string): Promise<void> {
+  return downloadFile(`/contracts/${id}/pdf`, `${code}.pdf`);
 }
 
 export function cancelContract(id: string): Promise<Contract> {

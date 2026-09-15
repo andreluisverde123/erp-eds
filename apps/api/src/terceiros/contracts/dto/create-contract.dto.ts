@@ -22,9 +22,17 @@ export class CreateContractDto {
   constructionSiteId!: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'O escopo é obrigatório.' })
-  @MaxLength(500)
+  @IsNotEmpty({ message: 'O objeto do contrato é obrigatório.' })
+  @MaxLength(2000, { message: 'O objeto do contrato é longo demais.' })
   scope!: string;
+
+  /// Forma de pagamento, impressa na cláusula de pagamento do PDF. Opcional
+  /// na API porque os contratos anteriores ao campo não a têm; a tela de novo
+  /// contrato exige.
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000, { message: 'A forma de pagamento é longa demais.' })
+  paymentTerms?: string;
 
   @IsNumber({}, { message: 'Valor inválido.' })
   @IsPositive({ message: 'O valor deve ser maior que zero.' })
