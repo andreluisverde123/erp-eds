@@ -4,6 +4,7 @@ import { toQueryString } from '@/lib/query-string';
 
 import type {
   PurchaseRequestItemInput,
+  PurchaseRequestItemUpdateInput,
   PaginatedResult,
   PurchaseOrder,
   PurchaseOrderInput,
@@ -67,8 +68,21 @@ export function addPurchaseRequestItems(
   return apiClient.post(`/purchase-requests/${id}/items`, { items });
 }
 
+/// Edita um item de solicitação já enviada (enquanto não estiver em ordem de
+/// compra). Numa solicitação aprovada, mudar o valor a devolve para cotação.
+export function updatePurchaseRequestItem(
+  id: string,
+  itemId: string,
+  input: PurchaseRequestItemUpdateInput,
+): Promise<PurchaseRequestDetail> {
+  return apiClient.patch(`/purchase-requests/${id}/items/${itemId}`, input);
+}
+
 /// Exclui um item de solicitação já enviada (enquanto não estiver em ordem de compra).
-export function removePurchaseRequestItem(id: string, itemId: string): Promise<PurchaseRequestDetail> {
+export function removePurchaseRequestItem(
+  id: string,
+  itemId: string,
+): Promise<PurchaseRequestDetail> {
   return apiClient.delete(`/purchase-requests/${id}/items/${itemId}`);
 }
 

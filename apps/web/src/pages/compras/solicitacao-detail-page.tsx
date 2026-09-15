@@ -21,6 +21,7 @@ import { useAuth } from '@/features/auth/context';
 import { RecordHistoryPanel } from '@/features/history/components/record-history-panel';
 
 import { AddRequestItemsDrawer } from '@/features/compras/components/add-request-items-drawer';
+import { EditRequestItemSheet } from '@/features/compras/components/edit-request-item-sheet';
 import { GeneratePurchaseOrderDrawer } from '@/features/compras/components/generate-purchase-order-drawer';
 import { QuotePurchaseRequestDrawer } from '@/features/compras/components/quote-purchase-request-drawer';
 import { PurchaseRequestItemsTable } from '@/features/compras/components/purchase-request-items-table';
@@ -175,6 +176,7 @@ export function SolicitacaoDetailPage() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
   const [itemParaExcluir, setItemParaExcluir] = useState<PurchaseRequestItem | null>(null);
+  const [itemParaEditar, setItemParaEditar] = useState<PurchaseRequestItem | null>(null);
   const [erroDeItem, setErroDeItem] = useState<string | null>(null);
   const removeItemMutation = useRemovePurchaseRequestItem(id ?? '');
   const stockMutation = useSetPurchaseRequestItemStock(id ?? '');
@@ -220,15 +222,13 @@ export function SolicitacaoDetailPage() {
   // INCLUIR item numa solicitação já enviada. Vale só antes da aprovação: a
   // alçada é avaliada na aprovação, sobre o conteúdo daquele momento — a API
   // aplica a mesma regra, aqui é só para não mostrar botão que dará 409.
-  const canAddItems =
-    canRequest && (request.status === 'PENDING' || request.status === 'QUOTING');
+  const canAddItems = canRequest && (request.status === 'PENDING' || request.status === 'QUOTING');
   const temOrdens = (ordersData?.data.length ?? 0) > 0;
   // EXCLUIR item ou marcar EM ESTOQUE: quem pede e quem compra (os dois têm
   // `compras.request`), da chegada em Compras até depois da aprovação, enquanto
   // a linha não está em ordem de compra — a tabela esconde a ação nessa linha,
   // e a API aplica as mesmas regras.
-  const canChangeItems =
-    canRequest && ['PENDING', 'QUOTING', 'APPROVED'].includes(request.status);
+  const canChangeItems = canRequest && ['PENDING', 'QUOTING', 'APPROVED'].includes(request.status);
 
   async function alterarItem(acao: () => Promise<unknown>, falha: string) {
     setErroDeItem(null);
@@ -430,9 +430,11 @@ export function SolicitacaoDetailPage() {
                     disabled: removeItemMutation.isPending || stockMutation.isPending,
                     onToggleStock: (item) =>
                       alterarItem(
-                        () => stockMutation.mutateAsync({ itemId: item.id, inStock: !item.inStock }),
+                        () =>
+                          stockMutation.mutateAsync({ itemId: item.id, inStock: !item.inStock }),
                         'Não foi possível alterar o item.',
                       ),
+                    onEdit: setItemParaEditar,
                     onRemove: setItemParaExcluir,
                   }
                 : undefined
@@ -510,6 +512,13 @@ export function SolicitacaoDetailPage() {
         requestCode={request.code}
       />
 
+      <EditRequestItemSheet
+        item={itemParaEditar}
+        onOpenChange={(aberto) => !aberto && setItemParaEditar(null)}
+        purchaseRequestId={request.id}
+        approved={request.status === 'APPROVED'}
+      />
+
       <QuotePurchaseRequestDrawer open={quoteOpen} onOpenChange={setQuoteOpen} request={request} />
 
       <ConfirmDialog
@@ -535,7 +544,10 @@ export function SolicitacaoDetailPage() {
           const item = itemParaExcluir;
           setItemParaExcluir(null);
           if (item) {
-            await alterarItem(() => removeItemMutation.mutateAsync(item.id), 'Não foi possível excluir o item.');
+            await alterarItem(
+              () => removeItemMutation.mutateAsync(item.id),
+              'Não foi possível excluir o item.',
+            );
           }
         }}
       />

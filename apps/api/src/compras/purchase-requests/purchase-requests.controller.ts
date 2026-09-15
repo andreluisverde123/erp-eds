@@ -25,6 +25,7 @@ import { QueryPurchaseRequestDto } from './dto/query-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
 import { UpdatePurchaseRequestQuoteDto } from './dto/update-purchase-request-quote.dto';
 import { SetPurchaseRequestItemStockDto } from './dto/set-purchase-request-item-stock.dto';
+import { UpdatePurchaseRequestItemDto } from './dto/update-purchase-request-item.dto';
 import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
 import { PurchaseRequestsService } from './purchase-requests.service';
 
@@ -160,6 +161,20 @@ export class PurchaseRequestsController {
     @CurrentUser('companyId') companyId: string,
   ) {
     return this.purchaseRequestsService.addItems(companyId, id, dto);
+  }
+
+  /// EDITAR um item de solicitação já enviada: material, unidade, quantidade
+  /// e observação. Mesma permissão e mesma janela da exclusão; mexer no valor
+  /// de uma solicitação aprovada a devolve para cotação — ver o service.
+  @RequirePermissions('compras.request')
+  @Patch(':id/items/:itemId')
+  updateItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: UpdatePurchaseRequestItemDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.purchaseRequestsService.updateItem(companyId, id, itemId, dto);
   }
 
   /// EXCLUIR um item de solicitação já enviada, enquanto ele não entrou em

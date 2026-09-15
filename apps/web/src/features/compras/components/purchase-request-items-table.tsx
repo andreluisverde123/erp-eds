@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { MoreHorizontal, PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PackageCheck, Pencil, ShoppingCart, Trash2 } from 'lucide-react';
 
 import {
   Badge,
@@ -60,10 +60,11 @@ function formatPercent(value: string): string {
   return `${Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 }
 
-/// Ações por item na solicitação já enviada: excluir e marcar em estoque.
-/// Ausente = tabela só de leitura. Linha que já está em ordem de compra não
-/// oferece ação — a API recusaria.
+/// Ações por item na solicitação já enviada: editar, marcar em estoque e
+/// excluir. Ausente = tabela só de leitura. Linha que já está em ordem de
+/// compra não oferece ação — a API recusaria.
 export interface PurchaseRequestItemActions {
+  onEdit: (item: PurchaseRequestItem) => void;
   onToggleStock: (item: PurchaseRequestItem) => void;
   onRemove: (item: PurchaseRequestItem) => void;
   disabled?: boolean;
@@ -135,7 +136,10 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
                   {/* Em estoque não é "atendido por compra": a etiqueta de
                       atendimento dá lugar a esta. */}
                   {item.inStock ? (
-                    <Badge variant="outline" className="border-sky-600/40 font-normal text-sky-700 dark:text-sky-400">
+                    <Badge
+                      variant="outline"
+                      className="border-sky-600/40 font-normal text-sky-700 dark:text-sky-400"
+                    >
                       Em estoque
                     </Badge>
                   ) : (
@@ -217,12 +221,21 @@ export const PurchaseRequestItemsTable = memo(function PurchaseRequestItemsTable
                   {item.fulfillment.entries.length === 0 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8" disabled={actions.disabled}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          disabled={actions.disabled}
+                        >
                           <MoreHorizontal className="size-4" />
                           <span className="sr-only">Ações de {item.description}</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => actions.onEdit(item)}>
+                          <Pencil />
+                          Editar item
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => actions.onToggleStock(item)}>
                           {item.inStock ? <ShoppingCart /> : <PackageCheck />}
                           {item.inStock ? 'Voltar para compra' : 'Marcar como em estoque'}

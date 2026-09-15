@@ -8,11 +8,13 @@ import {
   removePurchaseRequestItem,
   setPurchaseRequestItemStock,
   updatePurchaseRequest,
+  updatePurchaseRequestItem,
   updatePurchaseRequestQuote,
   updatePurchaseRequestStatus,
 } from '../api';
 import type {
   PurchaseRequestItemInput,
+  PurchaseRequestItemUpdateInput,
   PurchaseRequestInput,
   PurchaseRequestQuoteInput,
   PurchaseRequestStatus,
@@ -57,6 +59,18 @@ export function useRemovePurchaseRequestItem(id: string) {
 
   return useMutation({
     mutationFn: (itemId: string) => removePurchaseRequestItem(id, itemId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+  });
+}
+
+/// Editar item muda total e pode mudar o STATUS (aprovada volta para cotação):
+/// listagem e detalhe são recarregados.
+export function useUpdatePurchaseRequestItem(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ itemId, input }: { itemId: string; input: PurchaseRequestItemUpdateInput }) =>
+      updatePurchaseRequestItem(id, itemId, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
   });
 }

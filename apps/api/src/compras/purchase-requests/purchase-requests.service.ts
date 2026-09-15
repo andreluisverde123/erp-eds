@@ -108,7 +108,11 @@ const REQUESTER_TRANSITIONS: PurchaseRequestStatus[] = ['PENDING', 'CANCELLED'];
 /// edição já faz isso; cancelada é terminal.
 const ITENS_ALTERAVEIS: PurchaseRequestStatus[] = ['PENDING', 'QUOTING', 'APPROVED'];
 
-function descreverItem(item: { description: string; quantity: Prisma.Decimal; unit: string }): string {
+function descreverItem(item: {
+  description: string;
+  quantity: Prisma.Decimal;
+  unit: string;
+}): string {
   return `${item.description}: ${Number(item.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${item.unit}`;
 }
 
@@ -550,11 +554,146 @@ export class PurchaseRequestsService {
       await this.logItemChange(
         companyId,
         id,
-        inStock ? { emEstoque: descreverItem(alterado) } : { voltouParaCompra: descreverItem(alterado) },
+        inStock
+          ? { emEstoque: descreverItem(alterado) }
+          : { voltouParaCompra: descreverItem(alterado) },
       );
     }
 
     return this.findOne(companyId, id);
+  }
+
+  /// EDITA um item de solicitação já enviada: material, unidade, quantidade e
+  /// observação.
+  ///
+  /// Mesma janela, mesma permissão e mesma trava da exclusão: de PENDING a
+  /// APPROVED, enquanto a linha não está em ordem de compra ativa.
+  ///
+  /// **A cotação da linha.** Trocar o material ou a unidade apaga preço,
+  /// "não disponível" e desconto: eram de outro produto. Mudar só a
+  /// quantidade mantém o preço unitário — o total é recalculado na leitura.
+  ///
+  /// **A aprovação.** A alçada decidiu sobre o conteúdo que existia. Mudar
+  /// material, unidade ou quantidade de uma solicitação APROVADA a devolve
+  /// para Em cotação, e ela precisa ser aprovada de novo (decisão de
+  /// 15/09/2026). A observação não mexe no valor e não reabre; item em estoque
+  /// também não, porque não entra no total.
+  async updateItem(
+    companyId: string,
+    id: string,
+    itemId: string,
+    dto: {
+      catalogItemId?: string;
+      description: string;
+      unit: string;
+      quantity: number;
+      notes?: string;
+    },
+  ) {
+    await this.assertExists(companyId, id);
+    await this.assertInsumosDaEmpresa(companyId, [dto]);
+
+    const edicao = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "PurchaseRequest" WHERE id = ${id}::uuid FOR UPDATE`;
+
+      // O status é relido DEPOIS da trava: uma aprovação que chegou no meio
+      // precisa ser vista por esta edição, senão ela não reabriria.
+      const solicitacao = await tx.purchaseRequest.findFirst({
+        where: { id, companyId, deletedAt: null },
+        select: { status: true },
+      });
+      if (!solicitacao) throw new NotFoundException('Solicitação não encontrada.');
+      this.assertItemsChangeable(solicitacao.status);
+
+      const item = await tx.purchaseRequestItem.findFirst({
+        where: { id: itemId, purchaseRequestId: id },
+        select: {
+          id: true,
+          description: true,
+          quantity: true,
+          unit: true,
+          notes: true,
+          catalogItemId: true,
+          inStock: true,
+        },
+      });
+      if (!item) throw new NotFoundException('Item não encontrado nesta solicitação.');
+      await this.assertNotPurchased(tx, id, item);
+
+      const novo = {
+        description: dto.description.trim(),
+        unit: dto.unit.trim(),
+        quantity: new Prisma.Decimal(dto.quantity),
+        notes: dto.notes?.trim() || null,
+        catalogItemId: dto.catalogItemId ?? null,
+      };
+      const trocouMaterial =
+        novo.description !== item.description ||
+        novo.unit !== item.unit ||
+        novo.catalogItemId !== (item.catalogItemId ?? null);
+      const trocouQuantidade = !novo.quantity.equals(item.quantity);
+      const trocouObservacao = novo.notes !== (item.notes ?? null);
+      if (!trocouMaterial && !trocouQuantidade && !trocouObservacao) return null;
+
+      await tx.purchaseRequestItem.update({
+        where: { id: itemId },
+        data: {
+          ...toItemRow(novo),
+          ...(trocouMaterial
+            ? {
+                estimatedUnitPrice: null,
+                unavailable: false,
+                unavailabilityNote: null,
+                discountType: 'AMOUNT' as const,
+                discountValue: 0,
+              }
+            : {}),
+        },
+      });
+
+      const reabre =
+        solicitacao.status === 'APPROVED' && !item.inStock && (trocouMaterial || trocouQuantidade);
+      if (reabre) {
+        await tx.purchaseRequest.update({ where: { id, companyId }, data: { status: 'QUOTING' } });
+      }
+      return { antes: item, depois: novo, reabre };
+    });
+
+    if (edicao) await this.logItemEdit(companyId, id, edicao.antes, edicao.depois, edicao.reabre);
+
+    return this.findOne(companyId, id);
+  }
+
+  /// O antes e o depois da linha no histórico, e a reabertura quando houve.
+  /// A mudança de status acontece dentro da transação, onde a auditoria
+  /// automática não enxerga — por isso ela vai junto aqui.
+  private async logItemEdit(
+    companyId: string,
+    id: string,
+    antes: { description: string; quantity: Prisma.Decimal; unit: string; notes: string | null },
+    depois: { description: string; quantity: Prisma.Decimal; unit: string; notes: string | null },
+    reabriu: boolean,
+  ): Promise<void> {
+    const texto = (linha: typeof antes) =>
+      `${descreverItem(linha)}${linha.notes ? ` (obs.: ${linha.notes})` : ''}`;
+    const changes: Record<string, { from: string; to: string }> = {
+      itemEditado: { from: texto(antes), to: texto(depois) },
+    };
+    if (reabriu) changes.status = { from: 'APPROVED', to: 'QUOTING' };
+
+    const store = auditContextStorage.getStore();
+    try {
+      await this.auditLogger.log({
+        companyId,
+        userId: store?.userId,
+        action: 'UPDATE',
+        entityType: 'PurchaseRequest',
+        entityId: id,
+        changes,
+      });
+    } catch {
+      // A edição já está gravada; derrubar a resposta faria a pessoa repetir.
+    }
   }
 
   private assertItemsChangeable(status: PurchaseRequestStatus): void {
@@ -574,7 +713,8 @@ export class PurchaseRequestsService {
     purchaseRequestId: string,
     item: { id: string; description: string },
   ): Promise<void> {
-    const compras = (await this.fulfillment.entriesByItem(purchaseRequestId, { client: tx })).get(item.id) ?? [];
+    const compras =
+      (await this.fulfillment.entriesByItem(purchaseRequestId, { client: tx })).get(item.id) ?? [];
     if (compras.length > 0) {
       throw new ConflictException(
         `O item "${item.description}" já está na ordem de compra ${compras.map((compra) => compra.purchaseOrderCode).join(', ')} e não pode ser alterado.`,
@@ -584,7 +724,11 @@ export class PurchaseRequestsService {
 
   /// Uma entrada no histórico da solicitação por alteração de item, com a
   /// descrição no VALOR (mesmo padrão de `logAddedItems`).
-  private async logItemChange(companyId: string, id: string, mudanca: Record<string, string>): Promise<void> {
+  private async logItemChange(
+    companyId: string,
+    id: string,
+    mudanca: Record<string, string>,
+  ): Promise<void> {
     const store = auditContextStorage.getStore();
     try {
       await this.auditLogger.log({
@@ -660,7 +804,9 @@ export class PurchaseRequestsService {
       dto.items.some(
         (item) =>
           emEstoque.has(item.id) &&
-          (item.unavailable === true || item.estimatedUnitPrice !== undefined || item.discount !== undefined),
+          (item.unavailable === true ||
+            item.estimatedUnitPrice !== undefined ||
+            item.discount !== undefined),
       )
     ) {
       throw new BadRequestException(

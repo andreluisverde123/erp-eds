@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PurchaseRequestItem } from '../types';
 import { PurchaseRequestItemsTable } from './purchase-request-items-table';
 
-function item(extra: Partial<PurchaseRequestItem> & Pick<PurchaseRequestItem, 'id' | 'description'>): PurchaseRequestItem {
+function item(
+  extra: Partial<PurchaseRequestItem> & Pick<PurchaseRequestItem, 'id' | 'description'>,
+): PurchaseRequestItem {
   return {
     unit: 'UN',
     quantity: '10.000',
@@ -16,7 +18,13 @@ function item(extra: Partial<PurchaseRequestItem> & Pick<PurchaseRequestItem, 'i
     inStock: false,
     discountType: 'AMOUNT',
     discountValue: '0',
-    fulfillment: { requestedQuantity: '10', fulfilledQuantity: '0', pendingQuantity: '10', status: 'PENDING', entries: [] },
+    fulfillment: {
+      requestedQuantity: '10',
+      fulfilledQuantity: '0',
+      pendingQuantity: '10',
+      status: 'PENDING',
+      entries: [],
+    },
     ...extra,
   } as PurchaseRequestItem;
 }
@@ -27,7 +35,13 @@ const TORNEIRA = item({
   description: 'Torneira de jardim',
   inStock: true,
   estimatedUnitPrice: null,
-  fulfillment: { requestedQuantity: '5', fulfilledQuantity: '0', pendingQuantity: '0', status: 'FULFILLED', entries: [] },
+  fulfillment: {
+    requestedQuantity: '5',
+    fulfilledQuantity: '0',
+    pendingQuantity: '0',
+    status: 'FULFILLED',
+    entries: [],
+  },
 });
 const COMPRADO = item({
   id: 'p',
@@ -37,7 +51,14 @@ const COMPRADO = item({
     fulfilledQuantity: '20',
     pendingQuantity: '0',
     status: 'FULFILLED',
-    entries: [{ purchaseOrderId: 'o1', purchaseOrderCode: 'OC-0001', supplierName: 'Depósito', quantity: '20' }],
+    entries: [
+      {
+        purchaseOrderId: 'o1',
+        purchaseOrderCode: 'OC-0001',
+        supplierName: 'Depósito',
+        quantity: '20',
+      },
+    ],
   },
 });
 
@@ -56,11 +77,21 @@ describe('Itens da solicitação — em estoque e exclusão', () => {
     expect(screen.queryByRole('button', { name: /Ações de/ })).toBeNull();
   });
 
-  it('com ações: marca em estoque, volta para compra e exclui', async () => {
+  it('com ações: edita, marca em estoque, volta para compra e exclui', async () => {
+    const onEdit = vi.fn();
     const onToggleStock = vi.fn();
     const onRemove = vi.fn();
     const usuario = userEvent.setup({ pointerEventsCheck: 0 });
-    render(<PurchaseRequestItemsTable items={[CIMENTO, TORNEIRA]} actions={{ onToggleStock, onRemove }} />);
+    render(
+      <PurchaseRequestItemsTable
+        items={[CIMENTO, TORNEIRA]}
+        actions={{ onEdit, onToggleStock, onRemove }}
+      />,
+    );
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações de Cimento CP-II' }));
+    await usuario.click(await screen.findByRole('menuitem', { name: /Editar item/ }));
+    expect(onEdit).toHaveBeenCalledWith(CIMENTO);
 
     await usuario.click(screen.getByRole('button', { name: 'Ações de Cimento CP-II' }));
     await usuario.click(await screen.findByRole('menuitem', { name: /Marcar como em estoque/ }));
@@ -76,7 +107,12 @@ describe('Itens da solicitação — em estoque e exclusão', () => {
   });
 
   it('linha já em ordem de compra não oferece ação', () => {
-    render(<PurchaseRequestItemsTable items={[COMPRADO]} actions={{ onToggleStock: vi.fn(), onRemove: vi.fn() }} />);
+    render(
+      <PurchaseRequestItemsTable
+        items={[COMPRADO]}
+        actions={{ onEdit: vi.fn(), onToggleStock: vi.fn(), onRemove: vi.fn() }}
+      />,
+    );
     expect(screen.queryByRole('button', { name: 'Ações de Tubo PVC' })).toBeNull();
   });
 });

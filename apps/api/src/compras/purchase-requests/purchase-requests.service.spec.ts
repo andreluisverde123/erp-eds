@@ -1317,33 +1317,33 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
       // viu, e a ordem de compra não tem alçada própria para segurar isso.
       const { service } = makeService({ status: 'APPROVED' });
 
-      await expect(
-        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] })).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('recusa em RASCUNHO — lá a edição já faz isso, e melhor', async () => {
       const { service } = makeService({ status: 'DRAFT' });
 
-      await expect(
-        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
-      ).rejects.toThrow(/ainda é um rascunho/);
+      await expect(service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] })).rejects.toThrow(
+        /ainda é um rascunho/,
+      );
     });
 
     it('recusa em CANCELADA', async () => {
       const { service } = makeService({ status: 'CANCELLED' });
 
-      await expect(
-        service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] }),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.addItems(EMPRESA_A, SOLICITACAO, { items: [NOVO] })).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('a solicitação de outra empresa não é encontrada', async () => {
       const { service } = makeService({ status: 'PENDING' });
 
-      await expect(
-        service.addItems(EMPRESA_B, SOLICITACAO, { items: [NOVO] }),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.addItems(EMPRESA_B, SOLICITACAO, { items: [NOVO] })).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('grava a chave de busca do item novo, como a criação faz', async () => {
@@ -1542,8 +1542,7 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
     /// herda o da classe (`compras.view`).
     const permissaoDe = (metodo: keyof typeof PurchaseRequestsController.prototype) =>
       Reflect.getMetadata(PERMISSIONS_KEY, PurchaseRequestsController.prototype[metodo]) as
-        | string[]
-        | undefined;
+        string[] | undefined;
 
     it('a sugestão de material exige a MESMA permissão do formulário que ela serve', () => {
       // O defeito que isto trava: a rota herdava `compras.view` da classe
@@ -1599,7 +1598,6 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
   });
 });
 
-
 /// ITEM EXCLUÍDO E ITEM EM ESTOQUE numa solicitação já enviada.
 ///
 /// Os dois liberados para quem pede e para quem compra (`compras.request`),
@@ -1617,15 +1615,18 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
   };
 
   describe('Excluir item', () => {
-    it.each(['PENDING', 'QUOTING', 'APPROVED'])('exclui em %s, travando a solicitação', async (status) => {
-      const { service, store, travas } = makeService({ status });
+    it.each(['PENDING', 'QUOTING', 'APPROVED'])(
+      'exclui em %s, travando a solicitação',
+      async (status) => {
+        const { service, store, travas } = makeService({ status });
 
-      const resultado = await service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA);
+        const resultado = await service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA);
 
-      expect(store.map((item) => item.id)).toEqual([CIMENTO, PVC]);
-      expect(resultado.items.map((item) => item.id)).toEqual([CIMENTO, PVC]);
-      expect(travas[0]).toContain('FOR UPDATE');
-    });
+        expect(store.map((item) => item.id)).toEqual([CIMENTO, PVC]);
+        expect(resultado.items.map((item) => item.id)).toEqual([CIMENTO, PVC]);
+        expect(travas[0]).toContain('FOR UPDATE');
+      },
+    );
 
     it('registra a exclusão no histórico, com descrição e quantidade', async () => {
       const { service, auditado } = makeService({ status: 'QUOTING' });
@@ -1651,13 +1652,15 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
     it('não deixa a solicitação sem itens — desistir de tudo é cancelar', async () => {
       const { service } = makeService({ status: 'PENDING', itens: [itensIniciais()[0]!] });
 
-      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(/ao menos um item/);
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(
+        /ao menos um item/,
+      );
     });
 
     it('rascunho usa a edição; cancelada não muda', async () => {
-      await expect(makeService({ status: 'DRAFT' }).service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO)).rejects.toThrow(
-        /rascunho/,
-      );
+      await expect(
+        makeService({ status: 'DRAFT' }).service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO),
+      ).rejects.toThrow(/rascunho/);
       await expect(
         makeService({ status: 'CANCELLED' }).service.removeItem(EMPRESA_A, SOLICITACAO, CIMENTO),
       ).rejects.toThrow(ConflictException);
@@ -1666,10 +1669,12 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
     it('item de outra solicitação não é encontrado; solicitação de outra empresa também não', async () => {
       const { service } = makeService({ status: 'PENDING' });
 
-      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, '77777777-7777-4777-8777-777777777777')).rejects.toThrow(
+      await expect(
+        service.removeItem(EMPRESA_A, SOLICITACAO, '77777777-7777-4777-8777-777777777777'),
+      ).rejects.toThrow(NotFoundException);
+      await expect(service.removeItem(EMPRESA_B, SOLICITACAO, CIMENTO)).rejects.toThrow(
         NotFoundException,
       );
-      await expect(service.removeItem(EMPRESA_B, SOLICITACAO, CIMENTO)).rejects.toThrow(NotFoundException);
     });
 
     it('ordem cancelada ainda ligada à linha: a trava do banco vira mensagem', async () => {
@@ -1678,7 +1683,9 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
         new Prisma.PrismaClientKnownRequestError('fk', { code: 'P2003', clientVersion: '7' }),
       );
 
-      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA)).rejects.toThrow(/ordem de compra cancelada/);
+      await expect(service.removeItem(EMPRESA_A, SOLICITACAO, TORNEIRA)).rejects.toThrow(
+        /ordem de compra cancelada/,
+      );
     });
   });
 
@@ -1719,7 +1726,11 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
 
       expect(torneira.fulfillment.pendingQuantity.toNumber()).toBe(0);
       expect(torneira.fulfillment.status).toBe('FULFILLED');
-      expect(depois.fulfillment).toMatchObject({ totalItems: 3, fulfilledItems: 1, pendingItems: 2 });
+      expect(depois.fulfillment).toMatchObject({
+        totalItems: 3,
+        fulfilledItems: 1,
+        pendingItems: 2,
+      });
     });
 
     it('a listagem também desconta o item em estoque do saldo', async () => {
@@ -1729,7 +1740,11 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
       const resumo = await fulfillment.summaryByRequest([
         {
           id: SOLICITACAO,
-          items: itensIniciais().map((item) => ({ id: item.id, quantity: item.quantity, inStock: true })),
+          items: itensIniciais().map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            inStock: true,
+          })),
         },
       ]);
 
@@ -1737,13 +1752,17 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
     });
 
     it('desmarcar devolve à compra e fica no histórico', async () => {
-      const itens = itensIniciais().map((item) => (item.id === PVC ? { ...item, inStock: true } : item));
+      const itens = itensIniciais().map((item) =>
+        item.id === PVC ? { ...item, inStock: true } : item,
+      );
       const { service, store, auditado } = makeService({ status: 'QUOTING', itens });
 
       await service.setItemStock(EMPRESA_A, SOLICITACAO, PVC, false);
 
       expect(linha(store, PVC).inStock).toBe(false);
-      expect(auditado[0]).toMatchObject({ changes: { voltouParaCompra: { to: 'Tubo PVC 100mm: 20 UN' } } });
+      expect(auditado[0]).toMatchObject({
+        changes: { voltouParaCompra: { to: 'Tubo PVC 100mm: 20 UN' } },
+      });
     });
 
     it('marcar registra no histórico; repetir o mesmo estado não muda nada nem registra', async () => {
@@ -1761,20 +1780,34 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
     it('recusa marcar o que já está em ordem de compra', async () => {
       const { service } = makeService({ status: 'APPROVED', compras: [COMPRA_DO_CIMENTO] });
 
-      await expect(service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true)).rejects.toThrow(/OC-0001/);
+      await expect(service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true)).rejects.toThrow(
+        /OC-0001/,
+      );
     });
 
     it('rascunho e cancelada recusam', async () => {
       await expect(
-        makeService({ status: 'DRAFT' }).service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true),
+        makeService({ status: 'DRAFT' }).service.setItemStock(
+          EMPRESA_A,
+          SOLICITACAO,
+          CIMENTO,
+          true,
+        ),
       ).rejects.toThrow(/rascunho/);
       await expect(
-        makeService({ status: 'CANCELLED' }).service.setItemStock(EMPRESA_A, SOLICITACAO, CIMENTO, true),
+        makeService({ status: 'CANCELLED' }).service.setItemStock(
+          EMPRESA_A,
+          SOLICITACAO,
+          CIMENTO,
+          true,
+        ),
       ).rejects.toThrow(ConflictException);
     });
 
     it('a cotação não cota item em estoque: com preço é recusada, sem preço ele fica como está', async () => {
-      const itens = itensIniciais().map((item) => (item.id === TORNEIRA ? { ...item, inStock: true } : item));
+      const itens = itensIniciais().map((item) =>
+        item.id === TORNEIRA ? { ...item, inStock: true } : item,
+      );
 
       const recusada = makeService({ status: 'QUOTING', itens });
       await expect(
@@ -1791,22 +1824,210 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
         items: [{ id: CIMENTO, estimatedUnitPrice: 40 }, { id: TORNEIRA }],
       });
       expect(aceita.prisma.purchaseRequestItem.update).toHaveBeenCalledTimes(1);
-      expect(linha(aceita.store, TORNEIRA)).toMatchObject({ inStock: true, estimatedUnitPrice: null });
+      expect(linha(aceita.store, TORNEIRA)).toMatchObject({
+        inStock: true,
+        estimatedUnitPrice: null,
+      });
     });
 
     it('a aprovação usa o total sem o item em estoque', async () => {
-      const itens = cotada().map((item) => (item.id === CIMENTO ? { ...item, estimatedUnitPrice: null, discountValue: new Prisma.Decimal(0), inStock: true } : item));
+      const itens = cotada().map((item) =>
+        item.id === CIMENTO
+          ? {
+              ...item,
+              estimatedUnitPrice: null,
+              discountValue: new Prisma.Decimal(0),
+              inStock: true,
+            }
+          : item,
+      );
       const { service, assertThreshold } = makeService({ status: 'QUOTING', itens });
 
-      await service.updateStatus(EMPRESA_A, SOLICITACAO, 'APPROVED', ['compras.manage', 'compras.approve']);
+      await service.updateStatus(EMPRESA_A, SOLICITACAO, 'APPROVED', [
+        'compras.manage',
+        'compras.approve',
+      ]);
 
       expect(assertThreshold).toHaveBeenCalledWith(EMPRESA_A, expect.anything(), 250);
     });
   });
 
-  it('as duas rotas exigem `compras.request` — quem pede e quem compra', () => {
-    for (const rota of ['removeItem', 'setItemStock'] as const) {
-      expect(Reflect.getMetadata(PERMISSIONS_KEY, PurchaseRequestsController.prototype[rota])).toEqual(['compras.request']);
+  describe('Editar item', () => {
+    const CIMENTO_COMO_ESTA = {
+      description: 'Cimento CP-II',
+      unit: 'SC',
+      quantity: 10,
+      notes: 'Marca indiferente',
+    };
+
+    function cimentoCotado() {
+      return itensIniciais().map((item) =>
+        item.id === CIMENTO
+          ? {
+              ...item,
+              estimatedUnitPrice: new Prisma.Decimal(40),
+              discountValue: new Prisma.Decimal(5),
+            }
+          : item,
+      );
+    }
+
+    it('só a quantidade: mantém o preço cotado, recalcula o total e roda travada', async () => {
+      const { service, store, travas, statusGravado } = makeService({
+        status: 'QUOTING',
+        itens: cimentoCotado(),
+      });
+
+      const depois = await service.updateItem(EMPRESA_A, SOLICITACAO, CIMENTO, {
+        ...CIMENTO_COMO_ESTA,
+        quantity: 12,
+      });
+
+      expect(Number(linha(store, CIMENTO).quantity)).toBe(12);
+      expect(preco(store, CIMENTO)).toBe(40);
+      // 12 × 40 − 5
+      expect(depois.estimatedTotal).toBe(475);
+      expect(travas[0]).toContain('FOR UPDATE');
+      expect(statusGravado).toEqual([]);
+    });
+
+    it('troca de material: apaga preço, indisponível e desconto da linha, e grava a chave de busca', async () => {
+      const { service, store } = makeService({ status: 'QUOTING', itens: cimentoCotado() });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, CIMENTO, {
+        ...CIMENTO_COMO_ESTA,
+        description: 'Cimento CP-III 50kg',
+      });
+
+      expect(linha(store, CIMENTO)).toMatchObject({
+        description: 'Cimento CP-III 50kg',
+        estimatedUnitPrice: null,
+        unavailable: false,
+        unavailabilityNote: null,
+        discountValue: 0,
+      });
+      expect((linha(store, CIMENTO) as { searchKey?: string }).searchKey).toBeTruthy();
+    });
+
+    it('troca de unidade também apaga a cotação da linha', async () => {
+      const { service, store } = makeService({ status: 'QUOTING', itens: cimentoCotado() });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, CIMENTO, {
+        ...CIMENTO_COMO_ESTA,
+        unit: 'KG',
+      });
+
+      expect(preco(store, CIMENTO)).toBeNull();
+    });
+
+    it('aprovada: mudar a quantidade devolve para Em cotação e fica no histórico', async () => {
+      const { service, statusGravado, auditado } = makeService({ status: 'APPROVED' });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, PVC, {
+        description: 'Tubo PVC 100mm',
+        unit: 'UN',
+        quantity: 25,
+      });
+
+      expect(statusGravado).toEqual(['QUOTING']);
+      expect(auditado[0]).toMatchObject({
+        entityType: 'PurchaseRequest',
+        entityId: SOLICITACAO,
+        changes: {
+          itemEditado: { from: 'Tubo PVC 100mm: 20 UN', to: 'Tubo PVC 100mm: 25 UN' },
+          status: { from: 'APPROVED', to: 'QUOTING' },
+        },
+      });
+    });
+
+    it('aprovada: mudar só a observação não reabre', async () => {
+      const { service, statusGravado, auditado } = makeService({ status: 'APPROVED' });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, PVC, {
+        description: 'Tubo PVC 100mm',
+        unit: 'UN',
+        quantity: 20,
+        notes: 'Urgente',
+      });
+
+      expect(statusGravado).toEqual([]);
+      expect(auditado[0]).toMatchObject({
+        changes: { itemEditado: { to: 'Tubo PVC 100mm: 20 UN (obs.: Urgente)' } },
+      });
+      expect((auditado[0]!.changes as Record<string, unknown>).status).toBeUndefined();
+    });
+
+    it('aprovada: item em estoque não entra no total e não reabre', async () => {
+      const itens = itensIniciais().map((item) =>
+        item.id === TORNEIRA ? { ...item, inStock: true } : item,
+      );
+      const { service, statusGravado } = makeService({ status: 'APPROVED', itens });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, TORNEIRA, {
+        description: 'Torneira de jardim',
+        unit: 'UN',
+        quantity: 8,
+      });
+
+      expect(statusGravado).toEqual([]);
+    });
+
+    it('sem mudança nenhuma não grava nem registra', async () => {
+      const { service, prisma, auditado } = makeService({ status: 'PENDING' });
+
+      await service.updateItem(EMPRESA_A, SOLICITACAO, CIMENTO, CIMENTO_COMO_ESTA);
+
+      expect(prisma.purchaseRequestItem.update).not.toHaveBeenCalled();
+      expect(auditado).toHaveLength(0);
+    });
+
+    it('recusa item em ordem de compra, rascunho, cancelada, outra empresa e insumo de fora', async () => {
+      await expect(
+        makeService({ status: 'APPROVED', compras: [COMPRA_DO_CIMENTO] }).service.updateItem(
+          EMPRESA_A,
+          SOLICITACAO,
+          CIMENTO,
+          { ...CIMENTO_COMO_ESTA, quantity: 11 },
+        ),
+      ).rejects.toThrow(/já está na ordem de compra OC-0001/);
+      await expect(
+        makeService({ status: 'DRAFT' }).service.updateItem(
+          EMPRESA_A,
+          SOLICITACAO,
+          CIMENTO,
+          CIMENTO_COMO_ESTA,
+        ),
+      ).rejects.toThrow(/rascunho/);
+      await expect(
+        makeService({ status: 'CANCELLED' }).service.updateItem(
+          EMPRESA_A,
+          SOLICITACAO,
+          CIMENTO,
+          CIMENTO_COMO_ESTA,
+        ),
+      ).rejects.toThrow(ConflictException);
+      await expect(
+        makeService({ status: 'PENDING' }).service.updateItem(
+          EMPRESA_B,
+          SOLICITACAO,
+          CIMENTO,
+          CIMENTO_COMO_ESTA,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        makeService({ status: 'PENDING' }).service.updateItem(EMPRESA_A, SOLICITACAO, CIMENTO, {
+          ...CIMENTO_COMO_ESTA,
+          catalogItemId: '99999999-9999-4999-8999-999999999999',
+        }),
+      ).rejects.toThrow(/insumo inválido/);
+    });
+  });
+
+  it('as três rotas exigem `compras.request` — quem pede e quem compra', () => {
+    for (const rota of ['removeItem', 'setItemStock', 'updateItem'] as const) {
+      expect(
+        Reflect.getMetadata(PERMISSIONS_KEY, PurchaseRequestsController.prototype[rota]),
+      ).toEqual(['compras.request']);
     }
   });
 });

@@ -138,6 +138,10 @@ export interface PurchaseRequestItemInput {
   notes?: string;
 }
 
+/// EDIÇÃO de um item de solicitação já enviada: a linha inteira, sem o preço,
+/// que é da cotação.
+export type PurchaseRequestItemUpdateInput = Omit<PurchaseRequestItemInput, 'estimatedUnitPrice'>;
+
 interface ConstructionSiteRef {
   id: string;
   code: string;
