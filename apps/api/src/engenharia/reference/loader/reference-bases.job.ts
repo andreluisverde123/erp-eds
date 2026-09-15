@@ -38,7 +38,7 @@ export class ReferenceBasesJob {
     if (!this.enabled || this.rodando) return;
     this.rodando = true;
     try {
-      const relatorio = await this.loader.load({ months: 6, latestOnly: true, purge: true });
+      const relatorio = await this.loader.load({ months: 12, latestOnly: true, purge: true });
       this.logger.log(
         `Bases referenciais ${relatorio.window.from} a ${relatorio.window.to}: ${relatorio.imported.length} importada(s), ` +
           `${relatorio.alreadyLoaded} já existiam, ${relatorio.failed.length} falha(s), ${relatorio.purgedDatasets} removida(s).`,

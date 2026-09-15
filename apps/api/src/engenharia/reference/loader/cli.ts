@@ -38,7 +38,7 @@ function lista(nome: string): string[] | undefined {
 
 async function main() {
   const ultima = process.argv.includes('--ultima');
-  const meses = Number(argumento('meses') ?? (ultima ? 6 : 12));
+  const meses = Number(argumento('meses') ?? 12);
   if (!Number.isInteger(meses) || meses < 1 || meses > 36)
     throw new Error('--meses precisa ser um inteiro entre 1 e 36.');
   const fontes = lista('fontes');
