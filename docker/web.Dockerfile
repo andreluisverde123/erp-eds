@@ -40,6 +40,10 @@ ENV VITE_API_URL=$VITE_API_URL
 # tempo de BUILD, então isto precisa estar aqui e não na subida do container.
 ARG VITE_PUBLIC_SIGNUP_ENABLED=false
 ENV VITE_PUBLIC_SIGNUP_ENABLED=$VITE_PUBLIC_SIGNUP_ENABLED
+# Faixa "AMBIENTE DE TESTES" no topo. Vazio na produção; no staging,
+# `VITE_ENVIRONMENT_LABEL="AMBIENTE DE TESTES"` — ver docs/fluxo-de-publicacao.md.
+ARG VITE_ENVIRONMENT_LABEL=
+ENV VITE_ENVIRONMENT_LABEL=$VITE_ENVIRONMENT_LABEL
 COPY turbo.json ./
 COPY packages ./packages
 COPY apps/web ./apps/web

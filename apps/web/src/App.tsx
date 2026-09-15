@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 
+import { EnvironmentBanner } from '@/components/layout/environment-banner';
 import { AuthProvider } from '@/features/auth/provider';
 import { resolveAppEnvironment } from '@/lib/app-mode';
 import { queryClient } from '@/lib/query-client';
@@ -25,6 +26,8 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Acima de tudo, inclusive do login e do Diário. */}
+      <EnvironmentBanner />
       {/* Um AuthProvider só para os dois ambientes: mesma sessão, mesmo
           refresh silencioso, mesmo access token em memória. É o que faz o
           Diário não ter "uma segunda autenticação". */}
