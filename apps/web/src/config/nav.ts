@@ -28,6 +28,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { MODULO_ORCAMENTOS_ATIVO } from './modules';
+
 export interface NavLink {
   title: string;
   path: string;
@@ -62,24 +64,30 @@ export const navEntries: NavEntry[] = [
       // Insumos, Composições, Orçamentos e Bases de Referência ficam em
       // Engenharia, perto da obra, onde o orçamento nasce.
       { title: 'Insumos', path: '/engenharia/insumos', icon: Package, permission: 'catalogo.view' },
-      {
-        title: 'Composições',
-        path: '/engenharia/composicoes',
-        icon: Layers,
-        permission: 'composicoes.view',
-      },
-      {
-        title: 'Orçamentos',
-        path: '/engenharia/orcamentos',
-        icon: Calculator,
-        permission: 'orcamentos.view',
-      },
-      {
-        title: 'Bases de Referência',
-        path: '/engenharia/bases-de-referencia',
-        icon: Database,
-        permission: 'orcamentos.view',
-      },
+      // Módulo de Orçamentos desligado na EDS — ver `config/modules.ts`. As
+      // rotas das listas nascem destes itens, então somem junto.
+      ...(MODULO_ORCAMENTOS_ATIVO
+        ? [
+            {
+              title: 'Composições',
+              path: '/engenharia/composicoes',
+              icon: Layers,
+              permission: 'composicoes.view',
+            },
+            {
+              title: 'Orçamentos',
+              path: '/engenharia/orcamentos',
+              icon: Calculator,
+              permission: 'orcamentos.view',
+            },
+            {
+              title: 'Bases de Referência',
+              path: '/engenharia/bases-de-referencia',
+              icon: Database,
+              permission: 'orcamentos.view',
+            },
+          ]
+        : []),
       {
         title: 'Solicitações',
         path: '/engenharia/solicitacoes',

@@ -21,6 +21,7 @@ import { useConstructionSite } from '@/features/engenharia/hooks/use-constructio
 import { useDeleteCostCenter } from '@/features/engenharia/hooks/use-cost-center-mutations';
 import { getStatusLabel } from '@/features/engenharia/construction-site-status';
 import { ObraBudgetsCard } from '@/features/orcamentos/components/obra-budgets-card';
+import { MODULO_ORCAMENTOS_ATIVO } from '@/config/modules';
 import type { CostCenter } from '@/features/engenharia/types';
 
 function formatDate(iso: string | null): string {
@@ -91,7 +92,9 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export function ObraDetailPage() {
   const { user } = useAuth();
   const canManage = user?.permissions.includes('engenharia.manage') ?? false;
-  const canViewBudgets = user?.permissions.includes('orcamentos.view') ?? false;
+  // Módulo de Orçamentos desligado na EDS — ver `config/modules.ts`.
+  const canViewBudgets =
+    MODULO_ORCAMENTOS_ATIVO && (user?.permissions.includes('orcamentos.view') ?? false);
   const canManageBudgets = user?.permissions.includes('orcamentos.manage') ?? false;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -263,7 +266,9 @@ export function ObraDetailPage() {
         </CardContent>
       </Card>
 
-      {canViewBudgets && <ObraBudgetsCard constructionSiteId={site.id} canManage={canManageBudgets} />}
+      {canViewBudgets && (
+        <ObraBudgetsCard constructionSiteId={site.id} canManage={canManageBudgets} />
+      )}
 
       <Card>
         <CardContent className="flex flex-col gap-4">

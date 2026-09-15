@@ -7,6 +7,7 @@ import { ProtectedRoute } from '@/features/auth/protected-route';
 import { RequirePermission } from '@/features/auth/require-permission';
 import { navLinks } from '@/config/nav';
 import { PUBLIC_SIGNUP_ENABLED } from '@/config/company';
+import { MODULO_ORCAMENTOS_ATIVO } from '@/config/modules';
 
 import {
   AlocacoesPage,
@@ -164,30 +165,36 @@ export const router = createBrowserRouter([
               </SuspendedOutlet>
             ),
           },
-          {
-            path: 'engenharia/composicoes/:id',
-            element: (
-              <SuspendedOutlet>
-                <ComposicaoDetailPage />
-              </SuspendedOutlet>
-            ),
-          },
-          {
-            path: 'engenharia/orcamentos/:id',
-            element: (
-              <SuspendedOutlet>
-                <OrcamentoDetailPage />
-              </SuspendedOutlet>
-            ),
-          },
-          {
-            path: 'engenharia/bases-de-referencia/:id',
-            element: (
-              <SuspendedOutlet>
-                <BaseDeReferenciaDetailPage />
-              </SuspendedOutlet>
-            ),
-          },
+          // Detalhes do módulo de Orçamentos, desligado na EDS (ver
+          // `config/modules.ts`). Link antigo cai no `*` e vai para o Dashboard.
+          ...(MODULO_ORCAMENTOS_ATIVO
+            ? [
+                {
+                  path: 'engenharia/composicoes/:id',
+                  element: (
+                    <SuspendedOutlet>
+                      <ComposicaoDetailPage />
+                    </SuspendedOutlet>
+                  ),
+                },
+                {
+                  path: 'engenharia/orcamentos/:id',
+                  element: (
+                    <SuspendedOutlet>
+                      <OrcamentoDetailPage />
+                    </SuspendedOutlet>
+                  ),
+                },
+                {
+                  path: 'engenharia/bases-de-referencia/:id',
+                  element: (
+                    <SuspendedOutlet>
+                      <BaseDeReferenciaDetailPage />
+                    </SuspendedOutlet>
+                  ),
+                },
+              ]
+            : []),
           {
             path: 'engenharia/solicitacoes/nova',
             element: (

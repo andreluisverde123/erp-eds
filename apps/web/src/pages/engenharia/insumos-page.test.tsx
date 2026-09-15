@@ -307,15 +307,27 @@ describe('Naturezas: material, mão de obra e equipamento', () => {
     description: null,
     type: 'LABOR',
   };
-  const BETONEIRA: CatalogItem = { ...PEDREIRO, id: 'i3', code: 'EQP-0001', name: 'Betoneira', type: 'EQUIPMENT' };
+  const BETONEIRA: CatalogItem = {
+    ...PEDREIRO,
+    id: 'i3',
+    code: 'EQP-0001',
+    name: 'Betoneira',
+    type: 'EQUIPMENT',
+  };
 
   it('a listagem mostra a natureza de cada insumo', () => {
     resultado = pagina([CIMENTO, PEDREIRO, BETONEIRA]);
     abrir();
 
-    expect(within(screen.getByText('Cimento CP II 50kg').closest('tr')!).getByText('Material')).toBeDefined();
-    expect(within(screen.getByText('Pedreiro').closest('tr')!).getByText('Mão de obra')).toBeDefined();
-    expect(within(screen.getByText('Betoneira').closest('tr')!).getByText('Equipamento')).toBeDefined();
+    expect(
+      within(screen.getByText('Cimento CP II 50kg').closest('tr')!).getByText('Material'),
+    ).toBeDefined();
+    expect(
+      within(screen.getByText('Pedreiro').closest('tr')!).getByText('Mão de obra'),
+    ).toBeDefined();
+    expect(
+      within(screen.getByText('Betoneira').closest('tr')!).getByText('Equipamento'),
+    ).toBeDefined();
   });
 
   it('o insumo existente continua sendo cadastrado como MATERIAL por padrão', async () => {
@@ -387,7 +399,12 @@ describe('Naturezas: material, mão de obra e equipamento', () => {
 
 /// As permissões de quem está na tela. Por padrão, Engenharia: consulta e
 /// mantém o catálogo, vê e registra preço.
-let permissoesDaTela = ['catalogo.view', 'catalogo.manage', 'composicoes.view', 'composicoes.manage'];
+let permissoesDaTela = [
+  'catalogo.view',
+  'catalogo.manage',
+  'composicoes.view',
+  'composicoes.manage',
+];
 
 vi.mock('@/features/auth/context', () => ({
   useAuth: () => ({ user: { permissions: permissoesDaTela } }),
@@ -405,21 +422,26 @@ vi.mock('@/features/catalogo/hooks/use-catalog-item-prices', () => ({
   useRegisterPurchasePrice: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-describe('Preços de referência a partir da tela de Insumos (ORC-03)', () => {
+describe('Preços de referência a partir da tela de Insumos (ORC-03, desligado na EDS)', () => {
   beforeEach(() => {
-    permissoesDaTela = ['catalogo.view', 'catalogo.manage', 'composicoes.view', 'composicoes.manage'];
+    permissoesDaTela = [
+      'catalogo.view',
+      'catalogo.manage',
+      'composicoes.view',
+      'composicoes.manage',
+    ];
   });
 
-  it('a ação "Preços" abre o histórico do insumo', async () => {
+  it('com o módulo de Orçamentos desligado na EDS, nem quem tem composicoes.view vê "Preços"', async () => {
+    // Ver `config/modules.ts`: os preços de referência são do módulo de
+    // Orçamentos, guardado para o Engeo. O cadastro do insumo continua.
     resultado = pagina([CIMENTO]);
     const usuario = abrir();
 
     await usuario.click(screen.getByRole('button', { name: 'Ações' }));
-    await usuario.click(await screen.findByRole('menuitem', { name: /Preços/ }));
+    await screen.findByRole('menuitem', { name: /Editar/ });
 
-    const drawer = await screen.findByRole('dialog');
-    expect(within(drawer).getByText('Preços de referência')).toBeDefined();
-    expect(within(drawer).getByText(/MAT-0001 · Cimento CP II 50kg — preço por SC/)).toBeDefined();
+    expect(screen.queryByRole('menuitem', { name: /Preços/ })).toBeNull();
   });
 
   it('quem consulta o catálogo sem composicoes.view não vê a ação de preços', async () => {

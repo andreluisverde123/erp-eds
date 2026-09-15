@@ -41,6 +41,7 @@ import {
 } from '@/features/catalogo/catalog-item-type';
 import { CatalogItemFormDrawer } from '@/features/catalogo/components/catalog-item-form-drawer';
 import { CatalogItemPricesDrawer } from '@/features/catalogo/components/catalog-item-prices-drawer';
+import { MODULO_ORCAMENTOS_ATIVO } from '@/config/modules';
 import {
   useCatalogCategories,
   useCatalogItems,
@@ -63,7 +64,10 @@ const TODOS = 'ALL';
 
 export function InsumosPage() {
   const { user } = useAuth();
-  const podeVerPrecos = user?.permissions.includes('composicoes.view') ?? false;
+  // Os preços de referência são do módulo de Orçamentos, desligado na EDS —
+  // ver `config/modules.ts`. O cadastro do insumo continua.
+  const podeVerPrecos =
+    MODULO_ORCAMENTOS_ATIVO && (user?.permissions.includes('composicoes.view') ?? false);
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');

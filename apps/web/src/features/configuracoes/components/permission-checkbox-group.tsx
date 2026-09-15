@@ -1,5 +1,7 @@
 import { Checkbox, Label } from '@repo/ui';
 
+import { MODULOS_DE_PERMISSAO_DESLIGADOS } from '@/config/modules';
+
 import { getModuleLabel } from '../permission-modules';
 import type { Permission } from '../types';
 
@@ -14,10 +16,15 @@ export function PermissionCheckboxGroup({
   selectedCodes,
   onChange,
 }: PermissionCheckboxGroupProps) {
-  const grouped = permissions.reduce<Record<string, Permission[]>>((groups, permission) => {
-    (groups[permission.module] ??= []).push(permission);
-    return groups;
-  }, {});
+  // Módulo desligado neste produto não é oferecido na tela de papéis — ver
+  // `config/modules.ts`. Uma permissão já concedida continua no papel: nada é
+  // retirado por aqui, só deixa de ser exibido.
+  const grouped = permissions
+    .filter((permission) => !MODULOS_DE_PERMISSAO_DESLIGADOS.includes(permission.module))
+    .reduce<Record<string, Permission[]>>((groups, permission) => {
+      (groups[permission.module] ??= []).push(permission);
+      return groups;
+    }, {});
 
   function toggle(code: string, checked: boolean) {
     onChange(
