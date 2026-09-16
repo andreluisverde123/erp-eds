@@ -1,0 +1,12 @@
+{
+  "appName": "ERP EDS",
+  "shortName": "EDS",
+  "companyName": "EDS Construtora",
+  "description": "Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal.",
+  "colors": {
+    "primary": "#ED2124",
+    "primaryForeground": "#FFFFFF",
+    "pending": "#FFF1EC",
+    "pendingForeground": "#ED2124"
+  }
+}

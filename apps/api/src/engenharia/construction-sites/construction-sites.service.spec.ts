@@ -98,3 +98,50 @@ describe('Endereço da obra chega ao banco', () => {
     expect(gravados[0]!.zipCode).toBeUndefined();
   });
 });
+
+/// Número inicial do Diário: gravado enquanto a obra não tem RDO, recusado
+/// depois — a sequência já começou e mudar a origem não renumera nada.
+describe('Número inicial do Diário', () => {
+  function comObra(firstReportNumber: number | null, rdos: number) {
+    const montado = makeService();
+    (montado.service.findOne as jest.Mock).mockResolvedValue({
+      id: OBRA,
+      firstReportNumber,
+      _count: { costCenters: 0, dailyReports: rdos },
+    });
+    return montado;
+  }
+
+  it('a criação grava o número inicial', async () => {
+    const { service, gravados } = makeService();
+
+    await service.create(EMPRESA, { code: 'OBR-002', name: 'Obra', firstReportNumber: 58 });
+
+    expect(gravados[0]).toMatchObject({ firstReportNumber: 58 });
+  });
+
+  it('obra sem RDO aceita trocar o número inicial', async () => {
+    const { service, gravados } = comObra(null, 0);
+
+    await service.update(EMPRESA, OBRA, { firstReportNumber: 58 });
+
+    expect(gravados[0]).toMatchObject({ firstReportNumber: 58 });
+  });
+
+  it('obra com RDO recusa trocar o número inicial', async () => {
+    const { service, gravados } = comObra(58, 1);
+
+    await expect(service.update(EMPRESA, OBRA, { firstReportNumber: 10 })).rejects.toThrow(
+      'antes do primeiro RDO',
+    );
+    expect(gravados).toHaveLength(0);
+  });
+
+  it('obra com RDO aceita o formulário reenviando o mesmo número', async () => {
+    const { service, gravados } = comObra(null, 5);
+
+    await service.update(EMPRESA, OBRA, { name: 'Obra renomeada', firstReportNumber: 1 });
+
+    expect(gravados[0]).toMatchObject({ name: 'Obra renomeada', firstReportNumber: undefined });
+  });
+});

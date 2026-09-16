@@ -13,6 +13,7 @@ import {
   ENGENHEIRO_A,
   ENGENHEIRO_B,
   FISCAL,
+  OBRAS,
   OBRA_OUTRA_EMPRESA,
   criarAuditLoggerFalso,
   criarPrismaFalso,
@@ -142,6 +143,55 @@ describe('RDO — criação', () => {
     });
 
     expect(novo.number).toBe(25);
+  });
+
+  describe('número inicial da obra', () => {
+    const aurora = OBRAS.find((o) => o.id === ALPHA)!;
+    afterEach(() => {
+      aurora.firstReportNumber = null;
+    });
+
+    it('o primeiro RDO recebe o número inicial definido na obra', async () => {
+      // A obra já tinha 57 diários em outro sistema.
+      aurora.firstReportNumber = 58;
+      const { service } = montar();
+
+      const primeiro = await service.create(EMPRESA_A, ENGENHEIRO_A, {
+        constructionSiteId: ALPHA,
+        reportDate: ONTEM,
+      });
+      const segundo = await service.create(EMPRESA_A, ENGENHEIRO_A, {
+        constructionSiteId: ALPHA,
+        reportDate: HOJE,
+      });
+
+      expect(primeiro.number).toBe(58);
+      expect(segundo.number).toBe(59);
+    });
+
+    it('com RDO na obra, o número inicial não muda a sequência', async () => {
+      aurora.firstReportNumber = 58;
+      const { service } = montar([rdoExistente({ number: 3 })]);
+
+      const novo = await service.create(EMPRESA_A, ENGENHEIRO_A, {
+        constructionSiteId: ALPHA,
+        reportDate: HOJE,
+      });
+
+      expect(novo.number).toBe(4);
+    });
+
+    it('vale só para a obra dele', async () => {
+      aurora.firstReportNumber = 58;
+      const { service } = montar();
+
+      const beta = await service.create(EMPRESA_A, ENGENHEIRO_B, {
+        constructionSiteId: BETA,
+        reportDate: HOJE,
+      });
+
+      expect(beta.number).toBe(1);
+    });
   });
 
   it('recusa um segundo relatório da mesma obra na mesma data', async () => {

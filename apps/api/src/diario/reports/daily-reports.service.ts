@@ -663,7 +663,7 @@ export class DailyReportsService {
     >,
   ): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
-      const number = await allocateReportNumber(tx, constructionSiteId);
+      const number = await allocateReportNumber(tx, companyId, constructionSiteId);
 
       try {
         const created = await tx.dailyReport.create({

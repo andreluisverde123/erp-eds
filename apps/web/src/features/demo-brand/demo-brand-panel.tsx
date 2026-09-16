@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { APP_NAME, COMPANY_NAME } from '@/config/company';
+import { APP_BRAND, APP_NAME, COMPANY_NAME } from '@/config/company';
 
 import { normalizarHex } from './brand-tokens';
 import {
@@ -150,7 +150,7 @@ export function DemoBrandPanel() {
                   trocarMarca(escolhida ?? null);
                 }}
               >
-                <option value="">EDS (padrão)</option>
+                <option value="">{APP_BRAND.shortName} (padrão)</option>
                 {biblioteca.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.rotulo}
@@ -231,7 +231,9 @@ export function DemoBrandPanel() {
               {emUso.logo ? (
                 <img src={emUso.logo} alt={emUso.rotulo} className="max-h-8 w-auto max-w-full" />
               ) : (
-                <span className="text-xs text-neutral-400">assinatura da EDS</span>
+                <span className="text-xs text-neutral-400">
+                  assinatura de {APP_BRAND.shortName}
+                </span>
               )}
             </div>
             <button
@@ -296,7 +298,7 @@ export function DemoBrandPanel() {
             onClick={() => trocarMarca(null)}
             className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-xs hover:bg-neutral-100"
           >
-            Voltar para EDS
+            Voltar para {APP_BRAND.shortName}
           </button>
         </div>
 

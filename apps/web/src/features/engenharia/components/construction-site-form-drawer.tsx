@@ -50,6 +50,7 @@ function siteToFormValues(site: ConstructionSite): ConstructionSiteFormValues {
     responsibleId: site.responsibleId ?? '',
     responsibleName: site.responsibleName ?? '',
     description: site.description ?? '',
+    firstReportNumber: site.firstReportNumber ? String(site.firstReportNumber) : '',
   };
 }
 
@@ -124,7 +125,13 @@ function ConstructionSiteFormBody({
   const defaultValues = site
     ? siteToFormValues(site)
     : duplicateFrom
-      ? { ...siteToFormValues(duplicateFrom), code: '', name: `${duplicateFrom.name} (cópia)` }
+      ? {
+          ...siteToFormValues(duplicateFrom),
+          code: '',
+          name: `${duplicateFrom.name} (cópia)`,
+          // A obra nova não herda a numeração do Diário da original.
+          firstReportNumber: '',
+        }
       : CONSTRUCTION_SITE_FORM_DEFAULTS;
 
   const form = useForm<ConstructionSiteFormValues>({
@@ -159,7 +166,10 @@ function ConstructionSiteFormBody({
                 <AlertTitle>{submitError}</AlertTitle>
               </Alert>
             )}
-            <ConstructionSiteFormFields control={form.control} />
+            <ConstructionSiteFormFields
+              control={form.control}
+              firstReportNumberLocked={(site?._count.dailyReports ?? 0) > 0}
+            />
           </form>
         </Form>
       </div>

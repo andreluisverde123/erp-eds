@@ -117,13 +117,14 @@ O seed tem três partes, e só a primeira roda por omissão:
 Rodar o seed sem as variáveis de bootstrap num banco novo popula **apenas o
 catálogo de permissões**. Não há empresa, não há papéis e não há usuário: a API
 sobe, o healthcheck passa e ninguém consegue entrar. Numa instalação nova,
-passe as duas variáveis:
+passe as três variáveis (o nome da construtora é obrigatório):
 
 ```bash
 docker run --rm \
   -e DATABASE_URL="…" -e DIRECT_URL="…" \
   -e BOOTSTRAP_ADMIN_EMAIL="admin@edsconstrutora.com.br" \
   -e BOOTSTRAP_ADMIN_PASSWORD="…" \
+  -e BOOTSTRAP_COMPANY_NAME="EDS Construtora" \
   --entrypoint sh eds-api-migrate -c "npx prisma db seed"
 ```
 

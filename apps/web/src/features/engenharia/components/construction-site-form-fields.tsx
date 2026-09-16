@@ -115,8 +115,8 @@ function SiteResponsibleField({ control }: { control: Control<ConstructionSiteFo
 
           {!escolhido && herdado && (
             <p className="text-xs text-muted-foreground">
-              Cadastrado antes como texto: <strong>{herdado}</strong>. Selecione a pessoa acima
-              para dar a ela esta obra no Diário.
+              Cadastrado antes como texto: <strong>{herdado}</strong>. Selecione a pessoa acima para
+              dar a ela esta obra no Diário.
             </p>
           )}
 
@@ -128,8 +128,8 @@ function SiteResponsibleField({ control }: { control: Control<ConstructionSiteFo
 
           {candidatos?.length === 0 && !isLoading && (
             <p className="text-xs text-muted-foreground">
-              Ninguém tem acesso ao Diário ainda. Libere em Administração → Usuários, no
-              interruptor “Diário de Obras”.
+              Ninguém tem acesso ao Diário ainda. Libere em Administração → Usuários, no interruptor
+              “Diário de Obras”.
             </p>
           )}
 
@@ -142,8 +142,11 @@ function SiteResponsibleField({ control }: { control: Control<ConstructionSiteFo
 
 export function ConstructionSiteFormFields({
   control,
+  firstReportNumberLocked = false,
 }: {
   control: Control<ConstructionSiteFormValues>;
+  /// A obra já tem RDO: a numeração do Diário já começou.
+  firstReportNumberLocked?: boolean;
 }) {
   // `useFormContext` em vez de mais uma prop: o formulário já vive dentro de
   // um `<Form>` (que é o `FormProvider`), e passar `setValue` por fora
@@ -438,6 +441,36 @@ export function ConstructionSiteFormFields({
             <FormControl>
               <Textarea placeholder="Detalhes sobre a obra" rows={3} {...field} />
             </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      {/* A obra pode ter começado o diário em outro sistema: o primeiro RDO
+          daqui continua a numeração de lá. */}
+      <FormField
+        control={control}
+        name="firstReportNumber"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>
+              Número do primeiro RDO{' '}
+              <span className="font-normal text-muted-foreground">(opcional)</span>
+            </FormLabel>
+            <FormControl>
+              <Input
+                inputMode="numeric"
+                placeholder="1"
+                className="w-32"
+                disabled={firstReportNumberLocked}
+                {...field}
+              />
+            </FormControl>
+            <p className="text-xs text-muted-foreground">
+              {firstReportNumberLocked
+                ? 'Esta obra já tem RDO no Diário, e a numeração segue a partir dele.'
+                : 'Se a obra já tinha diários em outro sistema, informe o número do primeiro RDO que será feito aqui. Os seguintes continuam a partir dele.'}
+            </p>
             <FormMessage />
           </FormItem>
         )}

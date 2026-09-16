@@ -1,6 +1,7 @@
 import {
   IsUUID,
   IsEnum,
+  IsInt,
   IsISO8601,
   IsNotEmpty,
   IsOptional,
@@ -8,7 +9,9 @@ import {
   IsUppercase,
   Length,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 import { ConstructionStatus } from '../../../../generated/prisma/client';
@@ -103,4 +106,12 @@ export class CreateConstructionSiteDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  /// Número do primeiro RDO desta obra no Diário, para obras que já tinham
+  /// diários em outro sistema. Só é aceito enquanto a obra não tem RDO.
+  @IsOptional()
+  @IsInt({ message: 'O número inicial do Diário deve ser um número inteiro.' })
+  @Min(1, { message: 'O número inicial do Diário deve ser 1 ou maior.' })
+  @Max(99999, { message: 'O número inicial do Diário deve ser no máximo 99999.' })
+  firstReportNumber?: number;
 }

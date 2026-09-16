@@ -3,8 +3,8 @@ import * as bcrypt from 'bcrypt';
 import type { PrismaClient } from '../../generated/prisma/client';
 import { ADMIN_ROLE_NAME, DEFAULT_ROLES } from '../../src/common/tenancy/default-roles';
 
-/// Bootstrap de uma instalação nova: cria a EDS, os papéis padrão e o primeiro
-/// administrador.
+/// Bootstrap de uma instalação nova: cria a construtora, os papéis padrão e o
+/// primeiro administrador.
 ///
 /// Existe porque um banco recém-migrado NÃO tinha caminho de entrada. O seed de
 /// produção (`SEED_DEMO=false`) popula só a tabela `Permission` — global e sem
@@ -30,24 +30,34 @@ const MAX_PASSWORD_LENGTH = 72;
 const PASSWORD_PATTERN = /(?=.*[A-Za-z])(?=.*\d)/;
 
 const DEFAULT_ADMIN_NAME = 'Administrador';
-const COMPANY_SLUG = 'eds';
 
-/// Razão social PROVISÓRIA, igual ao que o onboarding self-service faz. Os
-/// dados fiscais de verdade (razão social, CNPJ, inscrição estadual, endereço)
-/// são preenchidos em Configurações → Empresa, que é a fonte operacional deles.
-///
-/// Deliberadamente NÃO lê `EDS_COMPANY` de `@repo/types`: aquele objeto é a
-/// identidade da APLICAÇÃO (aba do navegador, splash, tela de login — o que
-/// aparece antes de existir sessão), e o próprio arquivo pede para não
-/// confundi-lo com o registro `Company` do banco. Copiar um no outro criaria
-/// duas fontes para o mesmo dado, divergindo no primeiro `PATCH /company`.
-const DEFAULT_COMPANY_NAME = 'EDS Construtora';
+/// Identificador técnico da empresa no banco (`Company.slug`): minúsculas,
+/// números e hífen.
+const SLUG_VALIDO = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/// "Construtora São João Ltda." → "construtora-sao-joao-ltda".
+export function slugify(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 export interface BootstrapConfig {
   email: string;
   password: string;
   name: string;
+  /// Razão social PROVISÓRIA, igual ao que o onboarding self-service faz. Os
+  /// dados fiscais de verdade são preenchidos em Configurações → Empresa, que
+  /// é a fonte operacional deles.
+  ///
+  /// Obrigatória, e sem valor padrão: o mesmo sistema é instalado para várias
+  /// construtoras, e um nome padrão criaria a empresa de um cliente com o
+  /// nome de outro.
   companyName: string;
+  companySlug: string;
 }
 
 /// Lê a configuração do ambiente. Devolve `null` quando o bootstrap não foi
@@ -81,11 +91,26 @@ export function readBootstrapConfig(env: NodeJS.ProcessEnv): BootstrapConfig | n
     throw new Error('BOOTSTRAP_ADMIN_PASSWORD deve conter ao menos uma letra e um número.');
   }
 
+  const companyName = env.BOOTSTRAP_COMPANY_NAME?.trim();
+  if (!companyName) {
+    throw new Error(
+      'BOOTSTRAP_COMPANY_NAME é obrigatória junto com o administrador: é o nome da construtora desta instalação.',
+    );
+  }
+
+  const companySlug = env.BOOTSTRAP_COMPANY_SLUG?.trim() || slugify(companyName);
+  if (!SLUG_VALIDO.test(companySlug)) {
+    throw new Error(
+      `BOOTSTRAP_COMPANY_SLUG inválido: "${companySlug}". Use minúsculas, números e hífen.`,
+    );
+  }
+
   return {
     email,
     password,
     name: env.BOOTSTRAP_ADMIN_NAME?.trim() || DEFAULT_ADMIN_NAME,
-    companyName: env.BOOTSTRAP_COMPANY_NAME?.trim() || DEFAULT_COMPANY_NAME,
+    companyName,
+    companySlug,
   };
 }
 
@@ -109,10 +134,10 @@ export async function seedBootstrap(
     // criado a empresa e falhado depois (transação abortada por senha inválida,
     // conexão caída). O bootstrap tem que poder ser repetido.
     const company = await tx.company.upsert({
-      where: { slug: COMPANY_SLUG },
+      where: { slug: config.companySlug },
       update: {},
       create: {
-        slug: COMPANY_SLUG,
+        slug: config.companySlug,
         // Sem CNPJ, igual ao onboarding: entra a razão social provisória e os
         // dados fiscais são completados em Configurações → Empresa.
         legalName: config.companyName,
@@ -173,7 +198,7 @@ export async function seedBootstrap(
     });
   });
 
-  console.log(`Empresa criada: ${config.companyName} (slug=${COMPANY_SLUG})`);
+  console.log(`Empresa criada: ${config.companyName} (slug=${config.companySlug})`);
   console.log(`Papéis: ${DEFAULT_ROLES.map((role) => role.name).join(', ')}`);
   console.log(`Administrador: ${config.email}`);
   console.log('A senha informada é temporária — o sistema exige a troca no primeiro acesso.');

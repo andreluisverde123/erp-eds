@@ -2,15 +2,18 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+import { brandPlugin } from './brand/vite-plugin.ts';
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // `brandPlugin` aplica a marca da instalação (`VITE_BRAND`) — ver brand/brand.ts.
+  plugins: [brandPlugin(), react(), tailwindcss()],
   resolve: {
     tsconfigPaths: true,
   },
   server: {
     port: 5173,
-    // O Diário de Obras é servido por subdomínio (`diario.gestaoeds.com.br`).
+    // O Diário de Obras pode ser servido por subdomínio (`diario.<domínio>`).
     // Para exercitar esse caminho localmente basta abrir
     // `http://diario.localhost:5173` — navegadores resolvem qualquer
     // `*.localhost` para 127.0.0.1 sozinhos, sem mexer em `/etc/hosts`. Sem

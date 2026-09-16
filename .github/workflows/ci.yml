@@ -75,6 +75,7 @@ jobs:
       # consiga logar. O e2e verifica exatamente isso.
       BOOTSTRAP_ADMIN_EMAIL: ci-admin@exemplo.test
       BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-2026
+      BOOTSTRAP_COMPANY_NAME: Construtora CI
     steps:
       - uses: actions/checkout@v4
 

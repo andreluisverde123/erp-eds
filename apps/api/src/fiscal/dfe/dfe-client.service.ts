@@ -171,7 +171,7 @@ export class DfeClientService {
           headers: {
             'Content-Type': `application/soap+xml; charset=utf-8; action="${SOAP_ACTION}"`,
             'Content-Length': Buffer.byteLength(body),
-            'User-Agent': 'ERP-EDS/fiscal-sync',
+            'User-Agent': 'ERP/fiscal-sync',
           },
           timeout: 60_000,
         },

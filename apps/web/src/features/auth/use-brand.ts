@@ -15,8 +15,8 @@ export interface Brand {
 /// Precedência da marca, do mais específico ao mais genérico:
 ///
 /// 0. a marca de demonstração, quando houver — só existe em desenvolvimento
-/// 1. o nome e o logo que a própria EDS gravou em Configurações → Sistema
-/// 2. a configuração central da aplicação (`EDS_COMPANY`)
+/// 1. o nome e o logo que a empresa gravou em Configurações → Sistema
+/// 2. a marca da instalação (`apps/web/brands/<id>/`, via `config/company.ts`)
 ///
 /// O primeiro nível continua existindo porque é dado editável pelo usuário
 /// administrador na própria tela de Configurações — não é resquício de

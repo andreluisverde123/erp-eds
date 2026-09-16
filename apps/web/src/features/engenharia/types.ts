@@ -36,9 +36,12 @@ export interface ConstructionSite {
   state: string | null;
   startDate: string | null;
   expectedEndDate: string | null;
+  /// Número do primeiro RDO no Diário. `null` = começa em 1.
+  firstReportNumber: number | null;
   createdAt: string;
   updatedAt: string;
-  _count: { costCenters: number };
+  /// `dailyReports` > 0 trava o número inicial do Diário.
+  _count: { costCenters: number; dailyReports: number };
 }
 
 export interface ConstructionSiteDetail extends ConstructionSite {
@@ -71,6 +74,7 @@ export interface ConstructionSiteInput {
   responsibleId?: string;
   responsibleName?: string;
   description?: string;
+  firstReportNumber?: number;
 }
 
 export interface CostCenterQuery {

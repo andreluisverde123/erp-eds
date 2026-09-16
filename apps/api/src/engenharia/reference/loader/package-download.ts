@@ -34,7 +34,7 @@ export async function downloadPackage(
     try {
       const resposta = await fetchImpl(url, {
         redirect: 'follow',
-        headers: { 'User-Agent': 'Mozilla/5.0 (ERP EDS; carga de bases referenciais)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (ERP; carga de bases referenciais)' },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (resposta.status === 404) return null;

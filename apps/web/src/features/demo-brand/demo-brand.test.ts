@@ -57,14 +57,14 @@ describe('Pintar o documento com a marca', () => {
 
   it('o logo do splash troca junto', () => {
     // O splash do `index.html` já está na tela antes de o React montar. Sem
-    // isto, a demonstração abre com a assinatura da EDS e troca em seguida.
-    document.body.innerHTML = '<div id="app-splash"><img src="/logo-eds.svg" alt="" /></div>';
+    // isto, a demonstração abre com a assinatura da instalação e troca em seguida.
+    document.body.innerHTML = '<div id="app-splash"><img src="/brand/logo.svg" alt="" /></div>';
 
     aplicarNoDocumento(LETS);
     expect(document.querySelector('img')!.getAttribute('src')).toBe(LETS.logo);
 
     aplicarNoDocumento(null);
-    expect(document.querySelector('img')!.getAttribute('src')).toBe('/logo-eds.svg');
+    expect(document.querySelector('img')!.getAttribute('src')).toBe('/brand/logo.svg');
   });
 });
 

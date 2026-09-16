@@ -2,8 +2,8 @@ import { APP_LOGO, APP_NAME } from '@/config/company';
 import { alturaDoLogo } from '@/features/demo-brand/demo-brand';
 import { useMarcaDemo } from '@/features/demo-brand/use-demo-brand';
 
-/// Logo institucional da EDS. Único lugar do código que aponta para o arquivo
-/// do logo — trocar a arte é trocar `EDS_COMPANY.logo`, sem editar tela nenhuma.
+/// Logo da instalação. Único lugar do código que aponta para o arquivo do logo
+/// — trocar a arte é trocar `apps/web/brands/<id>/logo.svg`, sem editar tela.
 ///
 /// `w-auto` de propósito: a assinatura da EDS é mais alta que larga e uma
 /// largura fixa a esticava. A altura é que fica travada, para o logo ocupar

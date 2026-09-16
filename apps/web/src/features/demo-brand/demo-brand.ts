@@ -1,3 +1,5 @@
+import { APP_BRAND } from '@/config/company';
+
 import { TOKENS_DA_MARCA, normalizarHex, tokensDaMarca } from './brand-tokens';
 
 /// Marca de demonstração: trocar logo, cor e nomes do sistema em tempo de
@@ -122,13 +124,18 @@ export function lerBiblioteca(): MarcaDemo[] {
 }
 
 function gravarBiblioteca(marcas: MarcaDemo[]): void {
-  comArmazenamento(() => window.localStorage.setItem(CHAVE_BIBLIOTECA, JSON.stringify(marcas)), undefined);
+  comArmazenamento(
+    () => window.localStorage.setItem(CHAVE_BIBLIOTECA, JSON.stringify(marcas)),
+    undefined,
+  );
 }
 
 /// Guarda a marca na biblioteca desta máquina, substituindo a de mesmo `id`.
 export function guardarNaBiblioteca(marca: MarcaDemo): MarcaDemo[] {
   const restantes = lerBiblioteca().filter((m) => m.id !== marca.id);
-  const atualizada = [...restantes, marca].sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'));
+  const atualizada = [...restantes, marca].sort((a, b) =>
+    a.rotulo.localeCompare(b.rotulo, 'pt-BR'),
+  );
   gravarBiblioteca(atualizada);
   return atualizada;
 }
@@ -140,7 +147,7 @@ export function esquecerDaBiblioteca(id: string): MarcaDemo[] {
 }
 
 /// Pinta o documento. Separada de `aplicarMarca` porque roda também antes do
-/// React montar, direto do `main.tsx`: sem isso a página abre vermelho-EDS e
+/// React montar, direto do `main.tsx`: sem isso a página abre na cor da instalação e
 /// vira a cor do cliente no primeiro render — uma piscada que, numa
 /// demonstração, é exatamente a coisa que a plateia repara.
 export function aplicarNoDocumento(marca: MarcaDemo | null): void {
@@ -150,8 +157,8 @@ export function aplicarNoDocumento(marca: MarcaDemo | null): void {
 
   if (!marca) {
     // Remover a propriedade inline devolve o token ao valor da folha de estilo.
-    // É por isso que a cor da EDS não precisa ser guardada em lugar nenhum
-    // para poder voltar: ela nunca saiu de `globals.css`.
+    // É por isso que a cor da instalação não precisa ser guardada em lugar
+    // nenhum para poder voltar: ela nunca saiu das variáveis `--brand-*`.
     for (const token of TOKENS_DA_MARCA) raiz.style.removeProperty(token);
   } else {
     for (const [token, valor] of Object.entries(tokensDaMarca(marca.primary))) {
@@ -171,13 +178,13 @@ export function aplicarNoDocumento(marca: MarcaDemo | null): void {
   }
 
   // O splash do `index.html` já está pintado na tela quando isto roda, com a
-  // assinatura da EDS embutida no HTML. Trocar aqui alcança o instante entre
+  // assinatura da instalação embutida no HTML. Trocar aqui alcança o instante entre
   // abrir a aba e o React montar.
   const splash = document.querySelector<HTMLImageElement>('#app-splash img');
-  if (splash) splash.src = marca?.logo ?? '/logo-eds.svg';
+  if (splash) splash.src = marca?.logo ?? APP_BRAND.logo;
 
   const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (favicon) favicon.href = marca?.logo ?? '/favicon.svg';
+  if (favicon) favicon.href = marca?.logo ?? APP_BRAND.favicon;
 }
 
 type Ouvinte = () => void;

@@ -1,7 +1,10 @@
-# ERP EDS — Escopo do Projeto
+# ERP de Construtoras — Escopo do Projeto
 
-Sistema de gestão **proprietário da construtora EDS**. Não é produto vendido,
-não é plataforma, não tem assinatura e não hospeda outras construtoras.
+Sistema de gestão de construtoras, nascido na **EDS** e vendido a outras
+construtoras como **white-label**: o mesmo sistema, com a marca, o domínio e os
+dados de cada cliente. Cada cliente tem a **própria instalação** (banco,
+arquivos, hospedagem e domínio). Não é plataforma compartilhada entre
+construtoras.
 
 Este documento define o que o projeto é, o que ele não é, e a régua para
 decidir se uma mudança futura pertence a ele.
@@ -35,21 +38,22 @@ rastreável até a origem.
 
 ## 2. Visão do produto
 
-O sistema é **interno**. Quem usa é funcionário da EDS, com acesso concedido
-por um administrador. Não há página pública, não há captação, não há
+O sistema é **interno** de cada construtora. Quem usa é funcionário dela, com
+acesso concedido por um administrador. Não há página pública, não há captação, não há
 auto-cadastro, não há indexação em buscador.
 
 Três consequências que valem para toda decisão futura:
 
-1. **Uma empresa, para sempre.** A EDS não é "o primeiro cliente". É a única.
-   Não existe segunda construtora prevista, e nenhuma decisão de projeto deve
-   ser tomada para acomodar uma.
-2. **Especificidade é permitida.** Se a EDS trabalha de um jeito, o sistema
-   trabalha desse jeito. Não há obrigação de generalizar, parametrizar ou
-   tornar configurável o que é regra fixa da casa.
+1. **Uma empresa por instalação.** Cada instalação atende uma construtora só.
+   Vender para outra é criar outra instalação, não hospedar duas no mesmo
+   banco.
+2. **Todas seguem o jeito EDS.** As regras de negócio e os fluxos são os da
+   EDS, para todos os clientes. Só muda o que é da marca: nome, logo, cores,
+   domínio e dados cadastrais. Não há obrigação de parametrizar regra de
+   negócio.
 3. **A régua de uma funcionalidade é o uso real.** A pergunta que aprova uma
-   mudança é "alguém na EDS precisa disso para trabalhar?", não "isso deixa o
-   sistema mais completo?".
+   mudança é "alguém precisa disso para trabalhar?", não "isso deixa o sistema
+   mais completo?".
 
 ---
 
@@ -69,14 +73,13 @@ Três consequências que valem para toda decisão futura:
 
 ### Fora
 
-Não faz parte do projeto e não deve ser proposto sem decisão explícita da EDS:
+Não faz parte do projeto e não deve ser proposto sem decisão explícita:
 
 - Cobrança, assinatura, planos ou limite de uso
 - Back-office de plataforma, administração entre empresas, suporte "entrar como cliente"
 - Cadastro público, verificação de e-mail de cadastro, ciclo de trial
 - Site institucional, landing page, material de captação
-- Marca configurável por cliente (white-label)
-- Domínio ou subdomínio por empresa
+- Várias construtoras na mesma instalação (multi-inquilino funcional)
 - App móvel nativo
 - Integração contábil/fiscal (SPED, NF-e), folha de pagamento calculada,
   orçamento de obra e cronograma físico-financeiro — nenhum é escopo hoje;
@@ -220,19 +223,17 @@ Cada módulo da API segue a mesma forma: `module.ts`, `controller.ts`,
 
 ### Identidade
 
-Nome, logo, dados cadastrais e cores da EDS vivem em **um lugar só**:
-`EDS_COMPANY`, em `packages/types/src/company.ts`. A API e o web leem a mesma
-constante.
+A marca é da **instalação**: `apps/web/brands/<id>/` (`brand.json`,
+`logo.svg`, `favicon.svg`), escolhida no build por `VITE_BRAND`. O build
+aplica a marca no `index.html`, no manifest, nas cores (`--brand-*`, lidas por
+`globals.css`) e em `config/company.ts`. Detalhes em `apps/web/README.md`.
 
-Nunca escreva "EDS" direto em componente, página ou service. Se um texto
-precisa do nome da empresa, ele vem daí.
+Nunca escreva o nome de uma construtora direto em componente, página ou
+service. Na tela, use `config/company.ts` ou `useBrand()`. Em documento (PDF,
+planilha), use o registro `Company` do banco (Configurações → Empresa).
 
-Duas exceções, ambas intencionais:
-
-- `index.html` e `manifest.webmanifest` repetem os valores literalmente —
-  são servidos antes de qualquer JavaScript.
-- `globals.css` repete o vermelho `#ED2124` — é CSS, não lê TypeScript. Os
-  dois andam juntos.
+A empresa de uma instalação nova nasce pelo seed de bootstrap, com o nome em
+`BOOTSTRAP_COMPANY_NAME` (obrigatório).
 
 ### Permissões
 

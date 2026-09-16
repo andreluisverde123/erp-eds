@@ -51,6 +51,7 @@ export interface LinhaObra {
   state: string | null;
   startDate: Date | null;
   expectedEndDate: Date | null;
+  firstReportNumber: number | null;
 }
 
 function obra(
@@ -73,6 +74,7 @@ function obra(
     state: 'PR',
     startDate: new Date('2026-01-01T00:00:00.000Z'),
     expectedEndDate: new Date('2026-12-31T00:00:00.000Z'),
+    firstReportNumber: null,
   };
 }
 

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { ConstructionSiteInput } from './types';
+
 export const constructionSiteFormSchema = z.object({
   code: z.string().trim().min(1, 'Informe o código.').max(30, 'Máximo de 30 caracteres.'),
   name: z.string().trim().min(1, 'Informe o nome.').max(150, 'Máximo de 150 caracteres.'),
@@ -12,10 +14,7 @@ export const constructionSiteFormSchema = z.object({
   zipCode: z
     .string()
     .trim()
-    .refine(
-      (value) => value === '' || /^\d{5}-?\d{3}$/.test(value),
-      'CEP inválido. Use 00000-000.',
-    )
+    .refine((value) => value === '' || /^\d{5}-?\d{3}$/.test(value), 'CEP inválido. Use 00000-000.')
     .optional(),
   addressLine: z.string().trim().max(200, 'Máximo de 200 caracteres.').optional(),
   addressNumber: z.string().trim().max(20, 'Máximo de 20 caracteres.').optional(),
@@ -38,6 +37,17 @@ export const constructionSiteFormSchema = z.object({
   /// Só é exibido; a tela não deixa mais digitá-lo.
   responsibleName: z.string().trim().max(150, 'Máximo de 150 caracteres.').optional(),
   description: z.string().trim().max(2000, 'Máximo de 2000 caracteres.').optional(),
+  /// Número do primeiro RDO no Diário. Texto na tela (o campo pode ficar
+  /// vazio); vira número em `toConstructionSiteInput`.
+  firstReportNumber: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        value === '' || (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 99999),
+      'Use um número de 1 a 99999.',
+    )
+    .optional(),
 });
 
 export type ConstructionSiteFormValues = z.infer<typeof constructionSiteFormSchema>;
@@ -59,20 +69,22 @@ export const CONSTRUCTION_SITE_FORM_DEFAULTS: ConstructionSiteFormValues = {
   responsibleId: '',
   responsibleName: '',
   description: '',
+  firstReportNumber: '',
 };
 
 /// Campos opcionais em branco viram `undefined` (não string vazia) antes de ir
 /// pra API — mantém o payload limpo e alinhado com o que os DTOs esperam.
-export function toConstructionSiteInput(values: ConstructionSiteFormValues) {
+export function toConstructionSiteInput(values: ConstructionSiteFormValues): ConstructionSiteInput {
   // O CEP viaja SÓ COM DÍGITOS — a API o valida como `^\d{8}$`, e o mesmo
   // tratamento que CNPJ e telefone já recebem. A máscara é da tela; o banco
   // guarda o dado, e é ele que a formatação do documento reconstrói.
   const zipCode = values.zipCode?.replace(/\D/g, '');
+  const firstReportNumber = values.firstReportNumber ? Number(values.firstReportNumber) : undefined;
 
   return Object.fromEntries(
-    Object.entries({ ...values, zipCode }).map(([key, value]) => [
+    Object.entries({ ...values, zipCode, firstReportNumber }).map(([key, value]) => [
       key,
       value === '' || value === undefined ? undefined : value,
     ]),
-  ) as ConstructionSiteFormValues;
+  ) as unknown as ConstructionSiteInput;
 }

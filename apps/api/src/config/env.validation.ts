@@ -78,7 +78,7 @@ export const envValidationSchema = Joi.object({
     .optional()
     .messages({
       'string.pattern.base':
-        'deve ser um domínio (ex.: .gestaoeds.com.br). Deixe vazio para o cookie ficar preso ao host que o emitiu.',
+        'deve ser um domínio (ex.: .construtora.com.br). Deixe vazio para o cookie ficar preso ao host que o emitiu.',
     }),
 
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),

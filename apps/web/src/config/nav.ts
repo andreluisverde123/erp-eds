@@ -9,6 +9,7 @@ import {
   Clock,
   CreditCard,
   Factory,
+  HardHat,
   Fingerprint,
   FileCheck2,
   FileSpreadsheet,
@@ -39,6 +40,10 @@ export interface NavLink {
   /// cada endpoint do módulo, isto é só para não anunciar na UI uma tela
   /// que o usuário não pode abrir.
   permission?: string;
+  /// O destino não é uma rota do ERP: o link recarrega a página em vez de
+  /// navegar pelo roteador. É o caso do Diário de Obras, que é outra árvore de
+  /// rotas escolhida no boot (`lib/app-mode.ts`).
+  external?: boolean;
 }
 
 export interface NavGroup {
@@ -88,6 +93,15 @@ export const navEntries: NavEntry[] = [
             },
           ]
         : []),
+      // `/diario` e não o subdomínio: o caminho existe em toda instalação,
+      // com ou sem `diario.` no DNS.
+      {
+        title: 'Diário de Obras',
+        path: '/diario',
+        icon: HardHat,
+        permission: 'diario.access',
+        external: true,
+      },
       {
         title: 'Solicitações',
         path: '/engenharia/solicitacoes',

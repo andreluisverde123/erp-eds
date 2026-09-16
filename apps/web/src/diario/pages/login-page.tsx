@@ -17,6 +17,7 @@ import {
 } from '@repo/ui';
 
 import { CompanyLogo } from '@/components/company-logo';
+import { APP_NAME } from '@/config/company';
 import { useAuth } from '@/features/auth/context';
 import { ApiError } from '@/lib/api-client';
 
@@ -75,7 +76,7 @@ export function DiarioLoginPage() {
       <CompanyLogo className="h-9 w-auto max-w-none" />
       <h1 className="mt-5 text-2xl font-semibold leading-tight text-foreground">Diário de Obras</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Entre com o mesmo e-mail e senha do sistema da EDS.
+        Entre com o mesmo e-mail e senha do {APP_NAME}.
       </p>
 
       <Form {...form}>

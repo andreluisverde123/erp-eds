@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { PAYMENT_PENDING_CODE } from '@/config/billing-notice';
+import { COMPANY_NAME } from '@/config/company';
 import { ApiError, setAccessToken, setUnauthorizedHandler } from '@/lib/api-client';
 
 import * as authApi from './api';
@@ -25,7 +26,7 @@ const DEV_MOCK_USER: AuthUser = {
   email: 'dev@localhost',
   roles: ['dev'],
   permissions: [],
-  tenant: { id: 'dev', name: 'EDS (dev)', logoUrl: null, erpName: null },
+  tenant: { id: 'dev', name: `${COMPANY_NAME} (dev)`, logoUrl: null, erpName: null },
   mustChangePassword: false,
 };
 

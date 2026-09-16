@@ -10,7 +10,9 @@ import { QueryConstructionSiteDto } from './dto/query-construction-site.dto';
 import { UpdateConstructionSiteDto } from './dto/update-construction-site.dto';
 
 const listArgs = Prisma.validator<Prisma.ConstructionSiteDefaultArgs>()({
-  include: { _count: { select: { costCenters: { where: { deletedAt: null } } } } },
+  include: {
+    _count: { select: { costCenters: { where: { deletedAt: null } }, dailyReports: true } },
+  },
 });
 
 const detailArgs = Prisma.validator<Prisma.ConstructionSiteDefaultArgs>()({
@@ -19,7 +21,9 @@ const detailArgs = Prisma.validator<Prisma.ConstructionSiteDefaultArgs>()({
     /// dropdown ao abrir a obra para edição.
     responsible: { select: { id: true, name: true, email: true } },
     costCenters: { where: { deletedAt: null }, orderBy: { code: 'asc' } },
-    _count: { select: { costCenters: { where: { deletedAt: null } } } },
+    /// `dailyReports` sem filtro de exclusão, como a numeração: é ela que diz
+    /// se o número inicial do Diário ainda pode mudar.
+    _count: { select: { costCenters: { where: { deletedAt: null } }, dailyReports: true } },
   },
 });
 
@@ -27,6 +31,8 @@ export type ConstructionSiteListItem = Prisma.ConstructionSiteGetPayload<typeof 
 export type ConstructionSiteDetail = Prisma.ConstructionSiteGetPayload<typeof detailArgs>;
 
 const DUPLICATE_CODE_MESSAGE = 'Já existe uma obra com este código.';
+const FIRST_REPORT_NUMBER_LOCKED_MESSAGE =
+  'O número inicial do Diário só pode ser alterado antes do primeiro RDO desta obra.';
 
 @Injectable()
 export class ConstructionSitesService {
@@ -118,6 +124,7 @@ export class ConstructionSitesService {
           responsibleId: responsavel.responsibleId,
           responsibleName: responsavel.responsibleName,
           description: dto.description,
+          firstReportNumber: dto.firstReportNumber,
         },
       });
 
@@ -187,8 +194,18 @@ export class ConstructionSitesService {
     id: string,
     dto: UpdateConstructionSiteDto,
   ): Promise<ConstructionSiteDetail> {
-    await this.findOne(companyId, id);
+    const atual = await this.findOne(companyId, id);
     const responsavel = await this.resolveResponsible(companyId, id, dto);
+
+    // Com RDO na obra, a sequência já começou: trocar o ponto de partida não
+    // renumeraria nada e só deixaria o cadastro mentindo. Reenviar o mesmo
+    // valor (o formulário manda tudo) não é troca.
+    const trocaNumeroInicial =
+      dto.firstReportNumber !== undefined &&
+      dto.firstReportNumber !== (atual.firstReportNumber ?? 1);
+    if (trocaNumeroInicial && atual._count.dailyReports > 0) {
+      throw new ConflictException(FIRST_REPORT_NUMBER_LOCKED_MESSAGE);
+    }
 
     try {
       await this.prisma.constructionSite.update({
@@ -217,6 +234,7 @@ export class ConstructionSitesService {
           responsibleId: dto.responsibleId ? responsavel.responsibleId : undefined,
           responsibleName: responsavel.responsibleName,
           description: dto.description,
+          firstReportNumber: trocaNumeroInicial ? dto.firstReportNumber : undefined,
         },
       });
 

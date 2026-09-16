@@ -138,7 +138,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           ...navLinks
-            .filter((link) => !PERMISSION_GUARDED_PATHS.has(link.path))
+            .filter((link) => !link.external && !PERMISSION_GUARDED_PATHS.has(link.path))
             .map((link) => ({
               path: link.path.slice(1),
               element: (

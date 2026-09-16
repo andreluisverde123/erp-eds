@@ -12,18 +12,21 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Cor de marca: vermelho institucional da EDS, #ED2124, extraído do logo
- * oficial. Antes era um rosa que era a marca de um produto vendido — não da
- * empresa dona deste sistema.
+ * Cor de marca: vem da INSTALAÇÃO, não desta folha.
  *
- * Só o VALOR de quatro tokens mudou: --primary, --ring, --sidebar-primary e
- * --pending-foreground. Nenhum token foi criado, renomeado ou removido, e
- * nenhum componente foi tocado. O tema escuro não entra: ele nunca carregou a
- * cor de marca, usa neutros.
+ * Cada construtora tem a própria cor, declarada em
+ * `apps/web/brands/<id>/brand.json`. O build a injeta no `index.html` como
+ * quatro variáveis `--brand-*` (ver `apps/web/brand/brand.ts`), e os tokens
+ * abaixo só as leem. Nenhum token do design system foi criado ou renomeado:
+ * mudou de onde vem o VALOR de --primary, --ring, --sidebar-primary,
+ * --sidebar-ring, --pending e dos respectivos *-foreground.
  *
- * O mesmo valor está declarado em `EDS_COMPANY.theme` (packages/types) para
- * quem precisa da cor em TypeScript — geração de PDF, gráfico, e-mail. Os dois
- * andam juntos: mudou aqui, muda lá.
+ * O cinza do fallback só aparece se a página for servida sem o `index.html`
+ * do build (nunca em uso real) — neutro de propósito, para não carregar a
+ * marca de ninguém.
+ *
+ * `--destructive` NÃO segue a marca: o vermelho de excluir só é reconhecível
+ * por ser independente dela. O tema escuro também não: usa neutros.
  */
 :root {
   --background: #ffffff;
@@ -32,8 +35,8 @@
   --card-foreground: #212121;
   --popover: #ffffff;
   --popover-foreground: #212121;
-  --primary: #ed2124;
-  --primary-foreground: #ffffff;
+  --primary: var(--brand-primary, #262626);
+  --primary-foreground: var(--brand-primary-foreground, #ffffff);
   --secondary: #f6f6f6;
   --secondary-foreground: #212121;
   --muted: #f6f6f6;
@@ -44,21 +47,21 @@
   --destructive-foreground: #ffffff;
   --success: #1b993b;
   --success-foreground: #ffffff;
-  --pending: #fff1ec;
-  --pending-foreground: #ed2124;
+  --pending: var(--brand-pending, #f4f4f4);
+  --pending-foreground: var(--brand-pending-foreground, #262626);
   --border: #e9e9e9;
   --input: #e9e9e9;
-  --ring: #ed2124;
+  --ring: var(--brand-primary, #262626);
   --radius: 0.5rem;
 
   --sidebar: #f9f9f9;
   --sidebar-foreground: #211d25;
-  --sidebar-primary: #ed2124;
-  --sidebar-primary-foreground: #ffffff;
+  --sidebar-primary: var(--brand-primary, #262626);
+  --sidebar-primary-foreground: var(--brand-primary-foreground, #ffffff);
   --sidebar-accent: #f1f1f1;
   --sidebar-accent-foreground: #212121;
   --sidebar-border: #efefef;
-  --sidebar-ring: #ed2124;
+  --sidebar-ring: var(--brand-primary, #262626);
 }
 
 .dark {

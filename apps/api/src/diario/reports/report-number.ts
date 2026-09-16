@@ -17,6 +17,12 @@ export interface ReportNumberTx {
       _max: { number: true };
     }): Promise<{ _max: { number: number | null } }>;
   };
+  constructionSite: {
+    findFirst(args: {
+      where: { id: string; companyId: string };
+      select: { firstReportNumber: true };
+    }): Promise<{ firstReportNumber: number | null } | null>;
+  };
 }
 
 /// Próximo número do RDO daquela obra, alocado de forma segura sob concorrência.
@@ -49,8 +55,14 @@ export interface ReportNumberTx {
 /// era o último: `MAX(number) + 1` sobre linhas que existem. É consequência
 /// aceita da exclusão ser definitiva (ver `DailyReportsService.remove`), e não
 /// custa nada — o rascunho apagado nunca foi documento de ninguém.
+///
+/// **Número inicial.** O primeiro RDO da obra recebe
+/// `ConstructionSite.firstReportNumber` (ou 1, se não definido): a obra pode
+/// ter começado o diário em outro sistema. Havendo qualquer RDO, vale o
+/// `MAX + 1` de sempre — o número inicial só decide o ponto de partida.
 export async function allocateReportNumber(
   tx: ReportNumberTx,
+  companyId: string,
   constructionSiteId: string,
 ): Promise<number> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIARIO_LOCK_NAMESPACE}, hashtext(${constructionSiteId}))`;
@@ -60,5 +72,11 @@ export async function allocateReportNumber(
     _max: { number: true },
   });
 
-  return (_max.number ?? 0) + 1;
+  if (_max.number !== null) return _max.number + 1;
+
+  const obra = await tx.constructionSite.findFirst({
+    where: { id: constructionSiteId, companyId },
+    select: { firstReportNumber: true },
+  });
+  return obra?.firstReportNumber ?? 1;
 }

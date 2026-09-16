@@ -718,6 +718,16 @@ model ConstructionSite {
   startDate         DateTime?
   expectedEndDate   DateTime?
   actualEndDate     DateTime?
+  /// Número do PRIMEIRO RDO desta obra no Diário. Nulo = começa em 1.
+  ///
+  /// Existe porque a obra pode ter usado outro sistema antes: o primeiro RDO
+  /// registrado aqui é, por exemplo, o 58 daquela obra, e recomeçar do 1
+  /// duplicaria números já citados em atas e medições. Daí em diante a
+  /// numeração segue sozinha (`allocateReportNumber`).
+  ///
+  /// Só pode ser alterado enquanto a obra não tem nenhum RDO: depois disso a
+  /// sequência já começou, e mudar a origem não renumera o que existe.
+  firstReportNumber Int?
   /// LEGADO. Valor digitado antes de existir orçamento detalhado. Não é mais
   /// editável por tela nenhuma nem fonte oficial: o valor orçado da obra é o
   /// preço final do orçamento oficial (`currentBudget`). Mantido só para não

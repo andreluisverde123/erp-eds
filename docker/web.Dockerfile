@@ -2,7 +2,8 @@
 
 # Build a partir da RAIZ do monorepo:
 #   docker build -f docker/web.Dockerfile \
-#     --build-arg VITE_API_URL=https://api.seu-dominio.com -t eds-web .
+#     --build-arg VITE_API_URL=https://api.seu-dominio.com \
+#     --build-arg VITE_BRAND=eds -t erp-web .
 #
 # ATENÇÃO: o Vite injeta `import.meta.env.VITE_*` em tempo de BUILD, não de
 # execução — o bundle sai com a URL da API cravada dentro. Definir VITE_API_URL
@@ -32,9 +33,13 @@ WORKDIR /app
 ARG VITE_API_URL=http://localhost:3000
 ENV VITE_API_URL=$VITE_API_URL
 
-# A identidade da aplicação NÃO entra por build arg: o ERP é da EDS e a marca
-# vem de `packages/types/src/company.ts`, compilada junto com o resto. Não há
-# imagem "de outro cliente" a produzir a partir deste Dockerfile.
+# Marca da instalação: nome da pasta em apps/web/brands/. OBRIGATÓRIA aqui —
+# sem ela o build para, em vez de publicar um cliente com a marca de outro. No
+# Railway, basta a variável `VITE_BRAND` existir no serviço do site. Um build
+# que falha mantém a versão anterior no ar.
+ARG VITE_BRAND
+ENV VITE_BRAND=$VITE_BRAND
+RUN test -n "$VITE_BRAND" || (echo "ERRO: defina VITE_BRAND (pasta em apps/web/brands/)." >&2 && exit 1)
 #
 # Auto-cadastro de construtora, desligado. O Vite resolve `import.meta.env` em
 # tempo de BUILD, então isto precisa estar aqui e não na subida do container.

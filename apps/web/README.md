@@ -1,6 +1,6 @@
 # Web
 
-Interface do ERP EDS: React 19 + TypeScript, Vite, React Router e TanStack
+Interface do ERP: React 19 + TypeScript, Vite, React Router e TanStack
 Query, com o design system em [`packages/ui`](../../packages/ui).
 
 Para a visão geral do sistema veja [PROJECT_SCOPE.md](../../PROJECT_SCOPE.md);
@@ -15,21 +15,33 @@ npm run dev            # http://localhost:5173
 
 A API precisa estar no ar — veja [apps/api](../api/README.md).
 
-## Identidade
+## Marca da instalação
 
-Nome, logo, dados cadastrais e cores de marca da EDS vivem em um lugar só:
-`EDS_COMPANY`, em [`packages/types/src/company.ts`](../../packages/types/src/company.ts).
-A API lê a mesma constante. Nenhum nome de empresa deve ser escrito direto em
-componente ou página.
+O sistema é o mesmo para todas as construtoras; cada instalação tem a própria
+marca, numa pasta em [`brands/`](brands):
 
-Duas coisas ficam de fora dessa constante e são intencionais:
+```
+brands/<id>/
+  brand.json    nome do sistema, nome curto, construtora, descrição e cores
+  logo.svg      assinatura horizontal (barra lateral, login, splash)
+  favicon.svg   símbolo quadrado (aba do navegador, ícone do app)
+```
 
-- **Nome e logo editáveis pelo administrador** (Configurações → Sistema/Empresa)
-  vêm do banco a cada login e têm precedência sobre a constante. A regra está em
-  [`use-brand.ts`](src/features/auth/use-brand.ts).
-- **Título, meta tags, manifest e splash** ficam em [`index.html`](index.html) e
-  [`public/manifest.webmanifest`](public/manifest.webmanifest): são servidos
-  antes de qualquer JavaScript, então repetem os valores literalmente.
+O build escolhe a pasta pela variável `VITE_BRAND` (padrão `eds` em
+desenvolvimento, testes e CI; **obrigatória** no `docker/web.Dockerfile`). O
+plugin [`brand/vite-plugin.ts`](brand/vite-plugin.ts) aplica a marca no
+`index.html` (título, meta tags, splash e cores), gera o
+`manifest.webmanifest` e publica os logos em `/brand/`. No código, a marca
+chega por [`src/config/company.ts`](src/config/company.ts).
+
+Nenhum nome de construtora deve ser escrito direto em componente ou página.
+
+Nome e logo editáveis pelo administrador (Configurações → Sistema/Empresa) vêm
+do banco a cada login e têm precedência sobre a marca da instalação. A regra
+está em [`use-brand.ts`](src/features/auth/use-brand.ts).
+
+Cliente novo: copie `brands/eds/` para `brands/<cliente>/`, troque os três
+arquivos e publique com `VITE_BRAND=<cliente>`.
 
 ## Estrutura
 

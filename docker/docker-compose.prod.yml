@@ -96,6 +96,8 @@ services:
         # só. Ligar apenas para provisionar uma base nova, junto com
         # PUBLIC_SIGNUP_ENABLED=true no serviço `api`.
         VITE_PUBLIC_SIGNUP_ENABLED: ${VITE_PUBLIC_SIGNUP_ENABLED:-false}
+        # Marca da instalação (pasta em apps/web/brands/).
+        VITE_BRAND: ${VITE_BRAND:-eds}
     restart: unless-stopped
     ports:
       - '${WEB_PORT:-8080}:80'

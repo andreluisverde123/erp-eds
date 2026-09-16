@@ -4,26 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>ERP EDS</title>
-    <meta
-      name="description"
-      content="Sistema de gestão da construtora EDS — obras, compras, financeiro e pessoal."
-    />
-    <meta name="application-name" content="ERP EDS" />
-    <meta name="author" content="EDS" />
+    <!-- Os marcadores %BRAND_*% são preenchidos no build com a marca da
+         instalação (VITE_BRAND → apps/web/brands/<id>/). Ver brand/brand.ts. -->
+    <title>%BRAND_APP_NAME%</title>
+    <meta name="description" content="%BRAND_DESCRIPTION%" />
+    <meta name="application-name" content="%BRAND_APP_NAME%" />
+    <meta name="author" content="%BRAND_COMPANY_NAME%" />
 
-    <!-- Sistema interno da EDS: não é site público, não tem página de captação
-         e não deve aparecer em resultado de busca. -->
+    <!-- Sistema interno da construtora: não é site público, não tem página de
+         captação e não deve aparecer em resultado de busca. -->
     <meta name="robots" content="noindex, nofollow" />
 
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="%BRAND_FAVICON%" />
+    <link rel="apple-touch-icon" href="%BRAND_FAVICON%" />
+    <link rel="manifest" href="%BRAND_MANIFEST%" />
 
-    <!-- Vermelho institucional da EDS. Espelha `EDS_COMPANY.theme.primary`
-         (packages/types/src/company.ts) — este HTML é servido antes de qualquer
-         JavaScript, então o valor precisa estar literal aqui. -->
-    <meta name="theme-color" content="#ED2124" />
+    <meta name="theme-color" content="%BRAND_COLOR%" />
+
+    <!-- Cores da marca. `globals.css` lê estas variáveis; ficam aqui, inline,
+         para valerem desde o primeiro pixel. -->
+    <style id="brand-colors">%BRAND_CSS%</style>
 
     <!--
       Splash de carregamento. Cobre a janela entre o primeiro byte do HTML e o
@@ -75,8 +75,8 @@
   <body>
     <div id="root">
       <div id="app-splash">
-        <img src="/logo-eds.svg" alt="EDS" />
-        <span>Carregando o ERP EDS…</span>
+        <img src="%BRAND_LOGO%" alt="%BRAND_SHORT_NAME%" />
+        <span>Carregando o %BRAND_APP_NAME%…</span>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
