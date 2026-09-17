@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 import { Alert, AlertTitle, Button } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useAuth } from '@/features/auth/context';
 import { ApiError } from '@/lib/api-client';
 
 import { deleteReport } from '../api';
@@ -19,7 +20,14 @@ import type { DiarioReportDetail } from '../types';
 ///
 /// Só aparece em rascunho. Relatório finalizado não mostra nem o link: o
 /// backend recusaria, e um botão que sempre falha é pior que botão nenhum.
+///
+/// A exceção é quem tem `diario.report.admin` (Administrador e Engenharia),
+/// que pode excluir um finalizado — um RDO de teste, por exemplo.
+export const DIARIO_ADMIN_PERMISSION = 'diario.report.admin';
+
 export function DeleteReport({ report }: { report: DiarioReportDetail }) {
+  const { user } = useAuth();
+  const administrador = user?.permissions.includes(DIARIO_ADMIN_PERMISSION) ?? false;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [confirmando, setConfirmando] = useState(false);
@@ -39,7 +47,8 @@ export function DeleteReport({ report }: { report: DiarioReportDetail }) {
     onSettled: () => setConfirmando(false),
   });
 
-  if (!report.editable) return null;
+  if (!report.editable && !administrador) return null;
+  const finalizado = !report.editable;
 
   const mensagem =
     excluir.error instanceof ApiError
@@ -63,7 +72,11 @@ export function DeleteReport({ report }: { report: DiarioReportDetail }) {
         onClick={() => setConfirmando(true)}
       >
         <Trash2 className="size-4" />
-        {excluir.isPending ? 'Excluindo…' : 'Excluir rascunho'}
+        {excluir.isPending
+          ? 'Excluindo…'
+          : finalizado
+            ? 'Excluir relatório finalizado'
+            : 'Excluir rascunho'}
       </Button>
 
       <ConfirmDialog
@@ -73,6 +86,9 @@ export function DeleteReport({ report }: { report: DiarioReportDetail }) {
         // O texto diz o que NÃO volta. "Tem certeza?" não informa nada: quem
         // vai excluir já tem certeza — o que ele não sabe é o que perde junto.
         description={
+          (finalizado
+            ? 'Este relatório já foi finalizado. Use só para um RDO que não deveria existir, como um de teste. '
+            : '') +
           'O relatório e tudo que foi registrado nele — mão de obra, equipamentos, ' +
           'atividades, ocorrências, materiais, fotos e vídeos — serão apagados ' +
           'definitivamente. Não há como desfazer.'

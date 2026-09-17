@@ -546,6 +546,18 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       ) {
         throw uniqueError('reportDate');
       }
+      // Índice único `(obra, número)`: é ele que obriga a renumeração a trocar
+      // em duas passadas.
+      if (
+        db.reports.some(
+          (o) =>
+            o.id !== linha.id &&
+            o.constructionSiteId === futuro.constructionSiteId &&
+            o.number === futuro.number,
+        )
+      ) {
+        throw uniqueError('number');
+      }
       Object.assign(linha, data, { updatedAt: new Date() });
       return projetar(linha);
     },

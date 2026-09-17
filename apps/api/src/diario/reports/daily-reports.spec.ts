@@ -724,3 +724,126 @@ describe('RDO — exclusão de rascunho', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Correções de administrador
+// ---------------------------------------------------------------------------
+
+const dia = (d: string) => new Date(`${d}T00:00:00.000Z`);
+
+describe('RDO — exclusão de finalizado pelo administrador', () => {
+  it('com a permissão de administrador, o finalizado é excluído', async () => {
+    const { service, rdos, auditLogger } = montar([
+      rdoExistente({ id: 'r1', status: 'SUBMITTED' }),
+    ]);
+
+    await service.remove(EMPRESA_A, ENGENHEIRO_A, 'r1', { podeAdministrar: true });
+
+    expect(rdos).toHaveLength(0);
+    expect(auditLogger.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DELETE',
+        changes: expect.objectContaining({ situacao: 'SUBMITTED' }),
+      }),
+    );
+  });
+
+  it('a permissão não abre obra de outra pessoa', async () => {
+    const { service, rdos } = montar([rdoExistente({ id: 'r1', status: 'SUBMITTED' })]);
+
+    await expect(
+      service.remove(EMPRESA_A, ENGENHEIRO_B, 'r1', { podeAdministrar: true }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(rdos).toHaveLength(1);
+  });
+});
+
+describe('RDO — correção da numeração', () => {
+  /// O caso real: o RDO de teste (nº 1, 31/08) saiu, e os de 04/08 em diante
+  /// ficaram com 2, 3, 4.
+  function obraComBuraco() {
+    return montar([
+      rdoExistente({ id: 'd04', number: 2, reportDate: dia('2026-08-04') }),
+      rdoExistente({ id: 'd05', number: 3, reportDate: dia('2026-08-05') }),
+      rdoExistente({ id: 'd06', number: 4, reportDate: dia('2026-08-06'), status: 'SUBMITTED' }),
+    ]);
+  }
+
+  const numeros = (rdos: LinhaRdo[]) =>
+    Object.fromEntries(rdos.map((r) => [r.id, r.number]));
+
+  it('o RDO recebe o número novo e os de datas seguintes acompanham', async () => {
+    const { service, rdos } = obraComBuraco();
+
+    const atualizado = await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd04', { number: 1 });
+
+    expect(atualizado.number).toBe(1);
+    expect(numeros(rdos)).toEqual({ d04: 1, d05: 2, d06: 3 });
+  });
+
+  it('também sobe a numeração', async () => {
+    const { service, rdos } = obraComBuraco();
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd05', { number: 10 });
+
+    expect(numeros(rdos)).toEqual({ d04: 2, d05: 10, d06: 11 });
+  });
+
+  it('não mexe nos RDOs de datas anteriores, nem em outra obra', async () => {
+    const { service, rdos } = montar([
+      rdoExistente({ id: 'd04', number: 1, reportDate: dia('2026-08-04') }),
+      rdoExistente({ id: 'd05', number: 5, reportDate: dia('2026-08-05') }),
+      rdoExistente({ id: 'b05', number: 5, reportDate: dia('2026-08-05'), constructionSiteId: BETA }),
+    ]);
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd05', { number: 2 });
+
+    expect(numeros(rdos)).toEqual({ d04: 1, d05: 2, b05: 5 });
+  });
+
+  it('recusa número que não fica acima dos RDOs anteriores', async () => {
+    const { service, rdos } = obraComBuraco();
+
+    await expect(
+      service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd05', { number: 2 }),
+    ).rejects.toThrow('O RDO de 04/08/2026 tem o nº 2. O número precisa ser maior que 2.');
+    expect(numeros(rdos)).toEqual({ d04: 2, d05: 3, d06: 4 });
+  });
+
+  it('registra a troca na auditoria', async () => {
+    const { service, auditLogger } = obraComBuraco();
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd04', { number: 1 });
+
+    expect(auditLogger.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'UPDATE',
+        entityId: 'd04',
+        changes: expect.objectContaining({
+          renumeracao: [
+            { de: 2, para: 1 },
+            { de: 3, para: 2 },
+            { de: 4, para: 3 },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('sem acesso à obra, não renumera', async () => {
+    const { service, rdos } = obraComBuraco();
+
+    await expect(
+      service.renumber(EMPRESA_A, ENGENHEIRO_B, 'd04', { number: 1 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(numeros(rdos)).toEqual({ d04: 2, d05: 3, d06: 4 });
+  });
+
+  it('roda sob o lock da numeração', async () => {
+    const { service, controle } = obraComBuraco();
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'd04', { number: 1 });
+
+    expect(controle.locksPedidos).toBe(1);
+  });
+});

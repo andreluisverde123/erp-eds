@@ -10,6 +10,7 @@ import { SiteAccessService, diarioSiteSelect } from '../access/site-access.servi
 import {
   DAILY_REPORT_STATUS_LABEL,
   NOT_DELETABLE_MESSAGE,
+  renumberBelowPreviousMessage,
   NOT_EDITABLE_MESSAGE,
   assertCanSubmit,
   isEditable,
@@ -17,13 +18,14 @@ import {
 import { CopyDailyReportDto } from './dto/copy-daily-report.dto';
 import { CreateDailyReportDto } from './dto/create-daily-report.dto';
 import { QueryDailyReportDto } from './dto/query-daily-report.dto';
+import { RenumberDailyReportDto } from './dto/renumber-daily-report.dto';
 import { UpdateDailyReportDto } from './dto/update-daily-report.dto';
 import { parseReportDate, weekdayOf } from './report-date';
 import { formatTimeOfDay } from './report-time';
 import { buildReportSummary, type DailyReportSummary } from './report-summary';
 import { assertReadyToSubmit } from './submission-readiness';
 import { buildWorkSchedule } from './work-schedule';
-import { allocateReportNumber } from './report-number';
+import { allocateReportNumber, lockReportNumbering } from './report-number';
 import { buildReportSchedule, type ReportSchedule } from './report-schedule';
 
 const listArgs = Prisma.validator<Prisma.DailyReportDefaultArgs>()({
@@ -555,10 +557,20 @@ export class DailyReportsService {
   /// tiverem sido copiados deste apenas perdem o ponteiro de origem
   /// (`copiedFromId` é `SET NULL`) — a cópia é um relatório próprio e não
   /// depende do original para existir.
-  async remove(companyId: string, userId: string, id: string): Promise<void> {
+  ///
+  /// **Exceção de correção.** Com `diario.report.admin` (`podeAdministrar`;
+  /// Administrador e Engenharia),
+  /// o finalizado também sai — é a saída para um RDO de teste que chegou a ser
+  /// finalizado. A auditoria registra a situação em que ele estava.
+  async remove(
+    companyId: string,
+    userId: string,
+    id: string,
+    { podeAdministrar = false }: { podeAdministrar?: boolean } = {},
+  ): Promise<void> {
     const report = await this.findRow(companyId, userId, id);
 
-    if (!isEditable(report.status)) {
+    if (!isEditable(report.status) && !podeAdministrar) {
       throw new ConflictException(NOT_DELETABLE_MESSAGE);
     }
 
@@ -575,7 +587,7 @@ export class DailyReportsService {
     // finalizar e excluir ao mesmo tempo poderia apagar um relatório que
     // acabou de virar documento.
     const { count } = await this.prisma.dailyReport.deleteMany({
-      where: { id, companyId, deletedAt: null, status: 'DRAFT' },
+      where: { id, companyId, deletedAt: null, ...(podeAdministrar ? {} : { status: 'DRAFT' }) },
     });
 
     if (count === 0) {
@@ -592,6 +604,7 @@ export class DailyReportsService {
         numero: report.number,
         data: report.reportDate.toISOString().slice(0, 10),
         obra: report.constructionSite.id,
+        situacao: report.status,
       },
     });
 
@@ -608,6 +621,80 @@ export class DailyReportsService {
     this.logger.log(
       `RDO ${report.number} da obra ${report.constructionSite.id} excluído por ${userId}.`,
     );
+  }
+
+  /// Corrige a numeração: este RDO passa a ter `dto.number`, e os de datas
+  /// POSTERIORES da mesma obra seguem em sequência (+1, +2, ...). Os de datas
+  /// anteriores não mudam, e o número novo precisa ficar acima deles.
+  ///
+  /// Exige `diario.report.admin` na rota (Administrador e Engenharia). Vale também
+  /// para finalizado: o conteúdo continua fechado, só o número muda.
+  ///
+  /// Roda sob o mesmo lock da criação, então nenhum RDO novo da obra nasce no
+  /// meio. A troca é feita em duas passadas (números negativos provisórios e
+  /// depois os definitivos) porque o índice único `(obra, número)` recusaria
+  /// uma troca direta como 3 → 2 enquanto o 2 ainda existe.
+  async renumber(
+    companyId: string,
+    userId: string,
+    id: string,
+    dto: RenumberDailyReportDto,
+  ): Promise<DailyReportDetail> {
+    const report = await this.findRow(companyId, userId, id);
+    const siteId = report.constructionSite.id;
+
+    const alterados = await this.prisma.$transaction(async (tx) => {
+      await lockReportNumbering(tx, siteId);
+
+      const daObra = (
+        await tx.dailyReport.findMany({
+          where: { companyId, constructionSiteId: siteId, deletedAt: null },
+          select: { id: true, number: true, reportDate: true },
+        })
+      ).sort((a, b) => a.reportDate.getTime() - b.reportDate.getTime());
+
+      const indice = daObra.findIndex((linha) => linha.id === id);
+      const anteriores = daObra.slice(0, indice);
+      const maiorAnterior = anteriores.reduce<(typeof daObra)[number] | null>(
+        (maior, linha) => (maior && maior.number >= linha.number ? maior : linha),
+        null,
+      );
+      if (maiorAnterior && maiorAnterior.number >= dto.number) {
+        throw new ConflictException(renumberBelowPreviousMessage(maiorAnterior));
+      }
+
+      const mudancas = daObra
+        .slice(indice)
+        .map((linha, i) => ({ id: linha.id, de: linha.number, para: dto.number + i }))
+        .filter((m) => m.de !== m.para);
+
+      for (const [i, m] of mudancas.entries()) {
+        await tx.dailyReport.update({ where: { id: m.id }, data: { number: -(i + 1) } });
+      }
+      for (const m of mudancas) {
+        await tx.dailyReport.update({ where: { id: m.id }, data: { number: m.para } });
+      }
+      return mudancas;
+    });
+
+    if (alterados.length > 0) {
+      await this.auditLogger.log({
+        companyId,
+        userId,
+        action: 'UPDATE',
+        entityType: 'DailyReport',
+        entityId: id,
+        changes: {
+          renumeracao: alterados.map(({ de, para }) => ({ de, para })),
+          obra: siteId,
+        },
+      });
+      this.logger.log(
+        `Obra ${siteId}: ${alterados.length} RDO(s) renumerado(s) a partir do nº ${dto.number} por ${userId}.`,
+      );
+    }
+
+    return this.findOne(companyId, userId, id);
   }
 
   private async removeObject(key: string): Promise<void> {

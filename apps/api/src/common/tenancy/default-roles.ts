@@ -202,6 +202,17 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     action: 'report_manage',
     description: 'Criar e editar relatórios diários (RDO) nas obras vinculadas a você.',
   },
+  /// Correções no Diário: excluir um RDO já finalizado (um relatório de teste,
+  /// por exemplo) e acertar a numeração. Fora de `diario.report.manage` porque
+  /// desfaz o documento do dia: Administrador e Engenharia recebem, a
+  /// Fiscalização não.
+  {
+    code: 'diario.report.admin',
+    module: 'diario',
+    action: 'report_admin',
+    description:
+      'Excluir relatórios diários já finalizados e corrigir a numeração dos RDOs. Fica registrado na auditoria.',
+  },
   /// Separada de `admin.manage_users` porque quem decide "qual engenheiro
   /// toca qual obra" é a Engenharia, não quem administra contas de acesso —
   /// e dar `admin.manage_users` a um coordenador de obra só para ele
@@ -284,6 +295,7 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       // e fiscais.
       'diario.access',
       'diario.report.manage',
+      'diario.report.admin',
       'diario.manage_access',
     ],
   },

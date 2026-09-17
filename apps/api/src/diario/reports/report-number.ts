@@ -65,7 +65,7 @@ export async function allocateReportNumber(
   companyId: string,
   constructionSiteId: string,
 ): Promise<number> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIARIO_LOCK_NAMESPACE}, hashtext(${constructionSiteId}))`;
+  await lockReportNumbering(tx, constructionSiteId);
 
   const { _max } = await tx.dailyReport.aggregate({
     where: { constructionSiteId },
@@ -79,4 +79,13 @@ export async function allocateReportNumber(
     select: { firstReportNumber: true },
   });
   return obra?.firstReportNumber ?? 1;
+}
+
+/// Trava a numeração da obra até o fim da transação. A renumeração usa a mesma
+/// chave: um RDO criado durante ela espera, e lê o máximo já renumerado.
+export async function lockReportNumbering(
+  tx: Pick<ReportNumberTx, '$executeRaw'>,
+  constructionSiteId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIARIO_LOCK_NAMESPACE}, hashtext(${constructionSiteId}))`;
 }

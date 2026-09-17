@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { renderDiario } from '@/test/render-diario';
+import { USUARIO, renderDiario } from '@/test/render-diario';
 import { ApiError } from '@/lib/api-client';
 
 import * as api from '../api';
@@ -88,9 +88,23 @@ function relatorio(over: Partial<DiarioReportDetail> = {}): DiarioReportDetail {
   };
 }
 
-async function abrir(detalhe: DiarioReportDetail = relatorio()) {
+const ADMIN = {
+  ...USUARIO,
+  roles: ['Administrador'],
+  permissions: [...USUARIO.permissions, 'diario.report.admin'],
+};
+
+const FINALIZADO = {
+  status: 'SUBMITTED' as const,
+  statusLabel: 'Finalizado',
+  editable: false,
+  submittedAt: '2026-08-30T20:42:00.000Z',
+  submittedBy: { id: 'user-1', name: 'Eduardo Engenharia' },
+};
+
+async function abrir(detalhe: DiarioReportDetail = relatorio(), user = USUARIO) {
   mocked.getReport.mockResolvedValue(detalhe);
-  renderDiario(<DiarioRdoPage />, { rota: '/relatorios/rdo-24', path: '/relatorios/:id' });
+  renderDiario(<DiarioRdoPage />, { rota: '/relatorios/rdo-24', path: '/relatorios/:id', user });
   await screen.findByRole('heading', { name: 'RDO #24' });
 }
 
@@ -175,5 +189,52 @@ describe('Excluir rascunho', () => {
     expect(
       await screen.findByText('Este relatório já foi finalizado e não pode mais ser excluído.'),
     ).toBeDefined();
+  });
+});
+
+describe('Correções de administrador', () => {
+  it('administrador pode excluir um relatório finalizado, com aviso próprio', async () => {
+    const usuario = userEvent.setup();
+    mocked.deleteReport.mockResolvedValue(undefined);
+    await abrir(relatorio(FINALIZADO), ADMIN);
+
+    await usuario.click(screen.getByRole('button', { name: /Excluir relatório finalizado/ }));
+    expect(await screen.findByText(/já foi finalizado/)).toBeDefined();
+    await usuario.click(screen.getByRole('button', { name: /Excluir definitivamente/ }));
+
+    await waitFor(() => expect(mocked.deleteReport).toHaveBeenCalledWith('rdo-24'));
+  });
+
+  it('sem a permissão de correção, não vê a alteração de número', async () => {
+    await abrir();
+
+    expect(screen.queryByRole('button', { name: /Alterar número/ })).toBeNull();
+  });
+
+  it('administrador altera o número, e o erro do servidor aparece', async () => {
+    const usuario = userEvent.setup();
+    mocked.renumberReport.mockRejectedValueOnce(
+      new ApiError(409, 'O RDO de 04/08/2026 tem o nº 2. O número precisa ser maior que 2.'),
+    );
+    mocked.renumberReport.mockResolvedValueOnce(relatorio({ ...FINALIZADO, number: 1 }));
+    await abrir(relatorio(FINALIZADO), ADMIN);
+
+    await usuario.click(screen.getByRole('button', { name: /Alterar número do RDO/ }));
+    const campo = await screen.findByLabelText('Novo número');
+    await usuario.clear(campo);
+    await usuario.type(campo, '2');
+    await usuario.click(screen.getByRole('button', { name: 'Alterar número' }));
+
+    expect(await screen.findByText(/precisa ser maior que 2/)).toBeDefined();
+    expect(mocked.renumberReport).toHaveBeenLastCalledWith('rdo-24', 2);
+
+    // Depois de alterar, a tela relê o relatório: o servidor já devolve o nº 1.
+    mocked.getReport.mockResolvedValue(relatorio({ ...FINALIZADO, number: 1 }));
+    await usuario.clear(campo);
+    await usuario.type(campo, '1');
+    await usuario.click(screen.getByRole('button', { name: 'Alterar número' }));
+
+    await waitFor(() => expect(mocked.renumberReport).toHaveBeenLastCalledWith('rdo-24', 1));
+    expect(await screen.findByRole('heading', { name: 'RDO #1' })).toBeDefined();
   });
 });

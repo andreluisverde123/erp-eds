@@ -267,3 +267,9 @@ export function exportReportPdf(report: {
 export function deleteReport(id: string): Promise<void> {
   return apiClient.delete(`/diario/relatorios/${id}`);
 }
+
+/// Correção de administrador: este RDO passa a ter `number`, e os de datas
+/// posteriores da obra seguem em sequência.
+export function renumberReport(id: string, number: number): Promise<DiarioReportDetail> {
+  return apiClient.patch(`/diario/relatorios/${id}/numero`, { number });
+}

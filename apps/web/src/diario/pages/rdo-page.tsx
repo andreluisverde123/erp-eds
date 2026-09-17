@@ -12,6 +12,7 @@ import { ReportSectionCard } from '../components/report-section-card';
 import { DeleteReport } from '../components/delete-report';
 import { ExportReportPdf } from '../components/export-report-pdf';
 import { FinalizeReport } from '../components/finalize-report';
+import { RenumberReport } from '../components/renumber-report';
 import { SiteDataSection } from '../components/site-data-section';
 import { ActivitiesSection } from '../components/sections/activities-section';
 import { EquipmentSection } from '../components/sections/equipment-section';
@@ -205,6 +206,7 @@ function RdoEditor({ relatorio }: { relatorio: DiarioReportDetail }) {
       {/* Depois de todas as seções: finalizar é a última coisa do dia. */}
       <FinalizeReport report={relatorio} />
       <DeleteReport report={relatorio} />
+      <RenumberReport report={relatorio} />
     </div>
   );
 }

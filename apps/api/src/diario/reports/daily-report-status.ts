@@ -46,6 +46,13 @@ export const NOT_EDITABLE_MESSAGE =
 export const NOT_DELETABLE_MESSAGE =
   'Este relatório já foi finalizado e não pode mais ser excluído.';
 
+/// A renumeração não mexe nos RDOs de datas anteriores: o número novo precisa
+/// ficar acima deles para a sequência continuar crescendo com a data.
+export function renumberBelowPreviousMessage(anterior: { number: number; reportDate: Date }): string {
+  const [ano, mes, dia] = anterior.reportDate.toISOString().slice(0, 10).split('-');
+  return `O RDO de ${dia}/${mes}/${ano} tem o nº ${anterior.number}. O número precisa ser maior que ${anterior.number}.`;
+}
+
 /// Transições permitidas, declaradas.
 ///
 /// Uma tabela, e não um `if`: é ela que torna óbvio, para quem chegar depois,

@@ -22,6 +22,7 @@ import { RdoPdfService } from './pdf/rdo-pdf.service';
 import { CopyDailyReportDto } from './dto/copy-daily-report.dto';
 import { CreateDailyReportDto } from './dto/create-daily-report.dto';
 import { QueryDailyReportDto } from './dto/query-daily-report.dto';
+import { RenumberDailyReportDto } from './dto/renumber-daily-report.dto';
 import { UpdateDailyReportDto } from './dto/update-daily-report.dto';
 
 /// Relatórios diários de obra.
@@ -155,7 +156,21 @@ export class DailyReportsController {
     res.end(bytes);
   }
 
-  /// Exclui um rascunho, definitivamente.
+  /// Corrige a numeração a partir deste RDO; os de datas posteriores seguem
+  /// em sequência. Exige `diario.report.admin` — ver `DailyReportsService.renumber`.
+  @RequirePermissions('diario.access', 'diario.report.admin')
+  @Patch(':id/numero')
+  renumber(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RenumberDailyReportDto,
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.reports.renumber(companyId, userId, id, dto);
+  }
+
+  /// Exclui um rascunho, definitivamente. Com `diario.report.admin`, também um
+  /// finalizado.
   ///
   /// Sem permissão própria (`diario.report.delete`): a mesma decisão já tomada
   /// para a finalização. Quem pode escrever no relatório pode descartá-lo
@@ -170,7 +185,10 @@ export class DailyReportsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub') userId: string,
+    @CurrentUser('permissions') permissions: string[],
   ) {
-    return this.reports.remove(companyId, userId, id);
+    return this.reports.remove(companyId, userId, id, {
+      podeAdministrar: permissions.includes('diario.report.admin'),
+    });
   }
 }
