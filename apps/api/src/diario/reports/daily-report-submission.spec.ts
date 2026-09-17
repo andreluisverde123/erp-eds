@@ -381,7 +381,7 @@ describe('RDO finalizado — cópia', () => {
     expect(original.submittedAt).toEqual(finalizado.submittedAt);
   });
 
-  it('a cópia leva a jornada, e nada do que descreve o dia', async () => {
+  it('a cópia leva a jornada e as atividades, mas não as observações do dia', async () => {
     const { service, items } = montar();
     await items.addLabor(EMPRESA_A, ENGENHEIRO_A, RDO, { role: 'Pedreiro', quantity: 8 });
     await service.update(EMPRESA_A, ENGENHEIRO_A, RDO, { notes: 'Dia normal.' });
@@ -391,7 +391,7 @@ describe('RDO finalizado — cópia', () => {
 
     expect(copia.workSchedule).toMatchObject({ startTime: '07:00', endTime: '17:00' });
     expect(copia.summary.labor).toEqual({ roles: 1, workers: 8 });
-    expect(copia.summary.activities).toBe(0);
+    expect(copia.summary.activities).toBe(1);
     expect(copia.notes).toBeNull();
   });
 });

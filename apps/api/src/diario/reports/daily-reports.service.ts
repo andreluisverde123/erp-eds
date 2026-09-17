@@ -378,7 +378,7 @@ export class DailyReportsService {
     const id = await this.createReport(companyId, userId, source.constructionSite.id, reportDate, {
       ...copied,
       copiedFromId: source.id,
-      // Efetivo e equipamentos vêm junto, criados na MESMA transação do
+      // Efetivo, equipamentos e atividades vêm junto, criados na MESMA transação do
       // relatório: uma cópia que nascesse sem eles e os recebesse num segundo
       // passo poderia falhar no meio e deixar o RDO pela metade.
       labor: {
@@ -389,6 +389,17 @@ export class DailyReportsService {
           name: linha.name,
           quantity: linha.quantity,
           notes: linha.notes,
+        })),
+      },
+      // Atividades também: em obra a frente de serviço costuma seguir de um
+      // dia para o outro, e redigitá-las era o que mais pesava na cópia. Quem
+      // preenche revisa a lista antes de finalizar.
+      activities: {
+        create: source.activities.map((linha) => ({
+          description: linha.description,
+          location: linha.location,
+          notes: linha.notes,
+          position: linha.position,
         })),
       },
     });

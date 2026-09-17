@@ -431,6 +431,7 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
     for (const [tabela, chave] of [
       ['labor', 'labor'],
       ['equipment', 'equipment'],
+      ['activities', 'activities'],
     ] as const) {
       const aninhado = data[chave] as { create?: Record<string, unknown>[] } | undefined;
       for (const filho of aninhado?.create ?? []) {

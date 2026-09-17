@@ -365,10 +365,9 @@ describe('RDO — materiais e cópia de relatório', () => {
     expect(copia.summary.hasNotes).toBe(false);
   });
 
-  it('NÃO copia clima, atividades nem ocorrências', async () => {
+  it('NÃO copia clima nem ocorrências', async () => {
     const { items, reports } = montar();
     await reports.update(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, { morningWeather: 'SUNNY' });
-    await items.addActivity(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, { description: 'Alvenaria' });
     await items.addOccurrence(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, {
       type: 'WEATHER',
       description: 'Chuva',
@@ -379,7 +378,40 @@ describe('RDO — materiais e cópia de relatório', () => {
     });
 
     expect(copia.morningWeather).toBeNull();
-    expect(copia.summary.activities).toBe(0);
     expect(copia.summary.occurrences).toBe(0);
+  });
+
+  it('copia as atividades executadas, na mesma ordem e com local e observação', async () => {
+    // A frente de serviço costuma se repetir de um dia para o outro.
+    const { items, reports } = montar();
+    await items.addActivity(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, {
+      description: 'Alvenaria',
+      location: 'Pavimento 03',
+      notes: 'Bloco cerâmico',
+    });
+    await items.addActivity(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, { description: 'Reboco' });
+
+    const copia = await reports.copy(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, {
+      reportDate: '2026-08-31',
+    });
+
+    expect(copia.activities.map((a) => a.description)).toEqual(['Alvenaria', 'Reboco']);
+    expect(copia.activities[0]).toMatchObject({ location: 'Pavimento 03', notes: 'Bloco cerâmico' });
+    expect(copia.summary.activities).toBe(2);
+  });
+
+  it('editar a atividade copiada não altera a do original', async () => {
+    const { items, reports } = montar();
+    await items.addActivity(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, { description: 'Alvenaria' });
+
+    const copia = await reports.copy(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA, {
+      reportDate: '2026-08-31',
+    });
+    await items.updateActivity(EMPRESA_A, ENGENHEIRO_A, copia.id, copia.activities[0]!.id, {
+      description: 'Contrapiso',
+    });
+    const original = await reports.findOne(EMPRESA_A, ENGENHEIRO_A, RDO_ALPHA);
+
+    expect(original.activities.map((a) => a.description)).toEqual(['Alvenaria']);
   });
 });
