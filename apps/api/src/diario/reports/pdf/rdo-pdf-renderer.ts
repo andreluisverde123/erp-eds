@@ -77,8 +77,22 @@ export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
   y = desenharIdentificacao(doc, entrada, esquerda, largura, y);
   y = desenharClima(doc, view, esquerda, largura, y + 6);
   y = desenharJornada(doc, view, esquerda, largura, y + 6);
-  y = desenharContagens(doc, `Mão de obra (${view.maoDeObraTotal})`, view.maoDeObra, esquerda, largura, y + 6);
-  y = desenharContagens(doc, `Equipamentos (${view.equipamentosTotal})`, view.equipamentos, esquerda, largura, y + 6);
+  y = desenharContagens(
+    doc,
+    `Mão de obra (${view.maoDeObraTotal})`,
+    view.maoDeObra,
+    esquerda,
+    largura,
+    y + 6,
+  );
+  y = desenharContagens(
+    doc,
+    `Equipamentos (${view.equipamentosTotal})`,
+    view.equipamentos,
+    esquerda,
+    largura,
+    y + 6,
+  );
   y = desenharLista(doc, view.atividades, esquerda, largura, y + 6, 0.78);
   y = desenharLista(doc, view.ocorrencias, esquerda, largura, y + 6, 0.86);
   y = desenharMateriais(doc, view, esquerda, largura, y + 6);
@@ -124,10 +138,7 @@ function desenharMarca(doc: Doc, logo: Buffer | null | undefined, x: number, y: 
     const imagem = (
       doc as unknown as { openImage(src: Buffer): { width: number; height: number } }
     ).openImage(logo);
-    const escala = Math.min(
-      MARCA_CAIXA.largura / imagem.width,
-      MARCA_CAIXA.altura / imagem.height,
-    );
+    const escala = Math.min(MARCA_CAIXA.largura / imagem.width, MARCA_CAIXA.altura / imagem.height);
     const larguraReal = imagem.width * escala;
 
     doc.image(logo, x, y, { fit: [MARCA_CAIXA.largura, MARCA_CAIXA.altura] });
@@ -158,9 +169,12 @@ function faixaSecao(doc: Doc, x: number, y: number, w: number, titulo: string): 
 
 /// Altura que um texto ocupa numa largura dada, com um mínimo.
 function alturaTexto(doc: Doc, texto: string, largura: number, fonte = FONTE, tamanho = CORPO) {
-  const medida = doc.font(fonte).fontSize(tamanho).heightOfString(texto || ' ', {
-    width: largura - PADDING * 2,
-  });
+  const medida = doc
+    .font(fonte)
+    .fontSize(tamanho)
+    .heightOfString(texto || ' ', {
+      width: largura - PADDING * 2,
+    });
   return Math.max(ALTURA_LINHA, medida + PADDING * 2);
 }
 
@@ -170,7 +184,12 @@ function escrever(
   x: number,
   y: number,
   largura: number,
-  opcoes: { fonte?: string; tamanho?: number; cor?: string; alinhar?: 'left' | 'center' | 'right' } = {},
+  opcoes: {
+    fonte?: string;
+    tamanho?: number;
+    cor?: string;
+    alinhar?: 'left' | 'center' | 'right';
+  } = {},
 ) {
   doc
     .font(opcoes.fonte ?? FONTE)
@@ -184,7 +203,14 @@ function escrever(
 
 /// Reserva espaço; abre página nova quando não cabe, repetindo o cabeçalho
 /// corrido. Evita a seção órfã — título no pé da página e conteúdo na seguinte.
-function garantirEspaco(doc: Doc, view: RdoPdfView, y: number, altura: number, esquerda: number, largura: number): number {
+function garantirEspaco(
+  doc: Doc,
+  view: RdoPdfView,
+  y: number,
+  altura: number,
+  esquerda: number,
+  largura: number,
+): number {
   const limite = doc.page.height - MARGEM - 14;
   if (y + altura <= limite) return y;
 
@@ -199,15 +225,45 @@ function garantirEspaco(doc: Doc, view: RdoPdfView, y: number, altura: number, e
 
 function desenharCabecalhoCorrido(doc: Doc, view: RdoPdfView, x: number, largura: number) {
   const y = MARGEM - 8;
-  doc.font(FONTE).fontSize(MIUDO).fillColor(CINZA).text(view.cabecalhoCorrido, x, y, { lineBreak: false });
+  doc
+    .font(FONTE)
+    .fontSize(MIUDO)
+    .fillColor(CINZA)
+    .text(view.cabecalhoCorrido, x, y, { lineBreak: false });
 
   // Status no canto, onde o template põe o carimbo de revisão. Um RDO em
   // rascunho impresso sem esta marca passa por documento fechado.
   const rotulo = `Status: ${view.statusRotulo}`;
   const w = doc.font(FONTE_BOLD).fontSize(MIUDO).widthOfString(rotulo) + 8;
   doc.rect(x + largura - w, y - 2, w, 10).fill(FAIXA);
-  doc.rect(x + largura - w, y - 2, w, 10).lineWidth(0.5).stroke(LINHA);
-  doc.font(FONTE_BOLD).fontSize(MIUDO).fillColor(TINTA).text(rotulo, x + largura - w + 4, y, { lineBreak: false });
+  doc
+    .rect(x + largura - w, y - 2, w, 10)
+    .lineWidth(0.5)
+    .stroke(LINHA);
+  doc
+    .font(FONTE_BOLD)
+    .fontSize(MIUDO)
+    .fillColor(TINTA)
+    .text(rotulo, x + largura - w + 4, y, { lineBreak: false });
+}
+
+/// Respiro entre o fim do nome da empresa e a coluna de metadados.
+const FOLGA_DO_NOME = 10;
+
+/// Maior corpo (entre 16 e 10) em que o nome da empresa cabe numa linha.
+///
+/// A alternativa — corpo fixo e `lineBreak: false` — imprimia o nome longo
+/// por cima do título. Reduzir primeiro mantém o cabeçalho numa linha só na
+/// maioria das empresas; o que não couber nem em 10 quebra em duas linhas.
+export function tamanhoQueCabe(doc: Doc, texto: string, largura: number): number {
+  // A folga evita que o nome termine colado na coluna de metadados, que começa
+  // logo à direita — cabendo "no limite" o cabeçalho parece quebrado.
+  const util = largura - FOLGA_DO_NOME;
+  doc.font(FONTE_BOLD);
+  for (let tamanho = 16; tamanho > 10; tamanho -= 0.5) {
+    if (doc.fontSize(tamanho).widthOfString(texto) <= util) return tamanho;
+  }
+  return 10;
 }
 
 /// Bloco de identificação: marca e título à esquerda, metadados à direita.
@@ -225,6 +281,8 @@ function desenharIdentificacao(
 
   const alturaDireita = view.metadados.length * ALTURA_LINHA;
   const alturaEsquerda = 34 + 14 + view.identificacao.length * ALTURA_LINHA;
+  // `alturaEsquerda` é a estimativa do caso comum; o retorno usa o `yEsq` real,
+  // que já considera um nome de empresa em duas linhas.
   const altura = Math.max(alturaEsquerda, alturaDireita);
 
   // A MARCA, quando a empresa tem uma cadastrada.
@@ -241,22 +299,36 @@ function desenharIdentificacao(
   const recuo = desenharMarca(doc, entrada.logo, x, y0 + 6);
   const larguraDoNome = larguraEsquerda - recuo;
 
+  const nome = view.empresa.toUpperCase();
+  const corpoDoNome = tamanhoQueCabe(doc, nome, larguraDoNome);
   doc
     .font(FONTE_BOLD)
-    .fontSize(16)
+    .fontSize(corpoDoNome)
     .fillColor(TINTA)
-    .text(view.empresa.toUpperCase(), x + recuo, y0 + 8, {
+    .text(nome, x + recuo, y0 + 8, {
+      width: larguraDoNome,
+      align: 'center',
+      // `true` de propósito: um nome que não cabe nem no menor corpo (razão
+      // social longa, de outro cliente do white-label) ocupa duas linhas, e o
+      // título desce. Com `false`, a segunda linha era impressa POR CIMA do
+      // título — visto num RDO da EDS em 17/09/2026.
+      lineBreak: true,
+    });
+  const alturaDoNome = doc.heightOfString(nome, { width: larguraDoNome, align: 'center' });
+
+  const yTitulo = y0 + 8 + alturaDoNome + 2;
+  doc
+    .font(FONTE_BOLD)
+    .fontSize(9.5)
+    .text(view.titulo, x + recuo, yTitulo, {
       width: larguraDoNome,
       align: 'center',
       lineBreak: false,
     });
-  doc.font(FONTE_BOLD).fontSize(9.5).text(view.titulo, x + recuo, y0 + 30, {
-    width: larguraDoNome,
-    align: 'center',
-    lineBreak: false,
-  });
 
-  let yEsq = y0 + 48;
+  // O bloco de baixo começa depois do título, e não numa altura fixa: com o
+  // nome em duas linhas, a altura fixa o cobriria.
+  let yEsq = Math.max(y0 + 48, yTitulo + 16);
   const rotuloW = 62;
   for (const linha of view.identificacao) {
     caixa(doc, x, yEsq, rotuloW, ALTURA_LINHA, FAIXA);
@@ -288,10 +360,14 @@ function desenharClima(doc: Doc, view: RdoPdfView, x: number, largura: number, y
   for (const [i, titulo] of cabecalhos.entries()) {
     doc.rect(cx, y, colunas[i]!, ALTURA_FAIXA).fill(FAIXA);
     doc.rect(cx, y, colunas[i]!, ALTURA_FAIXA).lineWidth(0.5).stroke(LINHA);
-    doc.font(FONTE_BOLD).fontSize(CORPO).fillColor(TINTA).text(titulo, cx + PADDING, y + 3, {
-      width: colunas[i]! - PADDING * 2,
-      lineBreak: false,
-    });
+    doc
+      .font(FONTE_BOLD)
+      .fontSize(CORPO)
+      .fillColor(TINTA)
+      .text(titulo, cx + PADDING, y + 3, {
+        width: colunas[i]! - PADDING * 2,
+        lineBreak: false,
+      });
     cx += colunas[i]!;
   }
   y += ALTURA_FAIXA;
@@ -310,17 +386,27 @@ function desenharClima(doc: Doc, view: RdoPdfView, x: number, largura: number, y
   return y;
 }
 
-function desenharJornada(doc: Doc, view: RdoPdfView, x: number, largura: number, y0: number): number {
+function desenharJornada(
+  doc: Doc,
+  view: RdoPdfView,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
   let y = faixaSecao(doc, x, y0, largura, 'Jornada');
   const colunaW = largura / view.jornada.length;
 
   for (const [i, item] of view.jornada.entries()) {
     const cx = x + colunaW * i;
     caixa(doc, cx, y, colunaW, ALTURA_LINHA);
-    doc.font(FONTE_BOLD).fontSize(MIUDO).fillColor(CINZA).text(`${item.rotulo}: `, cx + PADDING, y + 3.5, {
-      continued: true,
-      lineBreak: false,
-    });
+    doc
+      .font(FONTE_BOLD)
+      .fontSize(MIUDO)
+      .fillColor(CINZA)
+      .text(`${item.rotulo}: `, cx + PADDING, y + 3.5, {
+        continued: true,
+        lineBreak: false,
+      });
     doc.font(FONTE).fontSize(CORPO).fillColor(TINTA).text(item.valor, { lineBreak: false });
   }
   y += ALTURA_LINHA;
@@ -365,17 +451,25 @@ function desenharContagens(
       caixa(doc, cx, y, celulaW, celulaH);
       const item = linha[c];
       if (!item) continue;
-      doc.font(FONTE).fontSize(MIUDO).fillColor(CINZA).text(item.nome, cx + 2, y + 4, {
-        width: celulaW - 4,
-        align: 'center',
-        height: 9,
-        ellipsis: true,
-      });
-      doc.font(FONTE_BOLD).fontSize(9).fillColor(TINTA).text(item.quantidade, cx + 2, y + 13, {
-        width: celulaW - 4,
-        align: 'center',
-        lineBreak: false,
-      });
+      doc
+        .font(FONTE)
+        .fontSize(MIUDO)
+        .fillColor(CINZA)
+        .text(item.nome, cx + 2, y + 4, {
+          width: celulaW - 4,
+          align: 'center',
+          height: 9,
+          ellipsis: true,
+        });
+      doc
+        .font(FONTE_BOLD)
+        .fontSize(9)
+        .fillColor(TINTA)
+        .text(item.quantidade, cx + 2, y + 13, {
+          width: celulaW - 4,
+          align: 'center',
+          lineBreak: false,
+        });
     }
     y += celulaH;
   }
@@ -416,7 +510,13 @@ function desenharLista(
 /// Materiais recebidos e utilizados LADO A LADO, como no template. Separar em
 /// duas seções empilhadas custaria meia página e desfaria a comparação que a
 /// disposição lado a lado oferece de graça.
-function desenharMateriais(doc: Doc, view: RdoPdfView, x: number, largura: number, y0: number): number {
+function desenharMateriais(
+  doc: Doc,
+  view: RdoPdfView,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
   const metade = largura / 2;
   const alturas: number[] = [];
 
@@ -447,7 +547,13 @@ function desenharMateriais(doc: Doc, view: RdoPdfView, x: number, largura: numbe
   return fim;
 }
 
-function desenharObservacoes(doc: Doc, view: RdoPdfView, x: number, largura: number, y0: number): number {
+function desenharObservacoes(
+  doc: Doc,
+  view: RdoPdfView,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
   // Sem conteúdo, sem seção: uma caixa "Observações" vazia só ocupa página.
   if (!view.observacoes) return y0;
 
@@ -459,7 +565,13 @@ function desenharObservacoes(doc: Doc, view: RdoPdfView, x: number, largura: num
 }
 
 /// Galeria 2×2, uma página por grupo de quatro.
-function desenharGaleria(doc: Doc, entrada: RdoPdfEntrada, x: number, largura: number, y0: number): number {
+function desenharGaleria(
+  doc: Doc,
+  entrada: RdoPdfEntrada,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
   const { view, fotos } = entrada;
   if (fotos.length === 0) return y0;
 
@@ -520,19 +632,27 @@ function desenharGaleria(doc: Doc, entrada: RdoPdfEntrada, x: number, largura: n
       } catch {
         // Imagem que o pdfkit não decodifica não derruba o relatório inteiro:
         // a célula vira um aviso e as outras seguem.
-        doc.font(FONTE).fontSize(MIUDO).fillColor(CINZA).text('Imagem indisponível', cx, cy + celulaH / 2, {
-          width: celulaW,
-          align: 'center',
-          lineBreak: false,
-        });
+        doc
+          .font(FONTE)
+          .fontSize(MIUDO)
+          .fillColor(CINZA)
+          .text('Imagem indisponível', cx, cy + celulaH / 2, {
+            width: celulaW,
+            align: 'center',
+            lineBreak: false,
+          });
       }
 
-      doc.font(FONTE).fontSize(MIUDO).fillColor(TINTA).text(foto.view.legenda, cx + 4, yLegenda, {
-        width: celulaW - 8,
-        align: 'center',
-        height: legendaH - 4,
-        ellipsis: true,
-      });
+      doc
+        .font(FONTE)
+        .fontSize(MIUDO)
+        .fillColor(TINTA)
+        .text(foto.view.legenda, cx + 4, yLegenda, {
+          width: celulaW - 8,
+          align: 'center',
+          height: legendaH - 4,
+          ellipsis: true,
+        });
 
       // A base da última linha ocupada DESTA página. Acumular o máximo entre
       // páginas seria errado: uma página cheia no meio da galeria empurraria a
@@ -551,7 +671,13 @@ function desenharGaleria(doc: Doc, entrada: RdoPdfEntrada, x: number, largura: n
 /// Vídeos como REGISTRO de evidência: o PDF não os reproduz, mas precisa provar
 /// que existem. Sem esta seção, um RDO com dez vídeos e nenhuma foto exportaria
 /// como se nada tivesse sido filmado.
-function desenharVideos(doc: Doc, view: RdoPdfView, x: number, largura: number, y0: number): number {
+function desenharVideos(
+  doc: Doc,
+  view: RdoPdfView,
+  x: number,
+  largura: number,
+  y0: number,
+): number {
   if (view.videos.length === 0) return y0;
 
   let y = garantirEspaco(doc, view, y0 + 10, 40 + view.videos.length * ALTURA_LINHA, x, largura);
@@ -577,20 +703,32 @@ function desenharAssinaturas(doc: Doc, view: RdoPdfView, x: number, largura: num
   const altura = 60;
   let y = garantirEspaco(doc, view, y0 + 24, altura, x, largura);
 
-  doc.moveTo(x, y).lineTo(x + largura, y).lineWidth(0.5).stroke(LINHA_CLARA);
+  doc
+    .moveTo(x, y)
+    .lineTo(x + largura, y)
+    .lineWidth(0.5)
+    .stroke(LINHA_CLARA);
   y += 26;
 
   const colunaW = largura / Math.max(view.assinaturas.length, 2);
   for (const [i, nome] of view.assinaturas.entries()) {
     const cx = x + colunaW * i;
     const linhaW = colunaW - 24;
-    doc.moveTo(cx + 12, y).lineTo(cx + 12 + linhaW, y).lineWidth(0.5).stroke(TINTA);
-    doc.font(FONTE).fontSize(MIUDO).fillColor(TINTA).text(nome, cx + 12, y + 4, {
-      width: linhaW,
-      align: 'center',
-      height: 10,
-      ellipsis: true,
-    });
+    doc
+      .moveTo(cx + 12, y)
+      .lineTo(cx + 12 + linhaW, y)
+      .lineWidth(0.5)
+      .stroke(TINTA);
+    doc
+      .font(FONTE)
+      .fontSize(MIUDO)
+      .fillColor(TINTA)
+      .text(nome, cx + 12, y + 4, {
+        width: linhaW,
+        align: 'center',
+        height: 10,
+        ellipsis: true,
+      });
   }
 }
 
