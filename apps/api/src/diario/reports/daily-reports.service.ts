@@ -191,6 +191,14 @@ const DUPLICATE_DATE_MESSAGE = 'Já existe um relatório desta obra para esta da
 ///
 /// Materiais nunca entraram, e não entram: 50 sacos de cimento recebidos no
 /// dia 30 não foram recebidos de novo no dia 31.
+/// Faixa dos números provisórios da renumeração (ver `renumber`): bem acima
+/// de qualquer número de RDO real, que tem no máximo 5 dígitos.
+const DESLOCAMENTO_PROVISORIO = 1_000_000;
+
+/// A renumeração é rápida (poucas consultas), mas o banco fica longe da API;
+/// o padrão do Prisma (5 s) não deixa folga.
+const PRAZO_DA_RENUMERACAO = { timeout: 30_000, maxWait: 10_000 };
+
 const COPYABLE_FIELDS = [
   'workStartMinutes',
   'workBreakStartMinutes',
@@ -487,7 +495,9 @@ export class DailyReportsService {
       });
 
       if (aindaExiste === 0) {
-        throw new NotFoundException('Este relatório foi excluído por alguém enquanto você o editava.');
+        throw new NotFoundException(
+          'Este relatório foi excluído por alguém enquanto você o editava.',
+        );
       }
 
       // Sobrou o caso real de corrida com outra finalização. `assertCanSubmit`
@@ -633,7 +643,8 @@ export class DailyReportsService {
   /// Roda sob o mesmo lock da criação, então nenhum RDO novo da obra nasce no
   /// meio. A troca é feita em duas passadas (números negativos provisórios e
   /// depois os definitivos) porque o índice único `(obra, número)` recusaria
-  /// uma troca direta como 3 → 2 enquanto o 2 ainda existe.
+  /// uma troca direta como 3 → 2 enquanto o 2 ainda existe. Cada passada é
+  /// um `updateMany` por grupo, nunca uma consulta por RDO.
   async renumber(
     companyId: string,
     userId: string,
@@ -668,14 +679,33 @@ export class DailyReportsService {
         .map((linha, i) => ({ id: linha.id, de: linha.number, para: dto.number + i }))
         .filter((m) => m.de !== m.para);
 
-      for (const [i, m] of mudancas.entries()) {
-        await tx.dailyReport.update({ where: { id: m.id }, data: { number: -(i + 1) } });
-      }
+      // Em bloco, e não linha a linha: com a API longe do banco, uma obra com
+      // dezenas de RDOs estourava o prazo da transação (erro 500 em
+      // 17/09/2026, 21 RDOs). Agrupados pelo deslocamento, são poucas
+      // consultas — numa renumeração contínua, duas.
+      //
+      // 1ª passada: cada grupo vai para `para - DESLOCAMENTO_PROVISORIO`, um
+      // negativo que não colide com número real nem com outro provisório.
+      const porDeslocamento = new Map<number, string[]>();
       for (const m of mudancas) {
-        await tx.dailyReport.update({ where: { id: m.id }, data: { number: m.para } });
+        const delta = m.para - m.de;
+        porDeslocamento.set(delta, [...(porDeslocamento.get(delta) ?? []), m.id]);
+      }
+      for (const [delta, ids] of porDeslocamento) {
+        await tx.dailyReport.updateMany({
+          where: { id: { in: ids } },
+          data: { number: { increment: delta - DESLOCAMENTO_PROVISORIO } },
+        });
+      }
+      // 2ª passada: todos juntos para o número definitivo.
+      if (mudancas.length > 0) {
+        await tx.dailyReport.updateMany({
+          where: { id: { in: mudancas.map((m) => m.id) } },
+          data: { number: { increment: DESLOCAMENTO_PROVISORIO } },
+        });
       }
       return mudancas;
-    });
+    }, PRAZO_DA_RENUMERACAO);
 
     if (alterados.length > 0) {
       await this.auditLogger.log({

@@ -839,6 +839,42 @@ describe('RDO — correção da numeração', () => {
     expect(numeros(rdos)).toEqual({ d04: 2, d05: 3, d06: 4 });
   });
 
+  it('obra com muitos RDOs: renumera em poucas consultas (caso TJRR, 04/08 → 33)', async () => {
+    // 21 RDOs, de 04/08 (nº 2) a 24/08 (nº 22). Uma consulta por RDO
+    // estourava o prazo da transação na produção.
+    const linhas = Array.from({ length: 21 }, (_, i) =>
+      rdoExistente({
+        id: `r${i}`,
+        number: i + 2,
+        reportDate: dia(`2026-08-${String(i + 4).padStart(2, '0')}`),
+      }),
+    );
+    const { service, rdos } = montar(linhas);
+    const updateMany = jest.spyOn(
+      (service as unknown as { prisma: { dailyReport: { updateMany: () => unknown } } }).prisma
+        .dailyReport,
+      'updateMany',
+    );
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'r0', { number: 33 });
+
+    expect(rdos.map((r) => r.number)).toEqual(Array.from({ length: 21 }, (_, i) => 33 + i));
+    expect(updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('numeração com buracos também fecha em sequência', async () => {
+    const { service, rdos } = montar([
+      rdoExistente({ id: 'a', number: 2, reportDate: dia('2026-08-04') }),
+      rdoExistente({ id: 'b', number: 5, reportDate: dia('2026-08-05') }),
+      rdoExistente({ id: 'c', number: 6, reportDate: dia('2026-08-06') }),
+      rdoExistente({ id: 'd', number: 9, reportDate: dia('2026-08-07') }),
+    ]);
+
+    await service.renumber(EMPRESA_A, ENGENHEIRO_A, 'a', { number: 3 });
+
+    expect(numeros(rdos)).toEqual({ a: 3, b: 4, c: 5, d: 6 });
+  });
+
   it('roda sob o lock da numeração', async () => {
     const { service, controle } = obraComBuraco();
 

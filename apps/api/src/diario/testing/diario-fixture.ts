@@ -498,6 +498,22 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       // o teste de concorrência acusar um defeito inexistente.
       await tick();
       const alvos = db.reports.filter((linha) => casa(linha, where));
+      // `{ increment }` é usado pela renumeração. O banco confere o índice
+      // único `(obra, número)` linha a linha; o dublê confere ao fim do
+      // comando, o que basta para a renumeração, que nunca depende da ordem.
+      const numero = data.number as { increment?: number } | undefined;
+      if (numero && typeof numero === 'object') {
+        const { number: _ignorado, ...resto } = data;
+        alvos.forEach((alvo) =>
+          Object.assign(alvo, resto, {
+            number: alvo.number + (numero.increment ?? 0),
+            updatedAt: new Date(),
+          }),
+        );
+        const chaves = db.reports.map((o) => `${o.constructionSiteId}|${o.number}`);
+        if (new Set(chaves).size !== chaves.length) throw uniqueError('number');
+        return { count: alvos.length };
+      }
       alvos.forEach((alvo) => Object.assign(alvo, data, { updatedAt: new Date() }));
       return { count: alvos.length };
     },
@@ -520,7 +536,14 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
       for (let i = db.reports.length - 1; i >= 0; i -= 1) {
         if (ids.has(db.reports[i]!.id)) db.reports.splice(i, 1);
       }
-      for (const filhos of [db.labor, db.equipment, db.activities, db.occurrences, db.materials, db.media]) {
+      for (const filhos of [
+        db.labor,
+        db.equipment,
+        db.activities,
+        db.occurrences,
+        db.materials,
+        db.media,
+      ]) {
         for (let i = filhos.length - 1; i >= 0; i -= 1) {
           if (ids.has(filhos[i]!.dailyReportId as string)) filhos.splice(i, 1);
         }
@@ -576,7 +599,8 @@ export function criarPrismaFalso(reports: LinhaRdo[] = [], filhos: Partial<Banco
         db.media.find((linha) => casa(linha, where)) ?? null,
       /// A exclusão do relatório lê as chaves daqui ANTES da cascata, para
       /// saber quais objetos apagar do storage.
-      findMany: async ({ where }: { where: Where }) => db.media.filter((linha) => casa(linha, where)),
+      findMany: async ({ where }: { where: Where }) =>
+        db.media.filter((linha) => casa(linha, where)),
       delete: async ({ where }: { where: { id: string } }) => {
         const indice = db.media.findIndex((linha) => linha.id === where.id);
         const [removida] = db.media.splice(indice, 1);
