@@ -74,7 +74,7 @@ describe('RDO — criação', () => {
 
     expect(rdo.weekday).toBe('Domingo');
     expect(rdo.constructionSite.name).toBe('Residencial Aurora');
-    expect(rdo.schedule.elapsedDays).toBe(241);
+    expect(rdo.schedule.elapsedDays).toBe(242);
     expect(rdo.schedule.remainingDays).toBe(123);
   });
 

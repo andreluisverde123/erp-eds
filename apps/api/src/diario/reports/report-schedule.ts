@@ -13,8 +13,9 @@ export interface ReportSchedule {
   expectedEndDate: Date | null;
   /// Prazo contratual em dias (início → término previsto).
   totalDays: number | null;
-  /// Dias decorridos do início até a data deste relatório. Negativo é
-  /// impossível na prática (a obra não tinha começado), então vira `0`.
+  /// Dia da obra na data deste relatório, contando o DIA DE INÍCIO como dia 1
+  /// (obra iniciada em 03/07: o RDO de 04/08 é o dia 33). É a contagem da
+  /// engenharia, pedida em 17/09/2026. Antes do início, `0`.
   elapsedDays: number | null;
   /// Dias da data deste relatório até o término previsto. NEGATIVO quando o
   /// prazo já venceu — e é para ficar negativo mesmo: zerar esconderia
@@ -36,7 +37,7 @@ export function buildReportSchedule(
     expectedEndDate,
     totalDays:
       startDate && expectedEndDate ? Math.max(0, daysBetween(startDate, expectedEndDate)) : null,
-    elapsedDays: startDate ? Math.max(0, daysBetween(startDate, reportDate)) : null,
+    elapsedDays: startDate ? Math.max(0, daysBetween(startDate, reportDate) + 1) : null,
     remainingDays: expectedEndDate ? daysBetween(reportDate, expectedEndDate) : null,
   };
 }
