@@ -6,7 +6,7 @@ describe('bank-account.util', () => {
   describe('5. Validação de PIX', () => {
     it('aceita as cinco formas de chave que o Banco Central define', () => {
       expect(isValidPixKey('CPF', '12345678909')).toBe(true);
-      expect(isValidPixKey('CNPJ', '12345678000198')).toBe(true);
+      expect(isValidPixKey('CNPJ', '12345678000195')).toBe(true);
       expect(isValidPixKey('EMAIL', 'joao@eds.com.br')).toBe(true);
       expect(isValidPixKey('PHONE', '11999998888')).toBe(true);
       expect(isValidPixKey('RANDOM', '9f8d3c2b-1a4e-4b7c-8d9e-0f1a2b3c4d5e')).toBe(true);
@@ -24,8 +24,8 @@ describe('bank-account.util', () => {
     it('pega o dígito trocado, que é o erro que manda dinheiro para outra pessoa', () => {
       expect(isValidPixKey('CPF', '12345678909')).toBe(true);
       expect(isValidPixKey('CPF', '12345678908')).toBe(false);
-      expect(isValidPixKey('CNPJ', '12345678000198')).toBe(true);
-      expect(isValidPixKey('CNPJ', '12345678000199')).toBe(false);
+      expect(isValidPixKey('CNPJ', '12345678000195')).toBe(true);
+      expect(isValidPixKey('CNPJ', '12345678000198')).toBe(false);
       // Os "CPFs" de teste que todo mundo digita.
       expect(isValidPixKey('CPF', '11111111111')).toBe(false);
       expect(isValidPixKey('CPF', '00000000000')).toBe(false);

@@ -258,6 +258,36 @@ describe('BankAccountsService — dados bancários', () => {
         isOwner: false,
       });
     });
+
+    // Regressão: o módulo 11 do CNPJ começava no peso errado e recusava TODO
+    // CNPJ real — titular pessoa jurídica nunca conseguia ser cadastrado.
+    it('aceita titular pessoa jurídica com CNPJ válido', async () => {
+      const { service } = makeService();
+
+      const conta = await service.create(EMPRESA_A, ADMIN, IP, {
+        ...CONTA_VALIDA,
+        holderName: 'Construtora Exemplo Ltda',
+        holderDocument: '11.222.333/0001-81',
+      });
+
+      expect(conta.holder).toEqual({
+        name: 'Construtora Exemplo Ltda',
+        document: '11222333000181',
+        isOwner: false,
+      });
+    });
+
+    it('recusa titular com CNPJ de dígito verificador errado', async () => {
+      const { service } = makeService();
+
+      await expect(
+        service.create(EMPRESA_A, ADMIN, IP, {
+          ...CONTA_VALIDA,
+          holderName: 'Construtora Exemplo Ltda',
+          holderDocument: '11.222.333/0001-80',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 
   describe('2. Editar', () => {

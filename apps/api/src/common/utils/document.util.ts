@@ -65,9 +65,11 @@ function isValidCnpj(cnpj: string): boolean {
   if (/^(\d)\1{13}$/.test(cnpj)) return false;
 
   // Pesos do CNPJ: 5..2 seguido de 9..2, um dígito a mais na segunda volta.
+  // Lidos da DIREITA para a esquerda, começam sempre em 2 e voltam a 2 depois
+  // do 9 — nas duas voltas.
   for (const length of [12, 13]) {
     let sum = 0;
-    let weight = length - 7;
+    let weight = 2;
     for (let i = length - 1; i >= 0; i -= 1) {
       sum += Number(cnpj[i]) * weight;
       weight = weight === 9 ? 2 : weight + 1;
