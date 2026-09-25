@@ -16,6 +16,7 @@ import { ConstructionSiteFormDrawer } from '@/features/engenharia/components/con
 import { ConstructionSiteStatusBadge } from '@/features/engenharia/components/construction-site-status-badge';
 import { CostCenterFormDrawer } from '@/features/engenharia/components/cost-center-form-drawer';
 import { CostCentersTable } from '@/features/engenharia/components/cost-centers-table';
+import { SiteTeamCard } from '@/features/engenharia/components/site-team-card';
 import { useDeleteConstructionSite } from '@/features/engenharia/hooks/use-construction-site-mutations';
 import { useConstructionSite } from '@/features/engenharia/hooks/use-construction-site';
 import { useDeleteCostCenter } from '@/features/engenharia/hooks/use-cost-center-mutations';
@@ -96,6 +97,9 @@ export function ObraDetailPage() {
   const canViewBudgets =
     MODULO_ORCAMENTOS_ATIVO && (user?.permissions.includes('orcamentos.view') ?? false);
   const canManageBudgets = user?.permissions.includes('orcamentos.manage') ?? false;
+  // Quem distribui obras no Diário (Administrador, por padrão). A API das
+  // equipes exige a mesma permissão, até para ler.
+  const canManageDiarioAccess = user?.permissions.includes('diario.manage_access') ?? false;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: site, isLoading, isError } = useConstructionSite(id);
@@ -265,6 +269,8 @@ export function ObraDetailPage() {
           />
         </CardContent>
       </Card>
+
+      {canManageDiarioAccess && <SiteTeamCard siteId={site.id} />}
 
       {canViewBudgets && (
         <ObraBudgetsCard constructionSiteId={site.id} canManage={canManageBudgets} />

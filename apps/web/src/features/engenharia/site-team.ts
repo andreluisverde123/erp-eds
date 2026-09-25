@@ -30,6 +30,8 @@ export interface SiteTeamMember {
   userId: string;
   name: string;
   email: string;
+  /// Desativado no cadastro: continua na equipe, mas não consegue entrar.
+  isActive: boolean;
   role: SiteAssignmentRole;
 }
 
