@@ -12,6 +12,9 @@ const DocumentacaoSection = lazy(() =>
 const EmpresasSection = lazy(() =>
   import('./sections/empresas-section').then((m) => ({ default: m.EmpresasSection })),
 );
+const NotasServicoSection = lazy(() =>
+  import('./sections/notas-servico-section').then((m) => ({ default: m.NotasServicoSection })),
+);
 const FuncionariosSection = lazy(() =>
   import('./sections/funcionarios-section').then((m) => ({ default: m.FuncionariosSection })),
 );
@@ -19,6 +22,7 @@ const FuncionariosSection = lazy(() =>
 const TABS = [
   { value: 'empresas', label: 'Empresas' },
   { value: 'contratos', label: 'Contratos' },
+  { value: 'notas', label: 'Notas de serviço' },
   { value: 'funcionarios', label: 'Funcionários' },
   { value: 'documentacao', label: 'Documentação' },
 ];
@@ -46,7 +50,7 @@ export function TerceirosPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Terceirizados</h1>
         <p className="text-sm text-muted-foreground">
-          Empresas terceirizadas, contratos, equipes e documentação.
+          Empresas terceirizadas, contratos, notas de serviço, equipes e documentação.
         </p>
       </div>
 
@@ -67,6 +71,11 @@ export function TerceirosPage() {
         <TabsContent value="contratos">
           <Suspense fallback={<TabFallback />}>
             <ContratosSection />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value="notas">
+          <Suspense fallback={<TabFallback />}>
+            <NotasServicoSection />
           </Suspense>
         </TabsContent>
         <TabsContent value="funcionarios">

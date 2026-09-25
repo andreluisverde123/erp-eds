@@ -524,6 +524,7 @@ model User {
   responsibleForSites       ConstructionSite[]     @relation("ConstructionSiteResponsible")
   attachments               Attachment[]
   accountPayablesApproved   AccountPayable[]       @relation("AccountPayableApprovedBy")
+  accountPayablesLaunched   AccountPayable[]       @relation("AccountPayableLaunchedBy")
   auditLogs                 AuditLog[]
   workflowComments          WorkflowComment[]
   /// Notas que este usuário conciliou — a rastreabilidade de quem validou.
@@ -1916,6 +1917,7 @@ model Contractor {
 
   company      Company              @relation(fields: [companyId], references: [id])
   contracts    ContractorContract[]
+  accountPayables AccountPayable[]
   bankAccounts BankAccount[]
 
   @@unique([companyId, document])
@@ -2246,12 +2248,23 @@ model AccountPayable {
   approvedForPaymentAt   DateTime?
   approvedForPaymentById String?   @db.Uuid
 
+  /// NOTA DE SERVIÇO DE TERCEIRIZADO: lançada pela Engenharia na tela de
+  /// Terceirizados (conserto, serviço avulso, com ou sem contrato). Nulo nas
+  /// contas do Financeiro e nas que vêm de ordem de compra. É também o que
+  /// deixa a Engenharia ver ESTA conta (e só as dela), sem acesso ao
+  /// Financeiro.
+  contractorId String? @db.Uuid
+  /// Quem lançou a nota. Nulo nas contas anteriores ao campo.
+  launchedById String? @db.Uuid
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   company              Company           @relation(fields: [companyId], references: [id])
   approvedForPaymentBy User?             @relation("AccountPayableApprovedBy", fields: [approvedForPaymentById], references: [id], onDelete: SetNull)
+  contractor           Contractor?       @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  launchedBy           User?             @relation("AccountPayableLaunchedBy", fields: [launchedById], references: [id], onDelete: SetNull)
   invoice              Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
@@ -2267,6 +2280,7 @@ model AccountPayable {
   @@index([supplierId])
   @@index([costCenterId])
   @@index([origin])
+  @@index([contractorId])
 }
 
 /// Pagamento efetuado contra uma parcela de contas a pagar. Relação 1:N com

@@ -49,6 +49,46 @@ export class AttachmentsService {
   ) {
     const entity = this.resolve(entityType, permissions, 'manage');
     await this.assertEntityBelongsToCompany(entity, companyId, entityId);
+    return this.store(companyId, userId, entityType, entityId, file);
+  }
+
+  /// Anexo de uma conta a pagar lançada pela ENGENHARIA como nota de serviço
+  /// de terceirizado. A permissão genérica de anexo de conta a pagar é a do
+  /// Financeiro; aqui quem autoriza é o chamador (`ServiceInvoicesService`),
+  /// que já conferiu `terceiros.manage` e que a conta é uma nota de serviço
+  /// desta empresa. O arquivo fica no MESMO lugar dos anexos da conta, para o
+  /// Financeiro vê-lo na Programação de Pagamentos.
+  async uploadForServiceInvoice(
+    companyId: string,
+    userId: string,
+    accountPayableId: string,
+    file: Express.Multer.File,
+  ) {
+    return this.store(companyId, userId, 'AccountPayable', accountPayableId, file);
+  }
+
+  /// Leitura correspondente: os anexos de uma nota de serviço, para quem a
+  /// lançou acompanhar. Mesma ressalva de autorização acima.
+  async listForServiceInvoice(companyId: string, accountPayableId: string) {
+    return this.prisma.attachment.findMany({
+      where: {
+        companyId,
+        entityType: 'AccountPayable',
+        entityId: accountPayableId,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: attachmentSelect,
+    });
+  }
+
+  private async store(
+    companyId: string,
+    userId: string,
+    entityType: string,
+    entityId: string,
+    file: Express.Multer.File,
+  ) {
     await this.uploadPolicy.assertUploadAllowed(companyId, file);
 
     const { fileUrl } = await this.storage.saveUpload(`entities/${entityType}`, file);

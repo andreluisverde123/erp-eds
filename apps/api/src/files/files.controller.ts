@@ -111,7 +111,10 @@ export class FilesController {
     }
 
     const requiredPermission = requiredPermissionForEntity(attachment.entityType);
-    if (!requiredPermission || !user.permissions.includes(requiredPermission)) {
+    const permitido =
+      (requiredPermission !== undefined && user.permissions.includes(requiredPermission)) ||
+      (await this.isServiceInvoiceFileForEngineering(attachment, user));
+    if (!permitido) {
       throw new ForbiddenException('Você não tem permissão para acessar este arquivo.');
     }
 
@@ -124,6 +127,28 @@ export class FilesController {
     );
 
     return this.stream(`${dir}/${filename}`, res);
+  }
+
+  /// Exceção única à regra "anexo de conta a pagar é do Financeiro": a nota
+  /// de serviço de terceirizado, que a ENGENHARIA lançou (`contractorId`
+  /// preenchido). Quem tem `terceiros.view` baixa o arquivo dessas contas, e
+  /// só delas — ver `ServiceInvoicesService`.
+  private async isServiceInvoiceFileForEngineering(
+    attachment: { entityType: string; entityId: string; companyId: string },
+    user: JwtPayload,
+  ): Promise<boolean> {
+    if (attachment.entityType !== 'AccountPayable') return false;
+    if (!user.permissions.includes('terceiros.view')) return false;
+    const conta = await this.prisma.accountPayable.findFirst({
+      where: {
+        id: attachment.entityId,
+        companyId: attachment.companyId,
+        deletedAt: null,
+        contractorId: { not: null },
+      },
+      select: { id: true },
+    });
+    return conta !== null;
   }
 
   /// Headers que valem para TUDO que sai deste controller, logo e anexo.
