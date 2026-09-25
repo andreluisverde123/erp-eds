@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api-client';
+import { downloadFile } from '@/lib/download-file';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
@@ -15,6 +16,7 @@ import type {
   Payment,
   PaymentInput,
   PaymentQuery,
+  PaymentSchedule,
 } from './types';
 
 export function listInvoices(query: InvoiceQuery): Promise<PaginatedResult<Invoice>> {
@@ -45,6 +47,25 @@ export function getAccountPayable(id: string): Promise<AccountPayableDetail> {
 
 export function getAccountPayableSummary(): Promise<AccountPayableSummary> {
   return apiClient.get('/account-payables/summary');
+}
+
+export function getPaymentSchedule(week: string): Promise<PaymentSchedule> {
+  return apiClient.get(`/account-payables/schedule?week=${week}`);
+}
+
+export function downloadPaymentSchedulePdf(week: string): Promise<void> {
+  return downloadFile(
+    `/account-payables/schedule/pdf?week=${week}`,
+    `programacao-pagamentos-${week}.pdf`,
+  );
+}
+
+export function approvePayment(ids: string[]): Promise<{ approved: number }> {
+  return apiClient.post('/account-payables/approve-payment', { ids });
+}
+
+export function revokePaymentApproval(id: string): Promise<AccountPayable> {
+  return apiClient.delete(`/account-payables/${id}/approve-payment`);
 }
 
 /// Lançamento avulso: o mesmo endpoint que já criava conta a partir de nota.

@@ -523,6 +523,7 @@ model User {
   /// Obras das quais este usuário é o responsável.
   responsibleForSites       ConstructionSite[]     @relation("ConstructionSiteResponsible")
   attachments               Attachment[]
+  accountPayablesApproved   AccountPayable[]       @relation("AccountPayableApprovedBy")
   auditLogs                 AuditLog[]
   workflowComments          WorkflowComment[]
   /// Notas que este usuário conciliou — a rastreabilidade de quem validou.
@@ -2237,12 +2238,21 @@ model AccountPayable {
   paymentMethod  PaymentMethod?
   notes          String?
 
+  /// PROGRAMAÇÃO DE PAGAMENTOS: quem liberou esta conta para o Financeiro
+  /// pagar, e quando. É o "resumo de sexta" do cliente dentro do sistema: a
+  /// diretoria marca o que pode ser pago na semana e o Financeiro paga o que
+  /// está liberado. Nulo = ainda não liberada. A liberação cai sozinha se o
+  /// valor ou o vencimento mudarem.
+  approvedForPaymentAt   DateTime?
+  approvedForPaymentById String?   @db.Uuid
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  company          Company           @relation(fields: [companyId], references: [id])
-  invoice          Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  company              Company           @relation(fields: [companyId], references: [id])
+  approvedForPaymentBy User?             @relation("AccountPayableApprovedBy", fields: [approvedForPaymentById], references: [id], onDelete: SetNull)
+  invoice              Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
   costCenter       CostCenter?       @relation(fields: [costCenterId], references: [id])
   constructionSite ConstructionSite? @relation(fields: [constructionSiteId], references: [id])

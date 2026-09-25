@@ -74,6 +74,26 @@ export interface AccountPayable {
   issueDate: string | null;
   paymentMethod: PaymentMethod | null;
   notes: string | null;
+  /// Programação de pagamentos: quando e por quem a conta foi liberada para o
+  /// Financeiro pagar. Nulo = aguardando liberação.
+  approvedForPaymentAt: string | null;
+  approvedForPaymentBy: { id: string; name: string } | null;
+}
+
+/// Uma linha da programação de pagamentos da semana.
+export interface PaymentScheduleRow extends AccountPayable {
+  /// O que falta pagar (valor menos pagamentos já feitos).
+  remaining: string;
+  overdue: boolean;
+  attachmentsCount: number;
+  invoiceAttachmentsCount: number;
+}
+
+export interface PaymentSchedule {
+  weekStart: string;
+  weekEnd: string;
+  rows: PaymentScheduleRow[];
+  totals: { total: number; overdue: number; approved: number; pendingApproval: number };
 }
 
 /// Até onde a cadeia da origem chega. A tela usa para dizer "Origem: NF-e" ou

@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  CalendarRange,
   CalendarCheck,
   Building2,
   Calculator,
@@ -145,6 +146,14 @@ export const navEntries: NavEntry[] = [
         title: 'Contas a Pagar',
         path: '/financeiro/contas-a-pagar',
         icon: Wallet,
+        permission: 'financeiro.view',
+      },
+      // O "resumo de sexta": o que vence na semana, liberado ou não, com as
+      // notas anexadas. Logo abaixo de Contas a Pagar, de onde as linhas vêm.
+      {
+        title: 'Programação de Pagamentos',
+        path: '/financeiro/programacao-de-pagamentos',
+        icon: CalendarRange,
         permission: 'financeiro.view',
       },
       {

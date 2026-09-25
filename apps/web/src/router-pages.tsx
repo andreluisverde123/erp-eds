@@ -54,6 +54,11 @@ export const ConciliacaoDetailPage = lazy(() =>
 export const ContasAPagarPage = lazy(() =>
   import('@/pages/financeiro/contas-a-pagar-page').then((m) => ({ default: m.ContasAPagarPage })),
 );
+export const ProgramacaoPagamentosPage = lazy(() =>
+  import('@/pages/financeiro/programacao-pagamentos-page').then((m) => ({
+    default: m.ProgramacaoPagamentosPage,
+  })),
+);
 export const PagamentosPage = lazy(() =>
   import('@/pages/financeiro/pagamentos-page').then((m) => ({ default: m.PagamentosPage })),
 );
@@ -77,7 +82,9 @@ export const OrcamentoDetailPage = lazy(() =>
   })),
 );
 export const BasesDeReferenciaPage = lazy(() =>
-  import('@/pages/engenharia/bases-de-referencia-page').then((m) => ({ default: m.BasesDeReferenciaPage })),
+  import('@/pages/engenharia/bases-de-referencia-page').then((m) => ({
+    default: m.BasesDeReferenciaPage,
+  })),
 );
 export const BaseDeReferenciaDetailPage = lazy(() =>
   import('@/pages/engenharia/base-de-referencia-detail-page').then((m) => ({

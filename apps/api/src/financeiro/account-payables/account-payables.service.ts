@@ -26,6 +26,8 @@ const includeArgs = Prisma.validator<Prisma.AccountPayableDefaultArgs>()({
     supplier: { select: { id: true, legalName: true, tradeName: true } },
     costCenter: { select: { id: true, code: true, name: true } },
     constructionSite: { select: { id: true, code: true, name: true } },
+    /// Quem liberou a conta na programação de pagamentos.
+    approvedForPaymentBy: { select: { id: true, name: true } },
     /// Continua vindo quando existe: é a identificação do documento das
     /// contas nascidas de nota fiscal — e, desde a integração
     /// Engenharia -> Financeiro, o começo da travessia até a origem da
@@ -75,6 +77,41 @@ export interface AccountPayableSummary {
   totalPaid: number;
   dueToday: number;
   dueThisWeek: number;
+}
+
+/// Uma linha da programação de pagamentos: a conta com o que falta pagar e
+/// quantos anexos ela (e a nota dela) já tem — é o que o Financeiro confere
+/// antes de pagar.
+export type PaymentScheduleRow = ReturnType<typeof withTraceability<AccountPayableRow>> & {
+  remaining: string;
+  overdue: boolean;
+  attachmentsCount: number;
+  invoiceAttachmentsCount: number;
+};
+
+export interface PaymentSchedule {
+  /// Segunda e domingo da semana, AAAA-MM-DD.
+  weekStart: string;
+  weekEnd: string;
+  rows: PaymentScheduleRow[];
+  totals: {
+    total: number;
+    overdue: number;
+    approved: number;
+    pendingApproval: number;
+  };
+}
+
+const EM_ABERTO: AccountPayableStatus[] = ['OPEN', 'PARTIAL'];
+
+/// Segunda-feira da semana de `date` (datas puras são meia-noite UTC).
+export function mondayOf(date: Date): Date {
+  const day = startOfDay(date);
+  return addDays(day, -((day.getUTCDay() + 6) % 7));
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 @Injectable()
@@ -268,9 +305,16 @@ export class AccountPayablesService {
       );
     }
 
+    // Liberado para pagar ERA este valor, nesta data. Mudou um dos dois, a
+    // liberação não vale mais: quem libera precisa ver de novo.
+    const mudouOQueFoiLiberado =
+      (dto.amount !== undefined && !new Prisma.Decimal(dto.amount).equals(existing.amount)) ||
+      (dto.dueDate !== undefined && new Date(dto.dueDate).getTime() !== existing.dueDate.getTime());
+
     await this.prisma.accountPayable.update({
       where: { id, companyId },
       data: {
+        ...(mudouOQueFoiLiberado && { approvedForPaymentAt: null, approvedForPaymentById: null }),
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         amount: dto.amount,
       },
@@ -329,6 +373,133 @@ export class AccountPayablesService {
         data: { status },
       });
     }
+  }
+
+  /// PROGRAMAÇÃO DE PAGAMENTOS — o "resumo de sexta" do cliente.
+  ///
+  /// Tudo o que está em aberto e vence até o DOMINGO da semana escolhida,
+  /// incluindo o que já venceu e não foi pago (marcado `overdue`): conta
+  /// atrasada é justamente a que mais precisa aparecer no resumo. Ordenado por
+  /// vencimento; a tela agrupa por dia.
+  async getSchedule(companyId: string, week: string): Promise<PaymentSchedule> {
+    const segunda = mondayOf(new Date(week));
+    const domingo = addDays(segunda, 6);
+    const hoje = startOfDay(new Date());
+
+    const contas = await this.prisma.accountPayable.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: { in: EM_ABERTO },
+        dueDate: { lt: addDays(domingo, 1) },
+      },
+      include: {
+        ...includeArgs.include,
+        payments: { where: { deletedAt: null, status: 'PAID' }, select: { amount: true } },
+      },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+      take: 1000,
+    });
+
+    const invoiceIds = [
+      ...new Set(contas.map((c) => c.invoiceId).filter((id): id is string => id !== null)),
+    ];
+    const [anexosDaConta, anexosDaNota] = await Promise.all([
+      this.countAttachments(
+        companyId,
+        'AccountPayable',
+        contas.map((c) => c.id),
+      ),
+      this.countAttachments(companyId, 'Invoice', invoiceIds),
+    ]);
+
+    const totals = { total: 0, overdue: 0, approved: 0, pendingApproval: 0 };
+    const rows = contas.map(({ payments, ...conta }) => {
+      const pago = payments.reduce((soma, p) => soma.plus(p.amount), new Prisma.Decimal(0));
+      const restante = conta.amount.minus(pago);
+      const valor = restante.toNumber();
+      const overdue = startOfDay(conta.dueDate) < hoje;
+
+      totals.total += valor;
+      if (overdue) totals.overdue += valor;
+      if (conta.approvedForPaymentAt) totals.approved += valor;
+      else totals.pendingApproval += valor;
+
+      return {
+        ...withTraceability(conta),
+        remaining: restante.toFixed(2),
+        overdue,
+        attachmentsCount: anexosDaConta.get(conta.id) ?? 0,
+        invoiceAttachmentsCount: conta.invoiceId ? (anexosDaNota.get(conta.invoiceId) ?? 0) : 0,
+      };
+    });
+
+    return { weekStart: isoDate(segunda), weekEnd: isoDate(domingo), rows, totals };
+  }
+
+  /// Libera contas para o Financeiro pagar. Idempotente: a que já estava
+  /// liberada mantém quem e quando liberou primeiro.
+  async approveForPayment(
+    companyId: string,
+    userId: string,
+    ids: string[],
+  ): Promise<{ approved: number }> {
+    const unicos = [...new Set(ids)];
+    const contas = await this.prisma.accountPayable.findMany({
+      where: { id: { in: unicos }, companyId, deletedAt: null },
+      select: { id: true, status: true, approvedForPaymentAt: true },
+    });
+
+    if (contas.length !== unicos.length) {
+      throw new NotFoundException('Conta a pagar não encontrada.');
+    }
+    if (contas.some((c) => !EM_ABERTO.includes(c.status))) {
+      throw new BadRequestException('Só contas em aberto podem ser liberadas para pagamento.');
+    }
+
+    const agora = new Date();
+    const aLiberar = contas.filter((c) => !c.approvedForPaymentAt);
+    // Uma atualização por conta, e não `updateMany`: assim cada liberação entra
+    // na auditoria genérica, com quem liberou.
+    await this.prisma.$transaction(
+      aLiberar.map((c) =>
+        this.prisma.accountPayable.update({
+          where: { id: c.id, companyId },
+          data: { approvedForPaymentAt: agora, approvedForPaymentById: userId },
+        }),
+      ),
+    );
+
+    return { approved: aLiberar.length };
+  }
+
+  /// Desfaz a liberação — a conta volta para "aguardando liberação".
+  async revokePaymentApproval(companyId: string, id: string) {
+    const existing = await this.assertExists(companyId, id);
+
+    if (!EM_ABERTO.includes(existing.status)) {
+      throw new BadRequestException('Só contas em aberto têm a liberação desfeita.');
+    }
+
+    await this.prisma.accountPayable.update({
+      where: { id, companyId },
+      data: { approvedForPaymentAt: null, approvedForPaymentById: null },
+    });
+    return this.findOne(companyId, id);
+  }
+
+  private async countAttachments(
+    companyId: string,
+    entityType: 'AccountPayable' | 'Invoice',
+    entityIds: string[],
+  ): Promise<Map<string, number>> {
+    if (entityIds.length === 0) return new Map();
+    const grupos = await this.prisma.attachment.groupBy({
+      by: ['entityId'],
+      where: { companyId, entityType, entityId: { in: entityIds }, deletedAt: null },
+      _count: { _all: true },
+    });
+    return new Map(grupos.map((g) => [g.entityId, g._count._all]));
   }
 
   async getSummary(companyId: string): Promise<AccountPayableSummary> {
