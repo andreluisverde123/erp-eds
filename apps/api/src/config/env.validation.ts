@@ -132,6 +132,14 @@ export const envValidationSchema = Joi.object({
   /// provisionar uma base nova, e desligar em seguida.
   PUBLIC_SIGNUP_ENABLED: Joi.boolean().default(false),
 
+  /// Login automático SÓ para desenvolvimento local: o site local entra direto
+  /// como este usuário, sem senha (ver `DevAuthController`). Proibido em
+  /// produção — e staging roda `NODE_ENV=production`, então também lá a API
+  /// nem sobe com isto definido.
+  DEV_LOGIN_EMAIL: Joi.string()
+    .email()
+    .when('NODE_ENV', { is: 'production', then: Joi.forbidden(), otherwise: Joi.optional() }),
+
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')
     .default('info'),

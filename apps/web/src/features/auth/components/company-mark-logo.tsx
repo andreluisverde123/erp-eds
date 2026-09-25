@@ -70,5 +70,8 @@ function useUploadedLogoPath() {
   // `<img>` exibe direto. Sem esta guarda ela seria tratada como caminho da
   // API e buscada por `getBlob`, que falharia e cairia no ícone genérico.
   const embutido = logo.startsWith('/') || logo.startsWith('data:');
-  return { logoUrl: embutido ? null : logo, direto: embutido && !logo.startsWith('/') ? logo : null };
+  return {
+    logoUrl: embutido ? null : logo,
+    direto: embutido && !logo.startsWith('/') ? logo : null,
+  };
 }

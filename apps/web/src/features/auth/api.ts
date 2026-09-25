@@ -31,6 +31,12 @@ export function refresh(): Promise<AuthSession> {
   return apiClient.post<AuthSession>('/auth/refresh', undefined, AUTH_REQUEST_OPTIONS);
 }
 
+/// Login de desenvolvimento, sem senha. A API só responde no ambiente local
+/// (fora dele é 404); ver `DevAuthController`.
+export function devLogin(): Promise<AuthSession> {
+  return apiClient.post<AuthSession>('/auth/dev-login', undefined, AUTH_REQUEST_OPTIONS);
+}
+
 export function logout(): Promise<void> {
   return apiClient.post<void>('/auth/logout', undefined, AUTH_REQUEST_OPTIONS);
 }

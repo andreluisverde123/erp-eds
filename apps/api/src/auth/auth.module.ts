@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
 
 import { AuthController } from './auth.controller';
+import { DevAuthController } from './dev-auth.controller';
 import { AuthService } from './auth.service';
 import { DEFAULT_ACCESS_TOKEN_TTL } from './constants';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -25,7 +26,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
   ],
-  controllers: [AuthController],
+  // `DevAuthController` responde 404 fora do ambiente local (ver as travas nele).
+  controllers: [AuthController, DevAuthController],
   providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })

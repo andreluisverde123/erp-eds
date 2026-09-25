@@ -154,6 +154,20 @@ export class AuthService {
     return this.issueSession(user);
   }
 
+  /// Sessão SEM senha para o desenvolvimento local. Quem decide se pode é o
+  /// `DevAuthController` (ambiente e banco locais); aqui só se garante que o
+  /// usuário existe e está ativo, como no login normal.
+  async devLogin(email: string): Promise<AuthResult> {
+    const user = await this.prisma.user.findUnique({ where: { email }, ...userAccessArgs });
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new UnauthorizedException(
+        `Login de desenvolvimento: usuário ${email} não encontrado ou inativo.`,
+      );
+    }
+    this.logger.warn(`Login de desenvolvimento (sem senha) como ${email}.`);
+    return this.issueSession(user);
+  }
+
   async refresh(refreshToken: string): Promise<AuthResult> {
     let payload: RefreshTokenPayload;
     try {
