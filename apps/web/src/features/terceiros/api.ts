@@ -13,6 +13,7 @@ import type {
   ContractExpiringSummary,
   ContractInput,
   ContractQuery,
+  ContractUpdateInput,
   Contractor,
   ContractorInput,
   ContractorQuery,
@@ -48,7 +49,7 @@ export function createContract(input: ContractInput): Promise<Contract> {
   return apiClient.post('/contracts', input);
 }
 
-export function updateContract(id: string, input: Partial<ContractInput>): Promise<Contract> {
+export function updateContract(id: string, input: ContractUpdateInput): Promise<Contract> {
   return apiClient.patch(`/contracts/${id}`, input);
 }
 

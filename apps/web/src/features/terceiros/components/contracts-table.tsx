@@ -1,6 +1,6 @@
 import { memo } from 'react';
 
-import { FileSignature, FileText, MoreHorizontal, Trash2, XCircle } from 'lucide-react';
+import { FileSignature, FileText, MoreHorizontal, Pencil, Trash2, XCircle } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -36,6 +36,7 @@ function formatDaysRemaining(days: number): string {
 interface ContractsTableProps {
   contracts: Contract[];
   onGeneratePdf: (contract: Contract) => void;
+  onEdit: (contract: Contract) => void;
   onCancel: (contract: Contract) => void;
   onDelete: (contract: Contract) => void;
 }
@@ -43,6 +44,7 @@ interface ContractsTableProps {
 export const ContractsTable = memo(function ContractsTable({
   contracts,
   onGeneratePdf,
+  onEdit,
   onCancel,
   onDelete,
 }: ContractsTableProps) {
@@ -107,6 +109,13 @@ export const ContractsTable = memo(function ContractsTable({
                     <FileText />
                     Gerar PDF
                   </DropdownMenuItem>
+                  {/* Encerrado não edita: a API recusa (ver `ContractsService.update`). */}
+                  {contract.status === 'ACTIVE' && (
+                    <DropdownMenuItem onClick={() => onEdit(contract)}>
+                      <Pencil />
+                      Editar
+                    </DropdownMenuItem>
+                  )}
                   {contract.status === 'ACTIVE' && (
                     <DropdownMenuItem variant="destructive" onClick={() => onCancel(contract)}>
                       <XCircle />

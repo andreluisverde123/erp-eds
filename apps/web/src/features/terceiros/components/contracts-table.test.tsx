@@ -32,6 +32,7 @@ describe('Tabela de contratos', () => {
       <ContractsTable
         contracts={[CONTRATO]}
         onGeneratePdf={onGeneratePdf}
+        onEdit={vi.fn()}
         onCancel={vi.fn()}
         onDelete={vi.fn()}
       />,
@@ -41,5 +42,43 @@ describe('Tabela de contratos', () => {
     await usuario.click(await screen.findByRole('menuitem', { name: /Gerar PDF/ }));
 
     expect(onGeneratePdf).toHaveBeenCalledWith(CONTRATO);
+  });
+
+  it('o menu do contrato vigente abre a edição', async () => {
+    const onEdit = vi.fn();
+    const usuario = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ContractsTable
+        contracts={[CONTRATO]}
+        onGeneratePdf={vi.fn()}
+        onEdit={onEdit}
+        onCancel={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await usuario.click(await screen.findByRole('menuitem', { name: /Editar/ }));
+
+    expect(onEdit).toHaveBeenCalledWith(CONTRATO);
+  });
+
+  // A API recusa editar contrato encerrado; o menu nem oferece.
+  it('contrato encerrado não tem Editar', async () => {
+    const usuario = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ContractsTable
+        contracts={[{ ...CONTRATO, status: 'CANCELLED', badgeStatus: 'CANCELLED' } as Contract]}
+        onGeneratePdf={vi.fn()}
+        onEdit={vi.fn()}
+        onCancel={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    await usuario.click(screen.getByRole('button', { name: 'Ações' }));
+    await screen.findByRole('menuitem', { name: /Gerar PDF/ });
+
+    expect(screen.queryByRole('menuitem', { name: /Editar/ })).toBeNull();
   });
 });

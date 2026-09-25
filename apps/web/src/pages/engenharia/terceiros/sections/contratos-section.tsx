@@ -85,6 +85,17 @@ export function ContratosSection() {
   }
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
+
+  function abrirNovo() {
+    setEditingContract(null);
+    setDrawerOpen(true);
+  }
+
+  function abrirEdicao(contract: Contract) {
+    setEditingContract(contract);
+    setDrawerOpen(true);
+  }
   const [cancelingContract, setCancelingContract] = useState<Contract | null>(null);
   const [deletingContract, setDeletingContract] = useState<Contract | null>(null);
 
@@ -113,7 +124,7 @@ export function ContratosSection() {
             Contratos de terceirização por obra e vigência.
           </p>
         </div>
-        <Button onClick={() => setDrawerOpen(true)}>
+        <Button onClick={abrirNovo}>
           <Plus />
           Novo Contrato
         </Button>
@@ -193,6 +204,7 @@ export function ContratosSection() {
           <ContractsTable
             contracts={data.data}
             onGeneratePdf={gerarPdf}
+            onEdit={abrirEdicao}
             onCancel={setCancelingContract}
             onDelete={setDeletingContract}
           />
@@ -217,7 +229,12 @@ export function ContratosSection() {
         </>
       )}
 
-      <ContractFormDrawer open={drawerOpen} onOpenChange={setDrawerOpen} onCreated={gerarPdf} />
+      <ContractFormDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        contract={editingContract}
+        onSaved={gerarPdf}
+      />
 
       <ConfirmDialog
         open={Boolean(cancelingContract)}

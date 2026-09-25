@@ -7,7 +7,7 @@ import {
   downloadContractPdf,
   updateContract,
 } from '../api';
-import type { ContractInput } from '../types';
+import type { ContractInput, ContractUpdateInput } from '../types';
 
 export function useDownloadContractPdf() {
   return useMutation({
@@ -30,7 +30,7 @@ export function useUpdateContract(id: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: Partial<ContractInput>) => updateContract(id, input),
+    mutationFn: (input: ContractUpdateInput) => updateContract(id, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contracts'] }),
   });
 }

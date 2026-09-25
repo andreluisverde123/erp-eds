@@ -34,38 +34,51 @@ import {
   contractFormSchema,
   type ContractFormValues,
 } from '../contract-form-schema';
-import { useCreateContract } from '../hooks/use-contract-mutations';
+import { useCreateContract, useUpdateContract } from '../hooks/use-contract-mutations';
 import { useContractors } from '../hooks/use-contractors';
-import type { Contract, ContractInput } from '../types';
+import type { Contract, ContractInput, ContractUpdateInput } from '../types';
 
 interface ContractFormDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /// Chamado com o contrato criado — a seção gera o PDF em seguida.
-  onCreated?: (contract: Contract) => void;
+  /// Contrato em edição. Ausente = contrato novo.
+  contract?: Contract | null;
+  /// Chamado com o contrato salvo (novo ou editado) — a seção gera o PDF em
+  /// seguida, para o documento nunca ficar com os dados antigos.
+  onSaved?: (contract: Contract) => void;
 }
 
-/// NOVO CONTRATO: só o que muda de um contrato para outro.
+/// NOVO CONTRATO ou EDIÇÃO: só o que muda de um contrato para outro.
 ///
 /// Contratada, obra, objeto, prazo, preço e forma de pagamento. As demais
 /// cláusulas são o modelo padrão e entram sozinhas no PDF, gerado ao salvar
 /// (ver `contract-document.ts` na API).
-export function ContractFormDrawer({ open, onOpenChange, onCreated }: ContractFormDrawerProps) {
+///
+/// Na edição a contratada fica travada: a API não troca a empresa de um
+/// contrato (encerra este e cria outro). Contrato encerrado não abre aqui.
+export function ContractFormDrawer({
+  open,
+  onOpenChange,
+  contract,
+  onSaved,
+}: ContractFormDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-lg">
         <div className="border-b border-border px-6 py-5">
-          <SheetTitle>Novo contrato</SheetTitle>
+          <SheetTitle>{contract ? `Editar contrato ${contract.code}` : 'Novo contrato'}</SheetTitle>
           <SheetDescription>
-            Preencha os dados do contrato. As demais cláusulas são padrão e o PDF é gerado ao
-            salvar.
+            {contract
+              ? 'Altere os dados do contrato. O PDF é gerado de novo ao salvar.'
+              : 'Preencha os dados do contrato. As demais cláusulas são padrão e o PDF é gerado ao salvar.'}
           </SheetDescription>
         </div>
 
         <ContractFormBody
-          key={open ? 'open' : 'closed'}
+          key={open ? `open-${contract?.id ?? 'novo'}` : 'closed'}
+          contract={contract ?? null}
           onDone={() => onOpenChange(false)}
-          onCreated={onCreated}
+          onSaved={onSaved}
         />
       </SheetContent>
     </Sheet>
@@ -80,22 +93,43 @@ function SectionTitle({ children }: { children: string }) {
   );
 }
 
+/// Valores do formulário a partir de um contrato salvo. Datas vêm em ISO UTC
+/// e o `<input type="date">` quer só `AAAA-MM-DD`.
+function toFormValues(contract: Contract): ContractFormValues {
+  return {
+    contractorId: contract.contractor.id,
+    constructionSiteId: contract.constructionSite.id,
+    scope: contract.scope,
+    paymentTerms: contract.paymentTerms ?? '',
+    totalValue: contract.totalValue,
+    startDate: contract.startDate.slice(0, 10),
+    endDate: contract.endDate.slice(0, 10),
+    pricingType: contract.pricingType,
+    unitPrice: contract.unitPrice ?? '',
+    unitLabel: contract.unitLabel ?? '',
+    measuredQuantity: contract.measuredQuantity ?? '',
+  };
+}
+
 function ContractFormBody({
+  contract,
   onDone,
-  onCreated,
+  onSaved,
 }: {
+  contract: Contract | null;
   onDone: () => void;
-  onCreated?: (contract: Contract) => void;
+  onSaved?: (contract: Contract) => void;
 }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const createMutation = useCreateContract();
+  const updateMutation = useUpdateContract(contract?.id ?? '');
 
   const { data: contractorsData } = useContractors({ limit: 100, status: 'ACTIVE' });
   const { data: sitesData } = useConstructionSites({ limit: 100 });
 
   const form = useForm<ContractFormValues>({
     resolver: zodResolver(contractFormSchema),
-    defaultValues: CONTRACT_FORM_DEFAULTS,
+    defaultValues: contract ? toFormValues(contract) : CONTRACT_FORM_DEFAULTS,
   });
 
   // `useWatch` e não `form.watch()`: o React Compiler não memoiza a função
@@ -128,9 +162,25 @@ function ContractFormBody({
             ? Number(values.measuredQuantity)
             : undefined,
       };
+      if (contract) {
+        // Na edição, campo do modelo unitário em branco vai como `null` para
+        // APAGAR o valor antigo (trocar para preço global, limpar a medição).
+        // `undefined` o deixaria no banco.
+        const { contractorId: _contractorId, ...rest } = input;
+        const update: ContractUpdateInput = {
+          ...rest,
+          unitPrice: input.unitPrice ?? null,
+          unitLabel: input.unitLabel ?? null,
+          measuredQuantity: input.measuredQuantity ?? null,
+        };
+        const saved = await updateMutation.mutateAsync(update);
+        onDone();
+        onSaved?.(saved);
+        return;
+      }
       const created = await createMutation.mutateAsync(input);
       onDone();
-      onCreated?.(created);
+      onSaved?.(created);
     } catch (error) {
       setSubmitError(
         error instanceof ApiError
@@ -164,7 +214,11 @@ function ContractFormBody({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Contratada</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={contract !== null}
+                  >
                     <FormControl>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Selecione a empresa terceirizada" />
