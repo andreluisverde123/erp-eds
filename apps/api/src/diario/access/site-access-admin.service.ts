@@ -32,7 +32,12 @@ export class SiteAccessAdminService {
     await this.assertSiteExists(companyId, siteId);
 
     const links = await this.prisma.userConstructionSite.findMany({
-      where: { constructionSiteId: siteId },
+      // Usuário EXCLUÍDO fica de fora. O vínculo dele continua no banco (a
+      // exclusão é soft delete e não mexe nos vínculos), mas ele não entra
+      // mais, e listá-lo quebrava a regravação: a tela devolvia a equipe
+      // inteira e o `replaceForSite` recusava o id que não existe mais.
+      // Salvar a equipe uma vez limpa esses vínculos.
+      where: { constructionSiteId: siteId, user: { deletedAt: null } },
       select: {
         role: true,
         user: { select: { id: true, name: true, email: true, isActive: true } },
