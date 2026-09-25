@@ -26,6 +26,11 @@ export function useCancelPurchaseOrder() {
       // A solicitação de origem mostra a situação da compra: cancelar a ordem
       // muda o que ela exibe.
       queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+      // Cancelamento em cascata: a nota e as contas a pagar em aberto da ordem
+      // também mudam de situação.
+      queryClient.invalidateQueries({ queryKey: ['inbound-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['account-payables'] });
     },
   });
 }

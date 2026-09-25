@@ -89,6 +89,13 @@ function makeService(
       /// Contas a pagar já pagas ou parcialmente pagas — o que impede
       /// cancelar, porque dinheiro que saiu não se desfaz cancelando o pedido.
       paidPayables?: number;
+      /// Pagamentos registrados (agendados, em processamento ou pagos) nas
+      /// contas da ordem — também impedem cancelar.
+      payments?: number;
+      /// O que o cancelamento em CASCATA encontra para cancelar junto.
+      openPayables?: { id: string }[];
+      cascadeInvoices?: { id: string; number: string | null }[];
+      cascadeInboundInvoices?: { id: string; number: string | null }[];
     };
   } = {},
 ) {
@@ -155,6 +162,18 @@ function makeService(
         return { id: 'oc-1', code: String(args.data.code) };
       }),
       update: jest.fn(async () => ({ id: 'oc-1' })),
+    },
+    accountPayable: {
+      findMany: jest.fn(async () => financeiro.openPayables ?? []),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+    },
+    invoice: {
+      findMany: jest.fn(async () => financeiro.cascadeInvoices ?? []),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+    },
+    inboundInvoice: {
+      findMany: jest.fn(async () => financeiro.cascadeInboundInvoices ?? []),
+      updateMany: jest.fn(async () => ({ count: 0 })),
     },
     purchaseOrderItem: {
       /// A fonte do saldo: as compras que já apontam para as linhas desta
@@ -269,6 +288,7 @@ function makeService(
       count: jest.fn(async () => financeiro.inboundInvoices.length),
     },
     accountPayable: { count: jest.fn(async () => financeiro.paidPayables ?? 0) },
+    payment: { count: jest.fn(async () => financeiro.payments ?? 0) },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
@@ -1044,13 +1064,13 @@ describe('PurchaseOrdersService — itens da ordem de compra', () => {
 
 describe('Cancelar e excluir ordem de compra', () => {
   it('cancelar marca a ordem, sem apagá-la', async () => {
-    const { service, prisma } = makeService();
+    const { service, tx } = makeService();
 
     await service.cancel(EMPRESA_A, 'oc-1');
 
     // Cancelar mantém o documento na lista: o fornecedor recebeu um pedido, e
     // precisa haver registro de que ele foi desfeito.
-    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+    expect(tx.purchaseOrder.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'CANCELLED' } }),
     );
   });
@@ -1071,12 +1091,111 @@ describe('Cancelar e excluir ordem de compra', () => {
     await expect(service.cancel(EMPRESA_A, 'oc-1')).rejects.toThrow(/pagamento efetuado/);
   });
 
+  it('não cancela ordem com pagamento agendado ou em processamento', async () => {
+    const { service, tx } = makeService({
+      financeiro: { invoices: [], inboundInvoices: [], payments: 1 },
+    });
+
+    // A conta ainda está "em aberto", mas o dinheiro pode já estar saindo.
+    await expect(service.cancel(EMPRESA_A, 'oc-1')).rejects.toThrow(/pagamento efetuado/);
+    expect(tx.purchaseOrder.update).not.toHaveBeenCalled();
+  });
+
+  /// O caso do cliente: entregue na obra, o mestre pediu para trocar dois
+  /// itens e o fornecedor cancelou a nota. A ordem precisa ser cancelada, e a
+  /// conta a pagar daquela nota não pode continuar em aberto.
+  describe('cancelamento em cascata (nota cancelada para troca de itens)', () => {
+    const FINANCEIRO = {
+      invoices: [],
+      inboundInvoices: [],
+      openPayables: [{ id: 'cp-1' }, { id: 'cp-2' }],
+      cascadeInvoices: [{ id: 'fat-1', number: '1234' }],
+      cascadeInboundInvoices: [{ id: 'nf-1', number: '1234' }],
+    };
+
+    it('cancela a ordem, a nota e as contas a pagar em aberto, numa transação', async () => {
+      const { service, tx } = makeService({ financeiro: FINANCEIRO });
+
+      await service.cancel(EMPRESA_A, 'oc-1');
+
+      expect(tx.purchaseOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'CANCELLED' } }),
+      );
+      expect(tx.accountPayable.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['cp-1', 'cp-2'] }, companyId: EMPRESA_A },
+        data: { status: 'CANCELLED' },
+      });
+      expect(tx.invoice.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['fat-1'] }, companyId: EMPRESA_A },
+        data: { status: 'CANCELLED' },
+      });
+      expect(tx.inboundInvoice.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['nf-1'] }, companyId: EMPRESA_A },
+        data: { status: 'CANCELLED' },
+      });
+    });
+
+    it('só busca contas EM ABERTO e da própria empresa', async () => {
+      const { service, tx } = makeService({ financeiro: FINANCEIRO });
+
+      await service.cancel(EMPRESA_A, 'oc-1');
+
+      const where = (
+        tx.accountPayable.findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }]
+      )[0].where;
+      expect(where).toMatchObject({
+        companyId: EMPRESA_A,
+        status: 'OPEN',
+        deletedAt: null,
+        invoice: { purchaseOrderId: 'oc-1', companyId: EMPRESA_A },
+      });
+    });
+
+    it('sem nota vinculada, cancela só a ordem', async () => {
+      const { service, tx } = makeService();
+
+      await service.cancel(EMPRESA_A, 'oc-1');
+
+      expect(tx.purchaseOrder.update).toHaveBeenCalled();
+      expect(tx.accountPayable.updateMany).not.toHaveBeenCalled();
+      expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+      expect(tx.inboundInvoice.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('registra no histórico da solicitação por que os itens voltaram a ficar pendentes', async () => {
+      const { service, auditado } = makeService({ financeiro: FINANCEIRO });
+
+      await service.cancel(EMPRESA_A, 'oc-1');
+
+      const daSolicitacao = auditado.find((e) => e.entityType === 'PurchaseRequest');
+      expect(daSolicitacao).toMatchObject({
+        entityId: SOLICITACAO,
+        changes: {
+          ordemCancelada: { from: 'OC-0001' },
+          notaFiscalCancelada: { from: '1234', to: 'cancelada' },
+          contasAPagarCanceladas: { to: '2' },
+        },
+      });
+      expect(auditado.filter((e) => e.entityType === 'AccountPayable')).toHaveLength(2);
+      expect(auditado.filter((e) => e.entityType === 'InboundInvoice')).toHaveLength(1);
+    });
+
+    it('falha de auditoria não desfaz o cancelamento', async () => {
+      const { service, tx } = makeService({ financeiro: FINANCEIRO, auditoriaFalha: true });
+
+      await expect(service.cancel(EMPRESA_A, 'oc-1')).resolves.toBeDefined();
+      expect(tx.purchaseOrder.update).toHaveBeenCalled();
+    });
+  });
+
   it('exclui a ordem sem vínculo, embaralhando o código', async () => {
     const { service, prisma } = makeService();
 
     await service.remove(EMPRESA_A, 'oc-1');
 
-    const dados = (prisma.purchaseOrder.update.mock.calls.at(-1)![0] as { data: Record<string, unknown> }).data;
+    const dados = (
+      prisma.purchaseOrder.update.mock.calls.at(-1)![0] as { data: Record<string, unknown> }
+    ).data;
     expect(dados.deletedAt).toBeInstanceOf(Date);
     // Sem embaralhar, a unique de (empresa, código) — que não ignora
     // `deletedAt` — travaria aquele número para sempre.
@@ -1450,6 +1569,5 @@ describe('Compra parcial — saldo pendente por item', () => {
       // histórico depois.
       expect(changes.atendimentoDaSolicitacao!.to).toContain('de 100');
     });
-
   });
 });

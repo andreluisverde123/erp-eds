@@ -189,7 +189,7 @@ export function OrdensDeCompraPage() {
         title={`Cancelar a ${cancelando?.code ?? 'ordem'}?`}
         description={
           erroAcao ??
-          'A ordem continua na lista, marcada como cancelada — o fornecedor recebeu um pedido, e precisa haver registro de que ele foi desfeito.'
+          'A ordem continua na lista, marcada como cancelada. Se ela já tem nota fiscal, a nota e as contas a pagar em aberto dela são canceladas junto, e os itens voltam a ficar pendentes na solicitação para uma nova compra. Não é possível cancelar se já houver pagamento.'
         }
         confirmLabel="Cancelar ordem"
         loadingLabel="Cancelando..."

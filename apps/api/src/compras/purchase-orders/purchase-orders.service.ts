@@ -232,7 +232,12 @@ export class PurchaseOrdersService {
   /// impediria o total negativo, mas em silêncio — o comprador digitaria 500 de
   /// desconto num subtotal de 300 e veria zero, sem entender por quê.
   private assertGeneralDiscountFits(
-    items: { quantity: number; unitPrice: number; discountType: 'AMOUNT' | 'PERCENT'; discountValue: number }[],
+    items: {
+      quantity: number;
+      unitPrice: number;
+      discountType: 'AMOUNT' | 'PERCENT';
+      discountValue: number;
+    }[],
     desconto: Discount,
   ): void {
     if (desconto.type === 'PERCENT') {
@@ -242,7 +247,10 @@ export class PurchaseOrdersService {
       return;
     }
 
-    const { subtotalAfterItemDiscounts } = calculateOrderTotals(items, { type: 'AMOUNT', value: 0 });
+    const { subtotalAfterItemDiscounts } = calculateOrderTotals(items, {
+      type: 'AMOUNT',
+      value: 0,
+    });
     if (new Prisma.Decimal(desconto.value).greaterThan(subtotalAfterItemDiscounts)) {
       throw new BadRequestException(
         'O desconto geral não pode ser maior que o subtotal da ordem depois dos descontos dos itens.',
@@ -682,9 +690,16 @@ export class PurchaseOrdersService {
   /// lista, com o histórico, porque o fornecedor recebeu um pedido e precisa
   /// haver registro de que ele foi desfeito.
   ///
-  /// Recusada quando já existe pagamento efetuado: dinheiro que saiu não se
-  /// desfaz cancelando o pedido, e deixar cancelar criaria uma ordem cancelada
-  /// com conta paga — um estado que nenhum relatório sabe explicar.
+  /// Recusada quando já existe pagamento registrado: dinheiro que saiu (ou está
+  /// saindo) não se desfaz cancelando o pedido, e deixar cancelar criaria uma
+  /// ordem cancelada com conta paga — um estado que nenhum relatório explica.
+  ///
+  /// CASCATA: a nota fiscal da compra e as contas a pagar em aberto que ela
+  /// gerou são canceladas junto. É o caso da troca de itens na entrega (nota
+  /// cancelada pelo fornecedor para reemitir): antes, a ordem ficava cancelada
+  /// e a conta continuava em aberto, e o Financeiro podia pagar uma compra que
+  /// não aconteceu. Com a ordem cancelada, o que ela atendia volta a ficar
+  /// pendente na solicitação (o atendimento é derivado das ordens ativas).
   async cancel(companyId: string, id: string) {
     const order = await this.assertExists(companyId, id);
 
@@ -692,26 +707,135 @@ export class PurchaseOrdersService {
       throw new BadRequestException('Esta ordem de compra já está cancelada.');
     }
 
-    const pagas = await this.prisma.accountPayable.count({
-      where: {
-        deletedAt: null,
-        status: { in: ['PAID', 'PARTIAL'] },
-        invoice: { purchaseOrderId: id },
-      },
-    });
+    const vinculoDaOrdem = { deletedAt: null, invoice: { purchaseOrderId: id, companyId } };
+    const [pagas, pagamentos] = await this.prisma.$transaction([
+      this.prisma.accountPayable.count({
+        where: { ...vinculoDaOrdem, status: { in: ['PAID', 'PARTIAL'] } },
+      }),
+      this.prisma.payment.count({
+        where: {
+          status: { in: ['PENDING', 'PROCESSING', 'PAID'] },
+          accountPayable: vinculoDaOrdem,
+        },
+      }),
+    ]);
 
-    if (pagas > 0) {
+    if (pagas > 0 || pagamentos > 0) {
       throw new BadRequestException(
         'Esta ordem já tem pagamento efetuado e não pode ser cancelada. Trate a devolução pelo Financeiro.',
       );
     }
 
-    await this.prisma.purchaseOrder.update({
-      where: { id, companyId },
-      data: { status: 'CANCELLED' },
+    const cancelados = await this.prisma.$transaction(async (tx) => {
+      const [contas, faturas, notas] = await Promise.all([
+        tx.accountPayable.findMany({
+          where: { ...vinculoDaOrdem, companyId, status: 'OPEN' },
+          select: { id: true },
+        }),
+        tx.invoice.findMany({
+          where: { companyId, purchaseOrderId: id, deletedAt: null, status: { not: 'CANCELLED' } },
+          select: { id: true, number: true },
+        }),
+        tx.inboundInvoice.findMany({
+          where: { companyId, purchaseOrderId: id, status: { not: 'CANCELLED' } },
+          select: { id: true, number: true },
+        }),
+      ]);
+
+      await tx.purchaseOrder.update({
+        where: { id, companyId },
+        data: { status: 'CANCELLED' },
+      });
+      if (contas.length > 0) {
+        await tx.accountPayable.updateMany({
+          where: { id: { in: contas.map((c) => c.id) }, companyId },
+          data: { status: 'CANCELLED' },
+        });
+      }
+      if (faturas.length > 0) {
+        await tx.invoice.updateMany({
+          where: { id: { in: faturas.map((f) => f.id) }, companyId },
+          data: { status: 'CANCELLED' },
+        });
+      }
+      if (notas.length > 0) {
+        await tx.inboundInvoice.updateMany({
+          where: { id: { in: notas.map((n) => n.id) }, companyId },
+          data: { status: 'CANCELLED' },
+        });
+      }
+
+      return { contas, faturas, notas };
     });
 
+    await this.logCancelamento(companyId, order, cancelados);
+
     return this.findOne(companyId, id);
+  }
+
+  /// Histórico do cancelamento em cascata. `updateMany` escapa da auditoria
+  /// genérica, então cada conta, fatura e nota cancelada ganha a sua linha — e
+  /// a SOLICITAÇÃO também, porque é no histórico dela que o comprador procura
+  /// por que o item voltou a ficar pendente. Falha de auditoria não desfaz o
+  /// cancelamento (mesmo critério de `logFulfillment`).
+  private async logCancelamento(
+    companyId: string,
+    order: { id: string; code: string; purchaseRequestId: string },
+    cancelados: {
+      contas: { id: string }[];
+      faturas: { id: string; number: string | null }[];
+      notas: { id: string; number: string | null }[];
+    },
+  ): Promise<void> {
+    const store = auditContextStorage.getStore();
+    const base = { companyId, userId: store?.userId, action: 'UPDATE' as const };
+    const motivo = { from: '—', to: `cancelada junto com a ${order.code}` };
+
+    try {
+      for (const conta of cancelados.contas) {
+        await this.auditLogger.log({
+          ...base,
+          entityType: 'AccountPayable',
+          entityId: conta.id,
+          changes: { status: motivo },
+        });
+      }
+      for (const fatura of cancelados.faturas) {
+        await this.auditLogger.log({
+          ...base,
+          entityType: 'Invoice',
+          entityId: fatura.id,
+          changes: { status: motivo },
+        });
+      }
+      for (const nota of cancelados.notas) {
+        await this.auditLogger.log({
+          ...base,
+          entityType: 'InboundInvoice',
+          entityId: nota.id,
+          changes: { status: motivo },
+        });
+      }
+
+      const numeros = cancelados.notas.map((n) => n.number).filter(Boolean);
+      await this.auditLogger.log({
+        ...base,
+        entityType: 'PurchaseRequest',
+        entityId: order.purchaseRequestId,
+        changes: {
+          ordemCancelada: { from: order.code, to: 'cancelada — itens voltaram a ficar pendentes' },
+          ...(numeros.length > 0 && {
+            notaFiscalCancelada: { from: numeros.join(', '), to: 'cancelada' },
+          }),
+          ...(cancelados.contas.length > 0 && {
+            contasAPagarCanceladas: { from: '—', to: String(cancelados.contas.length) },
+          }),
+        },
+      });
+    } catch {
+      // O cancelamento já está gravado. Derrubar a resposta agora faria o
+      // comprador tentar de novo e esbarrar em "já está cancelada".
+    }
   }
 
   /// EXCLUI a ordem — para o caso de ter sido gerada por engano.

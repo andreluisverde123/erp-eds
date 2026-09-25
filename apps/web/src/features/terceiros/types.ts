@@ -110,8 +110,9 @@ export interface ContractInput {
 /// Os campos do modelo unitário aceitam `null` para APAGAR o valor: ao trocar
 /// para preço global, ou ao limpar a medição. `undefined` deixaria o valor
 /// antigo no banco.
-export interface ContractUpdateInput
-  extends Partial<Omit<ContractInput, 'contractorId' | 'unitPrice' | 'unitLabel' | 'measuredQuantity'>> {
+export interface ContractUpdateInput extends Partial<
+  Omit<ContractInput, 'contractorId' | 'unitPrice' | 'unitLabel' | 'measuredQuantity'>
+> {
   unitPrice?: number | null;
   unitLabel?: string | null;
   measuredQuantity?: number | null;
