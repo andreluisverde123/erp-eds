@@ -1,6 +1,6 @@
 import { memo } from 'react';
 
-import { Ban, FileCheck2, FileText, MoreHorizontal } from 'lucide-react';
+import { Ban, FileCheck2, FileDown, FileText, MoreHorizontal } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@repo/ui';
 
+import { downloadDanfe } from '../api';
 import { InboundInvoiceStatusBadge } from './inbound-invoice-status-badge';
 import { formatAmount, formatDate, formatDocument } from '../format';
 import type { InboundInvoice } from '../types';
@@ -100,6 +101,16 @@ export const InboundInvoicesTable = memo(function InboundInvoicesTable({
                     <FileCheck2 />
                     {invoice.status === 'PENDING' ? 'Conciliar' : 'Ver conciliação'}
                   </DropdownMenuItem>
+                  {/* Só com o documento completo: o resumo não tem o que
+                      o DANFE imprime. O motivo aparece no painel da nota. */}
+                  {invoice.hasFullDocument && (
+                    <DropdownMenuItem
+                      onClick={() => void downloadDanfe(invoice.id, `DANFE-${invoice.number}.pdf`)}
+                    >
+                      <FileDown />
+                      Baixar DANFE
+                    </DropdownMenuItem>
+                  )}
                   {invoice.status === 'PENDING' && (
                     <DropdownMenuItem variant="destructive" onClick={() => onCancel(invoice)}>
                       <Ban />

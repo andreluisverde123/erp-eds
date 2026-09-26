@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Ip,
@@ -9,7 +10,9 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
@@ -35,6 +38,21 @@ export class InboundInvoicesController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('companyId') companyId: string) {
     return this.inboundInvoices.findOne(companyId, id);
+  }
+
+  /// DANFE da nota, gerado do XML da SEFAZ. Mesma permissão de ver a nota
+  /// (`financeiro.view`, herdada da classe): quem vê a nota pode imprimi-la.
+  @Get(':id/danfe')
+  @Header('Content-Type', 'application/pdf')
+  async danfe(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, fileName } = await this.inboundInvoices.generateDanfe(companyId, id);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   /// Ordens de compra compatíveis, da mais provável para a menos. Só leitura:

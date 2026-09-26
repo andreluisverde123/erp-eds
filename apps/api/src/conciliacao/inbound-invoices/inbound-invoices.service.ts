@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 
 import { Prisma, type InboundInvoiceStatus } from '../../../generated/prisma/client';
@@ -11,6 +12,8 @@ import { AuditLoggerService } from '../../common/services/audit-logger.service';
 import { paginate, type PaginatedResult } from '../../common/types/paginated-result.type';
 import { onlyDigits } from '../../common/utils/document.util';
 import { isUniqueConstraintError } from '../../common/utils/prisma-error.util';
+import { DanfeXmlError, parseDanfeXml, type DanfeData } from '../../fiscal/danfe/danfe-data';
+import { renderDanfePdf } from '../../fiscal/danfe/danfe-pdf';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
 import { QueryInboundInvoiceDto } from './dto/query-inbound-invoice.dto';
@@ -264,6 +267,70 @@ export class InboundInvoicesService {
       throw new NotFoundException(NOT_FOUND_MESSAGE);
     }
     return row;
+  }
+
+  /// DANFE em PDF, montado na hora a partir do XML que a SEFAZ entregou.
+  ///
+  /// Nada é guardado: o XML é o documento legal e já está no banco
+  /// (`FiscalDocument`); o PDF é só uma forma de lê-lo, e gerar de novo custa
+  /// milissegundos. Guardar o PDF criaria uma segunda cópia que poderia
+  /// divergir da primeira.
+  async generateDanfe(
+    companyId: string,
+    id: string,
+  ): Promise<{ buffer: Buffer; fileName: string }> {
+    const invoice = await this.prisma.inboundInvoice.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: {
+        accessKey: true,
+        source: true,
+        number: true,
+        supplierName: true,
+        supplierTradeName: true,
+        status: true,
+        cancelledAt: true,
+      },
+    });
+    if (!invoice) throw new NotFoundException(NOT_FOUND_MESSAGE);
+
+    const manual = 'Nota lançada à mão: não há XML da SEFAZ para gerar o DANFE.';
+    if (!invoice.accessKey) throw new NotFoundException(manual);
+
+    // A mesma chave chega duas vezes (resumo e completa) — só a completa tem
+    // o que o DANFE imprime. A mais recente vence, pelo mesmo motivo do
+    // upgrade por chave na importação.
+    const document = await this.prisma.fiscalDocument.findFirst({
+      where: { companyId, accessKey: invoice.accessKey, type: 'NFE_COMPLETA' },
+      orderBy: { receivedAt: 'desc' },
+      select: { xml: true },
+    });
+    if (!document) {
+      throw new NotFoundException(
+        invoice.source === 'MANUAL'
+          ? manual
+          : 'A SEFAZ ainda não entregou o documento completo desta nota; o DANFE fica disponível quando ele chegar.',
+      );
+    }
+
+    let data: DanfeData;
+    try {
+      data = parseDanfeXml(Buffer.from(document.xml).toString('utf8'));
+    } catch (error) {
+      if (error instanceof DanfeXmlError) {
+        throw new UnprocessableEntityException(
+          `Não foi possível ler o XML desta nota: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+    const { buffer } = await renderDanfePdf(data, {
+      cancelled: invoice.status === 'CANCELLED' || invoice.cancelledAt !== null,
+    });
+
+    return {
+      buffer,
+      fileName: danfeFileName(invoice.number, invoice.supplierTradeName ?? invoice.supplierName),
+    };
   }
 
   /// Ordens de compra compatíveis com a nota, da mais provável para a menos.
@@ -912,4 +979,18 @@ function markPrimary(candidates: { id: string; score: SuggestionScore }[]): stri
   if (!best || !best.score.withinTolerance) return null;
   if (second && best.score.score - second.score.score < PRIMARY_MARGIN) return null;
   return best.id;
+}
+
+/// `DANFE-1234-MATERIAIS-EXEMPLO.pdf`. Só ASCII: o nome vai num header HTTP,
+/// e acento ali vira lixo em metade dos navegadores.
+export function danfeFileName(number: string, supplier: string): string {
+  const emitente = supplier
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 30)
+    .replace(/-+$/, '')
+    .toUpperCase();
+  return `DANFE-${number}${emitente ? `-${emitente}` : ''}.pdf`;
 }

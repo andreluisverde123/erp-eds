@@ -1,8 +1,10 @@
-import { AlertTriangle, FileClock } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, FileClock, FileDown, Loader2 } from 'lucide-react';
 import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -17,6 +19,9 @@ import {
   TableRow,
 } from '@repo/ui';
 
+import { ApiError } from '@/lib/api-client';
+
+import { downloadDanfe } from '../api';
 import { InboundInvoiceStatusBadge } from './inbound-invoice-status-badge';
 import { formatAmount, formatDate, formatDocument, formatQuantity } from '../format';
 import type { InboundInvoiceDetail } from '../types';
@@ -59,6 +64,48 @@ function Total({
   );
 }
 
+/// Baixa o DANFE, que a API monta na hora a partir do XML da SEFAZ.
+///
+/// Sem o documento completo não há o que imprimir — o botão fica desligado
+/// e diz por quê, em vez de deixar a pessoa clicar e receber um erro.
+function DanfeButton({ invoice }: { invoice: InboundInvoiceDetail }) {
+  const [baixando, setBaixando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const indisponivel = !invoice.hasFullDocument;
+  const motivo = invoice.accessKey
+    ? 'O DANFE fica disponível quando a SEFAZ entregar o documento completo desta nota.'
+    : 'Nota lançada à mão: não há XML da SEFAZ para gerar o DANFE.';
+
+  async function baixar() {
+    setBaixando(true);
+    setErro(null);
+    try {
+      await downloadDanfe(invoice.id, `DANFE-${invoice.number}.pdf`);
+    } catch (error) {
+      setErro(error instanceof ApiError ? error.message : 'Não foi possível gerar o DANFE.');
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={indisponivel || baixando}
+        title={indisponivel ? motivo : 'Baixar o DANFE em PDF'}
+        onClick={() => void baixar()}
+      >
+        {baixando ? <Loader2 className="animate-spin" /> : <FileDown />}
+        DANFE
+      </Button>
+      {erro && <span className="max-w-60 text-right text-xs text-destructive">{erro}</span>}
+    </div>
+  );
+}
+
 /// Lado esquerdo da comparação: o que a nota fiscal diz.
 ///
 /// O XML original NUNCA aparece aqui — ele fica guardado internamente, com
@@ -79,7 +126,10 @@ export function InvoicePanel({ invoice }: { invoice: InboundInvoiceDetail }) {
               {invoice.series && ` / série ${invoice.series}`}
             </CardDescription>
           </div>
-          <InboundInvoiceStatusBadge status={invoice.status} />
+          <div className="flex items-center gap-2">
+            <DanfeButton invoice={invoice} />
+            <InboundInvoiceStatusBadge status={invoice.status} />
+          </div>
         </div>
       </CardHeader>
 

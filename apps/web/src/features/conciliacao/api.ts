@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api-client';
+import { downloadFile } from '@/lib/download-file';
 import { toQueryString } from '@/lib/query-string';
 
 import type {
@@ -65,4 +66,11 @@ export function reconcileInboundInvoice(
 
 export function cancelInboundInvoice(id: string): Promise<InboundInvoiceDetail> {
   return apiClient.post(`/inbound-invoices/${id}/cancel`);
+}
+
+/// DANFE gerado pela API a partir do XML da SEFAZ. `downloadFile` pelo mesmo
+/// motivo do PDF da ordem de compra: o token vai em header, e um `<a href>`
+/// simples voltaria 401.
+export function downloadDanfe(id: string, fileName: string): Promise<void> {
+  return downloadFile(`/inbound-invoices/${id}/danfe`, fileName);
 }
