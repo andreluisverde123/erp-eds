@@ -71,6 +71,7 @@ export {
   SelectTrigger,
   SelectContent,
   SelectItem,
+  SELECT_SEARCH_THRESHOLD,
 } from './components/ui/select';
 export {
   AlertDialog,
