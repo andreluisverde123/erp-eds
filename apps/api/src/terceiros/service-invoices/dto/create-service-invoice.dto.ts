@@ -16,10 +16,16 @@ export class CreateServiceInvoiceDto {
   @IsUUID(undefined, { message: 'Selecione o terceirizado.' })
   contractorId!: string;
 
-  /// Obra ou centro administrativo (a fazenda, o escritório). A obra da conta
-  /// sai do centro de custo, como no resto do sistema.
+  /// Onde o serviço foi feito: UM dos dois. Centro de custo (de obra ou
+  /// administrativo — a fazenda, o escritório), e a obra da conta sai dele; ou
+  /// a obra direto, para a que ainda não tem centro de custo cadastrado.
+  @IsOptional()
   @IsUUID(undefined, { message: 'Selecione a obra ou o centro de custo.' })
-  costCenterId!: string;
+  costCenterId?: string;
+
+  @IsOptional()
+  @IsUUID(undefined, { message: 'Selecione a obra ou o centro de custo.' })
+  constructionSiteId?: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Informe o número da nota.' })

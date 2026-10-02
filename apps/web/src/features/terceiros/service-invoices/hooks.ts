@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   cancelServiceInvoice,
   createServiceInvoice,
-  listServiceInvoiceCostCenters,
+  listServiceInvoiceDestinations,
   listServiceInvoiceFiles,
   listServiceInvoices,
   uploadServiceInvoiceFile,
@@ -20,10 +20,10 @@ export function useServiceInvoices(query: ServiceInvoiceQuery) {
   });
 }
 
-export function useServiceInvoiceCostCenters() {
+export function useServiceInvoiceDestinations() {
   return useQuery({
-    queryKey: [KEY, 'cost-centers'],
-    queryFn: listServiceInvoiceCostCenters,
+    queryKey: [KEY, 'destinations'],
+    queryFn: listServiceInvoiceDestinations,
     staleTime: 60_000,
   });
 }

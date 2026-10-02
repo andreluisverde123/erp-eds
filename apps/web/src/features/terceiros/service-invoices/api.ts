@@ -4,7 +4,7 @@ import { toQueryString } from '@/lib/query-string';
 import type { PaginatedResult } from '../types';
 import type {
   ServiceInvoice,
-  ServiceInvoiceCostCenter,
+  ServiceInvoiceDestination,
   ServiceInvoiceFile,
   ServiceInvoiceInput,
   ServiceInvoiceQuery,
@@ -16,8 +16,8 @@ export function listServiceInvoices(
   return apiClient.get(`/service-invoices${toQueryString(query)}`);
 }
 
-export function listServiceInvoiceCostCenters(): Promise<ServiceInvoiceCostCenter[]> {
-  return apiClient.get('/service-invoices/cost-centers');
+export function listServiceInvoiceDestinations(): Promise<ServiceInvoiceDestination[]> {
+  return apiClient.get('/service-invoices/destinations');
 }
 
 export function createServiceInvoice(input: ServiceInvoiceInput): Promise<ServiceInvoice> {

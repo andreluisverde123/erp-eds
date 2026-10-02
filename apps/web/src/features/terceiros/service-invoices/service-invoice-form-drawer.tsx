@@ -31,11 +31,12 @@ import {
 import { ApiError } from '@/lib/api-client';
 
 import { useContractors } from '../hooks/use-contractors';
-import { useCreateServiceInvoice, useServiceInvoiceCostCenters } from './hooks';
+import { useCreateServiceInvoice, useServiceInvoiceDestinations } from './hooks';
+import type { ServiceInvoiceDestination } from './types';
 
 const schema = z.object({
   contractorId: z.string().min(1, 'Selecione o terceirizado.'),
-  costCenterId: z.string().min(1, 'Selecione a obra ou o centro de custo.'),
+  destination: z.string().min(1, 'Selecione a obra ou o centro de custo.'),
   documentNumber: z.string().trim().min(1, 'Informe o número da nota.').max(50),
   description: z.string().trim().min(1, 'Descreva o serviço.').max(200),
   amount: z
@@ -49,9 +50,25 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
+/// O campo guarda uma chave só, e ela diz o que foi escolhido: centro de custo
+/// (`cc:`) ou obra sem centro de custo (`obra:`).
+function destinationKey({ costCenter, constructionSite }: ServiceInvoiceDestination) {
+  return costCenter ? `cc:${costCenter.id}` : `obra:${constructionSite!.id}`;
+}
+
+function destinationLabel({ costCenter, constructionSite }: ServiceInvoiceDestination) {
+  if (!costCenter) return constructionSite!.name;
+  return constructionSite ? `${constructionSite.name} · ${costCenter.name}` : costCenter.name;
+}
+
+function destinationInput(key: string) {
+  const [tipo, id] = key.split(':');
+  return tipo === 'cc' ? { costCenterId: id } : { constructionSiteId: id };
+}
+
 const DEFAULTS: Values = {
   contractorId: '',
-  costCenterId: '',
+  destination: '',
   documentNumber: '',
   description: '',
   amount: '',
@@ -101,7 +118,7 @@ function FormBody({ onDone, onWarning }: { onDone: () => void; onWarning: (m: st
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: contractors } = useContractors({ limit: 100, status: 'ACTIVE' });
-  const { data: centros } = useServiceInvoiceCostCenters();
+  const { data: destinos } = useServiceInvoiceDestinations();
   const criar = useCreateServiceInvoice();
 
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: DEFAULTS });
@@ -112,7 +129,7 @@ function FormBody({ onDone, onWarning }: { onDone: () => void; onWarning: (m: st
       const { nota, fileFailed } = await criar.mutateAsync({
         input: {
           contractorId: values.contractorId,
-          costCenterId: values.costCenterId,
+          ...destinationInput(values.destination),
           documentNumber: values.documentNumber,
           description: values.description,
           amount: Number(values.amount),
@@ -183,7 +200,7 @@ function FormBody({ onDone, onWarning }: { onDone: () => void; onWarning: (m: st
 
             <FormField
               control={form.control}
-              name="costCenterId"
+              name="destination"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel required>Obra ou centro de custo</FormLabel>
@@ -194,9 +211,9 @@ function FormBody({ onDone, onWarning }: { onDone: () => void; onWarning: (m: st
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {centros?.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.constructionSite ? `${c.constructionSite.name} · ${c.name}` : c.name}
+                      {destinos?.map((destino) => (
+                        <SelectItem key={destinationKey(destino)} value={destinationKey(destino)}>
+                          {destinationLabel(destino)}
                         </SelectItem>
                       ))}
                     </SelectContent>

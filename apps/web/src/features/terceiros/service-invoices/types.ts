@@ -33,7 +33,9 @@ export interface ServiceInvoice {
 
 export interface ServiceInvoiceInput {
   contractorId: string;
-  costCenterId: string;
+  /// Um dos dois: centro de custo, ou a obra que ainda não tem centro de custo.
+  costCenterId?: string;
+  constructionSiteId?: string;
   documentNumber: string;
   description: string;
   amount: number;
@@ -50,11 +52,11 @@ export interface ServiceInvoiceQuery {
   situation?: ServiceInvoiceSituation;
 }
 
-export interface ServiceInvoiceCostCenter {
-  id: string;
-  code: string;
-  name: string;
-  constructionSite: { id: string; name: string } | null;
+/// Onde a nota pode entrar: obra com centro de custo, obra sozinha (sem centro
+/// de custo cadastrado) ou centro administrativo (sem obra).
+export interface ServiceInvoiceDestination {
+  constructionSite: { id: string; code: string; name: string } | null;
+  costCenter: { id: string; code: string; name: string } | null;
 }
 
 export type ServiceInvoiceFile = Attachment;

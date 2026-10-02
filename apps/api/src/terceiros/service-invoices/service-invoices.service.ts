@@ -56,6 +56,14 @@ export type ServiceInvoice = Omit<Row, 'status'> & {
 /// O recorte de acesso é o ponto: a Engenharia (`terceiros.*`) enxerga e mexe
 /// SÓ nas contas com `contractorId` (as notas de serviço), nunca nas demais
 /// contas da empresa. Todas as consultas daqui carregam esse filtro.
+type DestinationRef = { id: string; code: string; name: string };
+
+/// Obra com centro de custo, obra sozinha ou centro administrativo (sem obra).
+export type ServiceInvoiceDestination = {
+  constructionSite: DestinationRef | null;
+  costCenter: DestinationRef | null;
+};
+
 @Injectable()
 export class ServiceInvoicesService {
   constructor(
@@ -107,33 +115,75 @@ export class ServiceInvoicesService {
     );
   }
 
-  /// Obras e centros administrativos onde a nota pode entrar. A Engenharia não
-  /// tem, necessariamente, acesso ao cadastro de centros de custo.
-  async listCostCenters(companyId: string) {
-    return this.prisma.costCenter.findMany({
-      where: { companyId, deletedAt: null },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        constructionSite: { select: { id: true, name: true } },
-      },
-      orderBy: [{ code: 'asc' }],
-    });
+  /// Onde a nota pode entrar: TODAS as obras e os centros administrativos. A
+  /// Engenharia não tem, necessariamente, acesso ao cadastro de centros de custo.
+  ///
+  /// Obra com centros de custo aparece uma vez por centro; obra sem nenhum
+  /// aparece sozinha — o centro de custo não nasce com a obra, e exigir um
+  /// escondia da lista quase todas as obras.
+  async listDestinations(companyId: string): Promise<ServiceInvoiceDestination[]> {
+    const [sites, centers] = await Promise.all([
+      this.prisma.constructionSite.findMany({
+        where: { companyId, deletedAt: null },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          costCenters: {
+            where: { deletedAt: null },
+            select: { id: true, code: true, name: true },
+            orderBy: { code: 'asc' },
+          },
+        },
+        orderBy: [{ name: 'asc' }],
+      }),
+      this.prisma.costCenter.findMany({
+        where: { companyId, deletedAt: null, constructionSiteId: null },
+        select: { id: true, code: true, name: true },
+        orderBy: [{ code: 'asc' }],
+      }),
+    ]);
+
+    return [
+      ...sites.flatMap(({ costCenters, ...constructionSite }): ServiceInvoiceDestination[] =>
+        costCenters.length > 0
+          ? costCenters.map((costCenter) => ({ constructionSite, costCenter }))
+          : [{ constructionSite, costCenter: null }],
+      ),
+      ...centers.map((costCenter) => ({ constructionSite: null, costCenter })),
+    ];
+  }
+
+  /// Centro de custo e obra da conta, a partir do que a tela mandou.
+  private async destinationFor(companyId: string, dto: CreateServiceInvoiceDto) {
+    if (dto.costCenterId) {
+      const costCenter = await this.prisma.costCenter.findFirst({
+        where: { id: dto.costCenterId, companyId, deletedAt: null },
+        select: { id: true, constructionSiteId: true },
+      });
+      return costCenter
+        ? { costCenterId: costCenter.id, constructionSiteId: costCenter.constructionSiteId }
+        : null;
+    }
+    if (dto.constructionSiteId) {
+      const site = await this.prisma.constructionSite.findFirst({
+        where: { id: dto.constructionSiteId, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      return site ? { costCenterId: null, constructionSiteId: site.id } : null;
+    }
+    throw new BadRequestException('Selecione a obra ou o centro de custo.');
   }
 
   async create(companyId: string, userId: string, dto: CreateServiceInvoiceDto) {
-    const [contractor, costCenter] = await Promise.all([
+    const [contractor, destination] = await Promise.all([
       this.prisma.contractor.findFirst({
         where: { id: dto.contractorId, companyId, deletedAt: null },
       }),
-      this.prisma.costCenter.findFirst({
-        where: { id: dto.costCenterId, companyId, deletedAt: null },
-        select: { id: true, constructionSiteId: true },
-      }),
+      this.destinationFor(companyId, dto),
     ]);
     if (!contractor) throw new BadRequestException('Terceirizado não encontrado.');
-    if (!costCenter) throw new BadRequestException('Obra ou centro de custo não encontrado.');
+    if (!destination) throw new BadRequestException('Obra ou centro de custo não encontrado.');
 
     const numero = dto.documentNumber.trim();
     const repetida = await this.prisma.accountPayable.findFirst({
@@ -161,8 +211,8 @@ export class ServiceInvoicesService {
         supplierId,
         contractorId: contractor.id,
         launchedById: userId,
-        costCenterId: costCenter.id,
-        constructionSiteId: costCenter.constructionSiteId,
+        costCenterId: destination.costCenterId,
+        constructionSiteId: destination.constructionSiteId,
         documentNumber: numero,
         description: dto.description.trim(),
         notes: dto.notes?.trim() || null,

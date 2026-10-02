@@ -19,6 +19,7 @@ const EMPRESA = '11111111-1111-4111-8111-111111111111';
 const ENGENHEIRA = '99999999-0000-4000-8000-000000000001';
 const TERCEIRIZADO = 'aaaaaaaa-0000-4000-8000-000000000001';
 const FAZENDA = 'cccccccc-0000-4000-8000-000000000001';
+const OBRA = 'dddddddd-0000-4000-8000-000000000001';
 
 const BOMBA: CreateServiceInvoiceDto = {
   contractorId: TERCEIRIZADO,
@@ -58,6 +59,7 @@ function linha(extra: Record<string, unknown> = {}) {
 function makeService({
   terceirizado = true,
   centro = true,
+  obra = true,
   fornecedorExistente = false,
   repetida = false,
   conta = linha() as Record<string, unknown> | null,
@@ -65,6 +67,7 @@ function makeService({
 }: {
   terceirizado?: boolean;
   centro?: boolean;
+  obra?: boolean;
   fornecedorExistente?: boolean;
   repetida?: boolean;
   conta?: Record<string, unknown> | null;
@@ -89,6 +92,22 @@ function makeService({
     },
     costCenter: {
       findFirst: jest.fn(async () => (centro ? { id: FAZENDA, constructionSiteId: null } : null)),
+      findMany: jest.fn(async () => [{ id: FAZENDA, code: 'ADM-02', name: 'Fazenda' }]),
+    },
+    constructionSite: {
+      findFirst: jest.fn(async () => (obra ? { id: OBRA } : null)),
+      findMany: jest.fn(async () => [
+        {
+          id: OBRA,
+          code: 'OBR-001',
+          name: 'Câmara fria',
+          costCenters: [
+            { id: 'cc-a', code: 'OBR-001-01', name: 'Instalação' },
+            { id: 'cc-b', code: 'OBR-001-02', name: 'Elétrica' },
+          ],
+        },
+        { id: 'obra-2', code: 'OBR-002', name: 'Galpão', costCenters: [] },
+      ]),
     },
     supplier: {
       findFirst: jest.fn(async () => (fornecedorExistente ? { id: 'fornecedor-existente' } : null)),
@@ -189,6 +208,50 @@ describe('Notas de serviço de terceirizado', () => {
       await expect(service.create(EMPRESA, ENGENHEIRA, BOMBA)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+
+    it('obra sem centro de custo: a nota entra direto na obra', async () => {
+      const { service, prisma } = makeService();
+      const { costCenterId: _semCentro, ...semCentro } = BOMBA;
+
+      await service.create(EMPRESA, ENGENHEIRA, { ...semCentro, constructionSiteId: OBRA });
+
+      expect(prisma.accountPayable.create.mock.calls[0][0].data).toMatchObject({
+        costCenterId: null,
+        constructionSiteId: OBRA,
+      });
+    });
+
+    it('sem obra e sem centro de custo: recusado', async () => {
+      const { costCenterId: _semCentro, ...semDestino } = BOMBA;
+
+      await expect(
+        makeService().service.create(EMPRESA, ENGENHEIRA, semDestino),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('obra de outra empresa: recusada', async () => {
+      const { costCenterId: _semCentro, ...semCentro } = BOMBA;
+
+      await expect(
+        makeService({ obra: false }).service.create(EMPRESA, ENGENHEIRA, {
+          ...semCentro,
+          constructionSiteId: OBRA,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('a lista de destinos traz TODAS as obras, com ou sem centro de custo', async () => {
+      const destinos = await makeService().service.listDestinations(EMPRESA);
+
+      expect(
+        destinos.map((d) => [d.constructionSite?.name ?? null, d.costCenter?.name ?? null]),
+      ).toEqual([
+        ['Câmara fria', 'Instalação'],
+        ['Câmara fria', 'Elétrica'],
+        ['Galpão', null],
+        [null, 'Fazenda'],
+      ]);
     });
 
     it('terceirizado ou centro de outra empresa: recusado', async () => {

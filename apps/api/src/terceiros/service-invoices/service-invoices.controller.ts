@@ -38,9 +38,9 @@ export class ServiceInvoicesController {
   }
 
   // Antes de `:id`.
-  @Get('cost-centers')
-  listCostCenters(@CurrentUser('companyId') companyId: string) {
-    return this.serviceInvoices.listCostCenters(companyId);
+  @Get('destinations')
+  listDestinations(@CurrentUser('companyId') companyId: string) {
+    return this.serviceInvoices.listDestinations(companyId);
   }
 
   @RequirePermissions('terceiros.manage')

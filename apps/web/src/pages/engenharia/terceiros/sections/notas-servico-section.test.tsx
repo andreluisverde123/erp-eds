@@ -50,7 +50,7 @@ vi.mock('@/features/terceiros/service-invoices/hooks', () => ({
   }),
   useCancelServiceInvoice: () => ({ mutateAsync: cancelar, isPending: false }),
   useCreateServiceInvoice: () => ({ mutateAsync: criar, isPending: false }),
-  useServiceInvoiceCostCenters: () => ({ data: [] }),
+  useServiceInvoiceDestinations: () => ({ data: [] }),
   useServiceInvoiceFiles: () => ({ data: [], isLoading: false }),
   useUploadServiceInvoiceFile: () => ({ mutate: vi.fn(), isPending: false }),
 }));
