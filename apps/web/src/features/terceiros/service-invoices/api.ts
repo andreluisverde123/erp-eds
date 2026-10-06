@@ -35,5 +35,7 @@ export function listServiceInvoiceFiles(id: string): Promise<ServiceInvoiceFile[
 export function uploadServiceInvoiceFile(id: string, file: File): Promise<ServiceInvoiceFile> {
   const formData = new FormData();
   formData.append('file', file);
-  return apiClient.post(`/service-invoices/${id}/files`, formData);
+  // `upload`, e não `post`: o `post` serializa o corpo em JSON, e um FormData
+  // vira "{}" — a API recebia a requisição sem arquivo nenhum.
+  return apiClient.upload(`/service-invoices/${id}/files`, formData);
 }
