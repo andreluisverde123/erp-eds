@@ -195,15 +195,24 @@ function parseJson(texto: string): { message?: string | string[] } | null {
   }
 }
 
+/// Corpo de `post`/`patch`/`put`. FormData passa INTEIRO: serializado em JSON
+/// ele vira "{}" e a API recebe o upload sem arquivo ("Selecione o arquivo…").
+/// Foi assim que o anexo genérico e o arquivo da nota de serviço ficaram sem
+/// funcionar — bastava chamar `post` no lugar de `upload`.
+function serializeBody(body: unknown): BodyInit | undefined {
+  if (body instanceof FormData) return body;
+  return body ? JSON.stringify(body) : undefined;
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(path, { ...options, method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+    request<T>(path, { ...options, method: 'POST', body: serializeBody(body) }),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, {
       ...options,
       method: 'PATCH',
-      body: body ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
   /// PUT, e não PATCH: usado onde o corpo SUBSTITUI o recurso inteiro em vez
   /// de alterar campos — a equipe de uma obra é a lista final, e quem não está
@@ -212,7 +221,7 @@ export const apiClient = {
     request<T>(path, {
       ...options,
       method: 'PUT',
-      body: body ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
   delete: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { ...options, method: 'DELETE' }),

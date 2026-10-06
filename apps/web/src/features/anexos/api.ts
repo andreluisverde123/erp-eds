@@ -39,7 +39,7 @@ export function uploadAttachment(
 ): Promise<Attachment> {
   const formData = new FormData();
   formData.append('file', file);
-  return apiClient.post<Attachment>(`/attachments/${entityType}/${entityId}`, formData);
+  return apiClient.upload<Attachment>(`/attachments/${entityType}/${entityId}`, formData);
 }
 
 export function deleteAttachment(id: string): Promise<void> {
