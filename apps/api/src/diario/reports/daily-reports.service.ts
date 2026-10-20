@@ -302,6 +302,41 @@ export class DailyReportsService {
     return this.toDetail(await this.findRow(companyId, userId, id));
   }
 
+  /// Vários relatórios numa leitura só — a exportação em lote.
+  ///
+  /// **Não é `findOne` em laço.** Cada `findOne` são cerca de treze idas ao
+  /// banco (o relatório, cada tabela filha, o vínculo com a obra), uma depois
+  /// da outra. Com a API nos EUA e o banco em São Paulo, um mês de RDOs
+  /// passava de quarenta segundos. Aqui são as mesmas tabelas lidas uma vez
+  /// para todos os ids, mais o vínculo do usuário uma vez.
+  ///
+  /// A regra de acesso é a mesma: qualquer id que não exista, seja de outra
+  /// empresa ou de obra não vinculada derruba o pedido inteiro com o MESMO 404
+  /// de `findOne` — nada de devolver silenciosamente menos do que foi pedido.
+  async findManyDetailed(
+    companyId: string,
+    userId: string,
+    ids: readonly string[],
+  ): Promise<DailyReportDetail[]> {
+    const [linhas, obrasDoUsuario] = await Promise.all([
+      this.prisma.dailyReport.findMany({
+        where: { id: { in: [...ids] }, companyId, deletedAt: null },
+        ...detailArgs,
+      }),
+      this.siteAccess.listAccessibleSiteIds(companyId, userId),
+    ]);
+
+    const permitidas = new Set(obrasDoUsuario);
+    if (
+      linhas.length !== new Set(ids).size ||
+      linhas.some((linha) => !permitidas.has(linha.constructionSite.id))
+    ) {
+      throw new NotFoundException(NOT_FOUND_MESSAGE);
+    }
+
+    return linhas.map((linha) => this.toDetail(linha));
+  }
+
   /// A LINHA do relatório, como está no banco, com o acesso já verificado.
   ///
   /// Existe separada de `findOne` porque a cópia precisa dos campos crus — em

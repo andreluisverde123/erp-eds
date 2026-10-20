@@ -183,17 +183,35 @@ function desenharMarca(doc: Doc, logo: Buffer | null | undefined, x: number, y: 
   if (!logo) return 0;
 
   try {
-    const imagem = (
-      doc as unknown as { openImage(src: Buffer): { width: number; height: number } }
-    ).openImage(logo);
+    const imagem = marcaAberta(doc, logo);
     const escala = Math.min(MARCA_CAIXA.largura / imagem.width, MARCA_CAIXA.altura / imagem.height);
     const larguraReal = imagem.width * escala;
 
-    doc.image(logo, x, y, { fit: [MARCA_CAIXA.largura, MARCA_CAIXA.altura] });
+    doc.image(imagem as never, x, y, { fit: [MARCA_CAIXA.largura, MARCA_CAIXA.altura] });
     return larguraReal + MARCA_GAP;
   } catch {
     return 0;
   }
+}
+
+/// A marca decodificada UMA vez por documento.
+///
+/// O pdfkit só reaproveita imagem quando ela vem de um caminho de arquivo; de
+/// um `Buffer`, cada `doc.image` embute uma cópia nova. Num lote de quinze
+/// RDOs eram quinze logos (mais quinze máscaras de transparência) dentro do
+/// mesmo arquivo — 1,6 MB de PDF sem uma foto sequer. Passando a imagem já
+/// aberta, o pdfkit referencia o mesmo objeto em todas as páginas.
+const marcas = new WeakMap<Doc, { width: number; height: number }>();
+
+function marcaAberta(doc: Doc, logo: Buffer): { width: number; height: number } {
+  let imagem = marcas.get(doc);
+  if (!imagem) {
+    imagem = (
+      doc as unknown as { openImage(src: Buffer): { width: number; height: number } }
+    ).openImage(logo);
+    marcas.set(doc, imagem);
+  }
+  return imagem;
 }
 
 function caixa(doc: Doc, x: number, y: number, w: number, h: number, preenchimento?: string) {

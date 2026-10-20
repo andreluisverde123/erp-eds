@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { loadCompanyLogo } from '../../../common/pdf/company-logo';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StorageService } from '../../../storage/storage.module';
-import { DailyReportsService, type DailyReportDetail } from '../daily-reports.service';
+import { DailyReportsService } from '../daily-reports.service';
 import { abrirDocumentoRdo, renderRdoPdf, type FotoCarregada } from './rdo-pdf-renderer';
 import type { MidiaView } from './rdo-pdf-view';
 import { buildRdoPdfView } from './rdo-pdf-view';
@@ -14,6 +14,9 @@ import { buildRdoPdfView } from './rdo-pdf-view';
 /// dezenas de fotos em resolução de impressão. Sem teto, "todo o período" de
 /// todas as obras seria um pedido capaz de derrubar a API para todo mundo.
 export const MAX_RDOS_POR_LOTE = 31;
+
+/// Leituras simultâneas de foto no storage (ver `lerFotos`).
+const FOTOS_EM_PARALELO = 4;
 
 export interface RdoPdf {
   readonly bytes: Buffer;
@@ -81,10 +84,14 @@ export class RdoPdfService {
       );
     }
 
-    const relatorios: DailyReportDetail[] = [];
-    for (const id of unicos) {
-      relatorios.push(await this.reports.findOne(companyId, userId, id));
-    }
+    const [relatorios, empresa, chavesDasFotos] = await Promise.all([
+      this.reports.findManyDetailed(companyId, userId, unicos),
+      this.prisma.company.findUniqueOrThrow({
+        where: { id: companyId },
+        select: { tradeName: true, legalName: true, logoUrl: true },
+      }),
+      this.chavesDasFotos(unicos),
+    ]);
     relatorios.sort(
       (a, b) =>
         a.constructionSite.code.localeCompare(b.constructionSite.code) ||
@@ -92,10 +99,6 @@ export class RdoPdfService {
         a.number - b.number,
     );
 
-    const empresa = await this.prisma.company.findUniqueOrThrow({
-      where: { id: companyId },
-      select: { tradeName: true, legalName: true, logoUrl: true },
-    });
     const nomeEmpresa = empresa.tradeName ?? empresa.legalName;
     const logo = await loadCompanyLogo(this.storage, empresa.logoUrl);
 
@@ -117,7 +120,11 @@ export class RdoPdfService {
     // antes das do seguinte.
     for (const report of relatorios) {
       const view = buildRdoPdfView(report, nomeEmpresa);
-      documento.adicionar({ view, fotos: await this.carregarFotos(report.id, view.fotos), logo });
+      documento.adicionar({
+        view,
+        fotos: await this.lerFotos(report.id, view.fotos, chavesDasFotos),
+        logo,
+      });
     }
 
     return { bytes: await documento.fechar(), nomeArquivo };
@@ -130,45 +137,63 @@ export class RdoPdfService {
   /// uma célula de meia página A4, onde daria cerca de 90 DPI. O original já
   /// chega limitado a 1920 px pelo navegador antes do upload, o que imprime bem
   /// sem ser um arquivo de câmera inteiro.
-  ///
-  /// Uma foto por vez, e não `Promise.all`: cinquenta originais carregados
-  /// juntos são dezenas de MB parados na memória do processo. Sequencial, o
-  /// pico é o PDF em construção mais uma imagem.
   private async carregarFotos(
     reportId: string,
     views: readonly MidiaView[],
   ): Promise<FotoCarregada[]> {
     if (views.length === 0) return [];
+    return this.lerFotos(reportId, views, await this.chavesDasFotos([reportId]));
+  }
 
-    const chaves = new Map(
-      (
-        await this.prisma.dailyReportMedia.findMany({
-          where: { dailyReportId: reportId, type: 'PHOTO' },
-          select: { id: true, storageKey: true },
-        })
-      ).map((linha) => [linha.id, linha.storageKey]),
-    );
+  /// Chave de storage de cada foto dos relatórios, numa consulta só.
+  private async chavesDasFotos(reportIds: readonly string[]): Promise<Map<string, string>> {
+    const linhas = await this.prisma.dailyReportMedia.findMany({
+      where: { dailyReportId: { in: [...reportIds] }, type: 'PHOTO' },
+      select: { id: true, storageKey: true },
+    });
+    return new Map(linhas.map((linha) => [linha.id, linha.storageKey]));
+  }
 
-    const carregadas: FotoCarregada[] = [];
+  /// Lê os arquivos das fotos de UM relatório, na ordem da galeria.
+  ///
+  /// Até `FOTOS_EM_PARALELO` por vez, e não todas: cinquenta originais
+  /// carregados juntos são dezenas de MB parados na memória do processo, e
+  /// uma por vez faz cada foto esperar a ida e volta ao storage da anterior.
+  /// Com quatro, o pico continua em poucos MB e a espera cai a um quarto.
+  private async lerFotos(
+    reportId: string,
+    views: readonly MidiaView[],
+    chaves: ReadonlyMap<string, string>,
+  ): Promise<FotoCarregada[]> {
+    const lidas: (FotoCarregada | null)[] = new Array(views.length).fill(null);
+    let proxima = 0;
 
-    for (const view of views) {
-      const chave = chaves.get(view.id);
-      if (!chave) continue;
+    const trabalhador = async () => {
+      while (proxima < views.length) {
+        const indice = proxima++;
+        const view = views[indice]!;
+        const chave = chaves.get(view.id);
+        if (!chave) continue;
 
-      try {
-        carregadas.push({ view, bytes: await this.lerArquivo(chave) });
-      } catch (error) {
-        // Uma foto ilegível não pode derrubar a exportação inteira: o RDO tem
-        // texto que vale por si, e um relatório sem uma foto é melhor que
-        // relatório nenhum. A célula some da grade e o motivo fica no log.
-        this.logger.error(
-          `Foto "${chave}" do relatório ${reportId} não pôde ser lida para o PDF; seguindo sem ela.`,
-          error instanceof Error ? error.stack : String(error),
-        );
+        try {
+          lidas[indice] = { view, bytes: await this.lerArquivo(chave) };
+        } catch (error) {
+          // Uma foto ilegível não pode derrubar a exportação inteira: o RDO
+          // tem texto que vale por si, e um relatório sem uma foto é melhor
+          // que relatório nenhum. A célula some da grade e o motivo fica no
+          // log.
+          this.logger.error(
+            `Foto "${chave}" do relatório ${reportId} não pôde ser lida para o PDF; seguindo sem ela.`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        }
       }
-    }
+    };
 
-    return carregadas;
+    await Promise.all(
+      Array.from({ length: Math.min(FOTOS_EM_PARALELO, views.length) }, trabalhador),
+    );
+    return lidas.filter((foto): foto is FotoCarregada => foto !== null);
   }
 
   private async lerArquivo(chave: string): Promise<Buffer> {

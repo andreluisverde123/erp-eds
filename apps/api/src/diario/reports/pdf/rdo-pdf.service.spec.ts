@@ -145,16 +145,27 @@ describe('Exportação do RDO em PDF — páginas', () => {
     expect(await contarPaginas(bytes)).toBe(7);
   });
 
-  it('lê as fotos UMA A UMA, e não todas de uma vez', async () => {
+  it('lê no máximo quatro fotos ao mesmo tempo, e todas entram', async () => {
     const { service, storage } = montar([rdo({ id: 'rdo-existente' })], {
       media: fotos(20),
     } as unknown as Partial<BancoFalso>);
+    let emAndamento = 0;
+    let pico = 0;
+    storage.getStream.mockImplementation(async () => {
+      emAndamento += 1;
+      pico = Math.max(pico, emAndamento);
+      await new Promise((fim) => setTimeout(fim, 5));
+      emAndamento -= 1;
+      return Readable.from([PNG_1X1]);
+    });
 
-    await service.export(EMPRESA_A, ENGENHEIRO_A, 'rdo-existente');
+    const { bytes } = await service.export(EMPRESA_A, ENGENHEIRO_A, 'rdo-existente');
 
-    // Vinte originais carregados em paralelo seriam dezenas de MB parados na
-    // memória do processo; sequencial, o pico é o PDF mais uma imagem.
+    // Vinte originais carregados juntos seriam dezenas de MB parados na
+    // memória do processo; um por vez faria cada foto esperar a anterior.
     expect(storage.getStream).toHaveBeenCalledTimes(20);
+    expect(pico).toBe(4);
+    expect(await contarPaginas(bytes)).toBe(7);
   });
 
   it('foto ilegível não derruba a exportação', async () => {
