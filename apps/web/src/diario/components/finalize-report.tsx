@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Lock } from 'lucide-react';
-import { Alert, AlertTitle, Button } from '@repo/ui';
+import { Button } from '@repo/ui';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ApiError } from '@/lib/api-client';
 
 import { submitReport } from '../api';
+import { ActionBar } from './action-bar';
 import type { DiarioReportDetail } from '../types';
 
 /// Finalização do RDO.
 ///
-/// O botão fica no FIM da tela, depois de todas as seções, e não no cabeçalho:
-/// finalizar é a última coisa que se faz no dia, e um botão de fechar
-/// permanente à vista, ao lado do título, é tocado por engano em quem só
-/// queria rolar a página.
+/// O botão fica na faixa fixa do rodapé (`ActionBar`), e não no cabeçalho:
+/// finalizar é a última coisa que se faz no dia, e um botão de fechar ao lado
+/// do título é tocado por engano em quem só queria rolar a página. No rodapé
+/// ele está sempre à mão sem rolar pelas seções, e o toque acidental continua
+/// coberto pela confirmação.
 export function FinalizeReport({ report }: { report: DiarioReportDetail }) {
   const queryClient = useQueryClient();
   const [confirmando, setConfirmando] = useState(false);
@@ -53,28 +55,31 @@ export function FinalizeReport({ report }: { report: DiarioReportDetail }) {
         : null;
 
   return (
-    <div className="mt-6">
-      {mensagem && (
-        <Alert variant="destructive" className="mb-3">
-          {/* A mensagem do backend lista TODAS as pendências de uma vez — é
-              ela que diz o que falta preencher. */}
-          <AlertTitle>{mensagem}</AlertTitle>
-        </Alert>
-      )}
+    <>
+      <ActionBar className="space-y-2">
+        {mensagem && (
+          // A mensagem do backend lista TODAS as pendências de uma vez — é
+          // ela que diz o que falta preencher. Rola por dentro para não cobrir
+          // as seções que a pessoa precisa alcançar.
+          <p role="alert" className="max-h-28 overflow-y-auto text-sm text-destructive">
+            {mensagem}
+          </p>
+        )}
 
-      <Button
-        size="lg"
-        className="h-12 w-full text-base"
-        disabled={finalizar.isPending}
-        onClick={() => setConfirmando(true)}
-      >
-        <CheckCircle2 className="size-5" />
-        {finalizar.isPending ? 'Finalizando…' : 'Finalizar RDO'}
-      </Button>
+        <Button
+          size="lg"
+          className="h-12 w-full text-base"
+          disabled={finalizar.isPending}
+          onClick={() => setConfirmando(true)}
+        >
+          <CheckCircle2 className="size-5" />
+          {finalizar.isPending ? 'Finalizando…' : 'Finalizar RDO'}
+        </Button>
 
-      <p className="mt-2 text-center text-xs text-muted-foreground">
-        Depois de finalizado, o relatório não poderá mais ser alterado.
-      </p>
+        <p className="text-center text-xs text-muted-foreground">
+          Depois de finalizado, o relatório não poderá mais ser alterado.
+        </p>
+      </ActionBar>
 
       <ConfirmDialog
         open={confirmando}
@@ -86,7 +91,7 @@ export function FinalizeReport({ report }: { report: DiarioReportDetail }) {
         isLoading={finalizar.isPending}
         onConfirm={() => finalizar.mutate()}
       />
-    </div>
+    </>
   );
 }
 

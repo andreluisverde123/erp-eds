@@ -1,12 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { loadCompanyLogo } from '../../../common/pdf/company-logo';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StorageService } from '../../../storage/storage.module';
-import { DailyReportsService } from '../daily-reports.service';
-import { renderRdoPdf, type FotoCarregada } from './rdo-pdf-renderer';
+import { DailyReportsService, type DailyReportDetail } from '../daily-reports.service';
+import { abrirDocumentoRdo, renderRdoPdf, type FotoCarregada } from './rdo-pdf-renderer';
 import type { MidiaView } from './rdo-pdf-view';
 import { buildRdoPdfView } from './rdo-pdf-view';
+
+/// Teto da exportação em lote: um mês de uma obra.
+///
+/// O PDF inteiro é montado em memória antes de sair, e cada RDO pode trazer
+/// dezenas de fotos em resolução de impressão. Sem teto, "todo o período" de
+/// todas as obras seria um pedido capaz de derrubar a API para todo mundo.
+export const MAX_RDOS_POR_LOTE = 31;
 
 export interface RdoPdf {
   readonly bytes: Buffer;
@@ -53,6 +60,67 @@ export class RdoPdfService {
 
     const bytes = await renderRdoPdf({ view, fotos, logo });
     return { bytes, nomeArquivo: view.nomeArquivo };
+  }
+
+  /// Vários RDOs num arquivo só — o período que a pessoa escolheu na lista.
+  ///
+  /// Cada relatório passa pelo MESMO `reports.findOne` da exportação avulsa:
+  /// um id de obra não vinculada derruba o lote inteiro com o 404 de sempre,
+  /// em vez de sair um PDF silenciosamente menor do que o pedido.
+  ///
+  /// A ordem é a de arquivo — obra, depois data, depois número —, e não a da
+  /// tela, que lista do mais recente para o mais antigo.
+  async exportBatch(companyId: string, userId: string, ids: readonly string[]): Promise<RdoPdf> {
+    const unicos = [...new Set(ids)];
+    if (unicos.length === 0) {
+      throw new BadRequestException('Escolha ao menos um relatório.');
+    }
+    if (unicos.length > MAX_RDOS_POR_LOTE) {
+      throw new BadRequestException(
+        `Exporte até ${MAX_RDOS_POR_LOTE} relatórios por arquivo. Reduza o período.`,
+      );
+    }
+
+    const relatorios: DailyReportDetail[] = [];
+    for (const id of unicos) {
+      relatorios.push(await this.reports.findOne(companyId, userId, id));
+    }
+    relatorios.sort(
+      (a, b) =>
+        a.constructionSite.code.localeCompare(b.constructionSite.code) ||
+        a.reportDate.getTime() - b.reportDate.getTime() ||
+        a.number - b.number,
+    );
+
+    const empresa = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { tradeName: true, legalName: true, logoUrl: true },
+    });
+    const nomeEmpresa = empresa.tradeName ?? empresa.legalName;
+    const logo = await loadCompanyLogo(this.storage, empresa.logoUrl);
+
+    const primeiro = relatorios[0]!;
+    const obras = new Set(relatorios.map((r) => r.constructionSite.code));
+    // Com mais de uma obra a ordem é por obra, então o primeiro e o último da
+    // lista não são o começo e o fim do período.
+    const datas = relatorios.map((r) => r.reportDate.toISOString().slice(0, 10)).sort();
+    const de = datas[0]!;
+    const ate = datas[datas.length - 1]!;
+    const obra = obras.size === 1 ? primeiro.constructionSite.code : 'OBRAS';
+    const nomeArquivo = `RDOs-${obra}-${de}-a-${ate}.pdf`;
+
+    const documento = abrirDocumentoRdo(
+      `RDOs ${obra} — ${de} a ${ate} — ${nomeEmpresa}`,
+      nomeEmpresa,
+    );
+    // Um relatório por vez: as fotos de um são lidas, desenhadas e soltas
+    // antes das do seguinte.
+    for (const report of relatorios) {
+      const view = buildRdoPdfView(report, nomeEmpresa);
+      documento.adicionar({ view, fotos: await this.carregarFotos(report.id, view.fotos), logo });
+    }
+
+    return { bytes: await documento.fechar(), nomeArquivo };
   }
 
   /// Lê os arquivos das fotos, na ordem da galeria.

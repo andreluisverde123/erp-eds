@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Building2, CalendarDays, Copy, FilePlus2, Loader2 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Alert, AlertTitle, Button, EmptyState, ErrorState, Skeleton, cn } from '@repo/ui';
+import { Button, EmptyState, ErrorState, Skeleton, cn } from '@repo/ui';
 
 import { ApiError } from '@/lib/api-client';
 
@@ -14,6 +14,7 @@ import {
   toDateInputValue,
   weekdayPreview,
 } from '../components/report-status';
+import { ActionBar } from '../components/action-bar';
 import { SiteCard } from '../components/site-card';
 import type { DiarioReport, DiarioSite } from '../types';
 
@@ -249,27 +250,25 @@ function EscolhaDaData({
         />
       )}
 
-      {mensagem && (
-        <Alert variant="destructive" className="mt-5">
-          <AlertTitle>{mensagem}</AlertTitle>
-        </Alert>
-      )}
-
-      <Button
-        size="lg"
-        className="mt-6 h-12 w-full text-base"
-        disabled={!obra || !data || faltaEscolherOrigem || enviando}
-        onClick={onCriar}
-      >
-        {enviando ? <Loader2 className="size-5 animate-spin" /> : null}
-        {enviando ? 'Criando…' : 'Criar relatório'}
-      </Button>
-
-      {faltaEscolherOrigem && (
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          Escolha o relatório que será copiado.
-        </p>
-      )}
+      {/* Na faixa, e não no fim do formulário: com "Copiar anterior" aberto,
+          a lista de relatórios empurrava o botão para longe da escolha. */}
+      <ActionBar className="space-y-2">
+        {mensagem && <p className="text-sm text-destructive">{mensagem}</p>}
+        {faltaEscolherOrigem && (
+          <p className="text-center text-xs text-muted-foreground">
+            Escolha o relatório que será copiado.
+          </p>
+        )}
+        <Button
+          size="lg"
+          className="h-12 w-full text-base"
+          disabled={!obra || !data || faltaEscolherOrigem || enviando}
+          onClick={onCriar}
+        >
+          {enviando ? <Loader2 className="size-5 animate-spin" /> : null}
+          {enviando ? 'Criando…' : 'Criar relatório'}
+        </Button>
+      </ActionBar>
     </>
   );
 }

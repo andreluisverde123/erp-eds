@@ -47,13 +47,35 @@ export interface RdoPdfEntrada {
 type Doc = PDFKit.PDFDocument;
 
 export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
-  const { view } = entrada;
+  const documento = abrirDocumentoRdo(
+    `${entrada.view.cabecalhoCorrido} — ${entrada.view.empresa}`,
+    entrada.view.empresa,
+  );
+  documento.adicionar(entrada);
+  return documento.fechar();
+}
+
+/// Documento que recebe um RDO por vez — a exportação em lote.
+///
+/// **Um por vez, e não a lista inteira.** Quem chama carrega as fotos de um
+/// relatório, entrega, e só então carrega as do seguinte: o pico de memória
+/// fica em "o PDF em construção + as fotos de UM dia", e não nas de um mês.
+///
+/// Cada RDO começa em página nova e numera as SUAS páginas (`1 / 3`), não as
+/// do arquivo: o lote é a pasta do período, mas cada relatório continua sendo
+/// impresso, grampeado e arquivado sozinho.
+export interface DocumentoRdo {
+  adicionar(entrada: RdoPdfEntrada): void;
+  fechar(): Promise<Buffer>;
+}
+
+export function abrirDocumentoRdo(titulo: string, autor: string): DocumentoRdo {
   const doc = new PDFDocument({
     size: 'A4',
     margin: MARGEM,
     // O leitor de PDF mostra isto na barra de título e nas propriedades — é o
     // que identifica o arquivo depois que ele sai do sistema.
-    info: { Title: `${view.cabecalhoCorrido} — ${view.empresa}`, Author: view.empresa },
+    info: { Title: titulo, Author: autor },
     autoFirstPage: true,
     // Obrigatório para o rodapé `n / N`: sem isto o pdfkit fecha cada página ao
     // sair dela, e `switchToPage` — que é como o total só conhecido no fim
@@ -68,6 +90,36 @@ export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
     doc.on('error', reject);
   });
 
+  /// Primeira página de cada RDO no documento. A numeração só é escrita no
+  /// fim, quando se sabe onde cada um termina.
+  const inicios: number[] = [];
+
+  return {
+    adicionar(entrada) {
+      // `autoFirstPage` já abriu a folha do primeiro.
+      if (inicios.length > 0) doc.addPage();
+      inicios.push(doc.bufferedPageRange().count - 1);
+      desenharRdo(doc, entrada);
+    },
+    fechar() {
+      const total = doc.bufferedPageRange().count;
+      inicios.forEach((inicio, i) => {
+        numerarPaginas(
+          doc,
+          inicio,
+          (inicios[i + 1] ?? total) - inicio,
+          MARGEM,
+          doc.page.width - MARGEM * 2,
+        );
+      });
+      doc.end();
+      return pronto;
+    },
+  };
+}
+
+function desenharRdo(doc: Doc, entrada: RdoPdfEntrada) {
+  const { view } = entrada;
   const esquerda = MARGEM;
   const largura = doc.page.width - MARGEM * 2;
 
@@ -106,10 +158,6 @@ export function renderRdoPdf(entrada: RdoPdfEntrada): Promise<Buffer> {
   y = desenharGaleria(doc, entrada, esquerda, largura, y);
   y = desenharVideos(doc, view, esquerda, largura, y);
   desenharAssinaturas(doc, view, esquerda, largura, y);
-  numerarPaginas(doc, view, esquerda, largura);
-
-  doc.end();
-  return pronto;
 }
 
 // ---------------------------------------------------------------------------
@@ -737,11 +785,9 @@ function desenharAssinaturas(doc: Doc, view: RdoPdfView, x: number, largura: num
 /// Feito no fim, e não durante o desenho: só aqui o total é conhecido. É também
 /// por isso que o rodapé não pode ser escrito junto com o conteúdo — a primeira
 /// página precisaria adivinhar quantas fotos viriam.
-function numerarPaginas(doc: Doc, view: RdoPdfView, x: number, largura: number) {
-  const faixa = doc.bufferedPageRange();
-
-  for (let i = 0; i < faixa.count; i += 1) {
-    doc.switchToPage(faixa.start + i);
+function numerarPaginas(doc: Doc, inicio: number, quantas: number, x: number, largura: number) {
+  for (let i = 0; i < quantas; i += 1) {
+    doc.switchToPage(inicio + i);
 
     // O rodapé fica ABAIXO da margem inferior, e o pdfkit reage a isso abrindo
     // uma página nova — foi assim que a primeira versão gerou uma folha em
@@ -756,7 +802,7 @@ function numerarPaginas(doc: Doc, view: RdoPdfView, x: number, largura: number) 
       .font(FONTE)
       .fontSize(MIUDO)
       .fillColor(CINZA)
-      .text(`${i + 1} / ${faixa.count}`, x, doc.page.height - MARGEM + 2, {
+      .text(`${i + 1} / ${quantas}`, x, doc.page.height - MARGEM + 2, {
         width: largura,
         align: 'right',
         lineBreak: false,

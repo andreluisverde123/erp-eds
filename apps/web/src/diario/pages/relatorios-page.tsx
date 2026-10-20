@@ -1,30 +1,65 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ClipboardList, Plus } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ClipboardList, FileDown, Loader2, Plus } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router';
 import { Button, EmptyState, ErrorState, Skeleton, cn } from '@repo/ui';
 
-import { listReports, listSites } from '../api';
+import { ApiError } from '@/lib/api-client';
+
+import { MAX_RDOS_POR_PDF, exportReportsPdf, listReports, listSites } from '../api';
+import { ActionBar } from '../components/action-bar';
 import { ReportRow } from '../components/report-row';
 import { REPORT_STATUS_LABEL, REPORT_STATUS_ORDER } from '../components/report-status';
-import type { DailyReportStatus, ReportFilters } from '../types';
+import type { DailyReportStatus, DiarioReport, ReportFilters } from '../types';
 
-/// Períodos oferecidos como atalho. Um seletor de intervalo com dois
-/// calendários é a resposta de desktop; em campo, "esta semana" e "este mês"
-/// cobrem quase tudo e custam um toque.
+/// Períodos oferecidos como atalho. Em campo, "esta semana" e "este mês"
+/// cobrem quase tudo e custam um toque; "Personalizado" abre os dois campos de
+/// data para o que não couber — tipicamente a medição, que fecha num dia
+/// combinado com o cliente e não no fim do mês.
 const PERIODOS = [
-  { id: 'todos', rotulo: 'Todo período', dias: null },
-  { id: '7', rotulo: 'Últimos 7 dias', dias: 7 },
-  { id: '30', rotulo: 'Últimos 30 dias', dias: 30 },
+  { id: 'todos', rotulo: 'Todo período' },
+  { id: '7', rotulo: 'Últimos 7 dias' },
+  { id: '30', rotulo: 'Últimos 30 dias' },
+  { id: 'mes', rotulo: 'Este mês' },
+  { id: 'mes-anterior', rotulo: 'Mês passado' },
+  { id: 'personalizado', rotulo: 'Personalizado' },
 ] as const;
 
 type PeriodoId = (typeof PERIODOS)[number]['id'];
 
-function inicioDoPeriodo(dias: number): string {
-  const data = new Date();
-  data.setUTCHours(0, 0, 0, 0);
-  data.setUTCDate(data.getUTCDate() - dias);
-  return data.toISOString().slice(0, 10);
+/// `AAAA-MM-DD` do calendário do APARELHO. `toISOString` daria o dia em UTC,
+/// que às 21h de Brasília já é amanhã.
+function dia(data: Date): string {
+  const mes = String(data.getMonth() + 1).padStart(2, '0');
+  return `${data.getFullYear()}-${mes}-${String(data.getDate()).padStart(2, '0')}`;
+}
+
+function intervaloDoPeriodo(
+  periodo: PeriodoId,
+  personalizado: { de: string; ate: string },
+): { dateFrom?: string; dateTo?: string } {
+  const hoje = new Date();
+  switch (periodo) {
+    case '7':
+    case '30':
+      return {
+        dateFrom: dia(
+          new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - Number(periodo)),
+        ),
+      };
+    case 'mes':
+      return { dateFrom: dia(new Date(hoje.getFullYear(), hoje.getMonth(), 1)) };
+    case 'mes-anterior':
+      return {
+        dateFrom: dia(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)),
+        // Dia 0 do mês corrente é o último do anterior — sem tabela de 28/30/31.
+        dateTo: dia(new Date(hoje.getFullYear(), hoje.getMonth(), 0)),
+      };
+    case 'personalizado':
+      return { dateFrom: personalizado.de || undefined, dateTo: personalizado.ate || undefined };
+    default:
+      return {};
+  }
 }
 
 export function DiarioRelatoriosPage() {
@@ -51,14 +86,20 @@ export function DiarioRelatoriosPage() {
 
   const [status, setStatus] = useState<DailyReportStatus | undefined>();
   const [periodo, setPeriodo] = useState<PeriodoId>('todos');
+  const [personalizado, setPersonalizado] = useState({ de: '', ate: '' });
+
+  // Modo de exportação. Guarda os DESMARCADOS, e não os marcados: entrar no
+  // modo já seleciona tudo o que o filtro mostra — o caso comum é "o período
+  // inteiro" —, e trocar o período traz os relatórios novos já marcados.
+  const [exportando, setExportando] = useState(false);
+  const [desmarcados, setDesmarcados] = useState<Set<string>>(() => new Set());
 
   const obras = useQuery({ queryKey: ['diario', 'obras'], queryFn: listSites });
 
-  const dias = PERIODOS.find((item) => item.id === periodo)?.dias ?? null;
   const filtros: ReportFilters = {
     siteId: obraId,
     status,
-    dateFrom: dias ? inicioDoPeriodo(dias) : undefined,
+    ...intervaloDoPeriodo(periodo, personalizado),
   };
 
   const consulta = useQuery({
@@ -68,10 +109,42 @@ export function DiarioRelatoriosPage() {
 
   const semFiltro = !obraId && !status && periodo === 'todos';
   const relatorios = consulta.data?.data;
+  const selecionados = (relatorios ?? []).filter((relatorio) => !desmarcados.has(relatorio.id));
+
+  function alternar(id: string) {
+    setDesmarcados((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  function sairDaExportacao() {
+    setExportando(false);
+    setDesmarcados(new Set());
+  }
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-5">
-      <h1 className="text-xl font-semibold text-foreground">Relatórios</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-foreground">
+          {exportando ? 'Exportar relatórios' : 'Relatórios'}
+        </h1>
+        {!exportando && (relatorios?.length ?? 0) > 0 && (
+          <Button variant="outline" size="sm" onClick={() => setExportando(true)}>
+            <FileDown className="size-4" />
+            Exportar PDF
+          </Button>
+        )}
+      </div>
+
+      {exportando && (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Escolha o período e desmarque o que não deve ir. Os relatórios saem num PDF só, em ordem
+          de data.
+        </p>
+      )}
 
       {/* Filtros em faixas roláveis horizontalmente, e não em selects: numa
           tela de 375px três selects empilhados custam metade da altura útil, e
@@ -113,6 +186,23 @@ export function DiarioRelatoriosPage() {
             </Chip>
           ))}
         </FaixaDeFiltro>
+
+        {periodo === 'personalizado' && (
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <CampoData
+              rotulo="De"
+              valor={personalizado.de}
+              max={personalizado.ate || undefined}
+              onChange={(de) => setPersonalizado((atual) => ({ ...atual, de }))}
+            />
+            <CampoData
+              rotulo="Até"
+              valor={personalizado.ate}
+              min={personalizado.de || undefined}
+              onChange={(ate) => setPersonalizado((atual) => ({ ...atual, ate }))}
+            />
+          </div>
+        )}
       </div>
 
       {consulta.isPending && (
@@ -162,13 +252,140 @@ export function DiarioRelatoriosPage() {
         ))}
 
       {relatorios && relatorios.length > 0 && (
-        <ul className="mt-4 space-y-2.5">
-          {relatorios.map((relatorio) => (
-            <ReportRow key={relatorio.id} report={relatorio} showSite={!obraId} />
-          ))}
-        </ul>
+        <>
+          {exportando && (
+            <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">
+                {consulta.data!.meta.total > relatorios.length
+                  ? `Mostrando ${relatorios.length} de ${consulta.data!.meta.total}. Reduza o período.`
+                  : `${relatorios.length} no período`}
+              </span>
+              <button
+                type="button"
+                className="font-medium text-primary"
+                onClick={() =>
+                  setDesmarcados(
+                    selecionados.length > 0
+                      ? new Set(relatorios.map((relatorio) => relatorio.id))
+                      : new Set(),
+                  )
+                }
+              >
+                {selecionados.length > 0 ? 'Desmarcar todos' : 'Marcar todos'}
+              </button>
+            </div>
+          )}
+
+          <ul className={cn('space-y-2.5', exportando ? 'mt-2' : 'mt-4')}>
+            {relatorios.map((relatorio) => (
+              <ReportRow
+                key={relatorio.id}
+                report={relatorio}
+                showSite={!obraId}
+                selecao={
+                  exportando
+                    ? {
+                        marcado: !desmarcados.has(relatorio.id),
+                        onAlternar: () => alternar(relatorio.id),
+                      }
+                    : undefined
+                }
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {exportando && (
+        <BarraDeExportacao selecionados={selecionados} onCancelar={sairDaExportacao} />
       )}
     </div>
+  );
+}
+
+/// A faixa do modo de exportação: quantos vão, cancelar e exportar.
+function BarraDeExportacao({
+  selecionados,
+  onCancelar,
+}: {
+  selecionados: DiarioReport[];
+  onCancelar: () => void;
+}) {
+  const exportar = useMutation({ mutationFn: () => exportReportsPdf(selecionados) });
+  const quantos = selecionados.length;
+  const acimaDoTeto = quantos > MAX_RDOS_POR_PDF;
+
+  const mensagem = acimaDoTeto
+    ? `Até ${MAX_RDOS_POR_PDF} relatórios por arquivo. Reduza o período ou desmarque alguns.`
+    : exportar.error instanceof ApiError
+      ? exportar.error.message
+      : exportar.error
+        ? 'Não foi possível gerar o PDF. Tente novamente.'
+        : null;
+
+  return (
+    <ActionBar className="space-y-2">
+      {mensagem && <p className="text-sm text-destructive">{mensagem}</p>}
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 text-sm leading-tight">
+          <span className="block text-lg font-semibold tabular-nums text-foreground">
+            {quantos}
+          </span>
+          <span className="text-muted-foreground">
+            {quantos === 1 ? 'selecionado' : 'selecionados'}
+          </span>
+        </p>
+        <Button variant="ghost" size="lg" className="h-12" onClick={onCancelar}>
+          Cancelar
+        </Button>
+        <Button
+          size="lg"
+          className="h-12 text-base"
+          disabled={quantos === 0 || acimaDoTeto || exportar.isPending}
+          onClick={() => exportar.mutate()}
+        >
+          {exportar.isPending ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : (
+            <FileDown className="size-5" />
+          )}
+          {exportar.isPending ? 'Gerando…' : 'Exportar'}
+        </Button>
+      </div>
+    </ActionBar>
+  );
+}
+
+function CampoData({
+  rotulo,
+  valor,
+  min,
+  max,
+  onChange,
+}: {
+  rotulo: string;
+  valor: string;
+  min?: string;
+  max?: string;
+  onChange: (valor: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-muted-foreground">{rotulo}</span>
+      {/* Nativo pelo mesmo motivo do "Novo relatório": no celular abre o
+          seletor do sistema. `text-base` evita o zoom do Safari ao focar. */}
+      <input
+        type="date"
+        value={valor}
+        min={min}
+        max={max}
+        onChange={(evento) => onChange(evento.target.value)}
+        className={cn(
+          'mt-1 h-11 w-full rounded-lg border border-input bg-background px-3 text-base',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        )}
+      />
+    </label>
   );
 }
 

@@ -6,7 +6,7 @@ import type { StorageService } from '../../../storage/storage.module';
 import type { AuditLoggerService } from '../../../common/services/audit-logger.service';
 import { SiteAccessService } from '../../access/site-access.service';
 import { DailyReportsService } from '../daily-reports.service';
-import { RdoPdfService } from './rdo-pdf.service';
+import { MAX_RDOS_POR_LOTE, RdoPdfService } from './rdo-pdf.service';
 import {
   BETA,
   EMPRESA_A,
@@ -44,7 +44,10 @@ function fotos(quantidade: number) {
   }));
 }
 
-function montar(inicial: LinhaRdo[] = [rdo({ id: 'rdo-existente' })], filhos: Partial<BancoFalso> = {}) {
+function montar(
+  inicial: LinhaRdo[] = [rdo({ id: 'rdo-existente' })],
+  filhos: Partial<BancoFalso> = {},
+) {
   const { client, db } = criarPrismaFalso(inicial, filhos);
   const prisma = client as unknown as PrismaService;
   const reports = new DailyReportsService(
@@ -89,8 +92,12 @@ describe('Exportação do RDO em PDF — autorização', () => {
   it('relatório inexistente e de outra obra dão a MESMA resposta', async () => {
     const { service } = montar([rdo({ id: 'beta-1', constructionSiteId: BETA })]);
 
-    const outraObra = await service.export(EMPRESA_A, ENGENHEIRO_A, 'beta-1').catch((e: Error) => e.message);
-    const inexistente = await service.export(EMPRESA_A, ENGENHEIRO_A, 'nao-existe').catch((e: Error) => e.message);
+    const outraObra = await service
+      .export(EMPRESA_A, ENGENHEIRO_A, 'beta-1')
+      .catch((e: Error) => e.message);
+    const inexistente = await service
+      .export(EMPRESA_A, ENGENHEIRO_A, 'nao-existe')
+      .catch((e: Error) => e.message);
 
     // A exportação não pode virar o oráculo de enumeração que a leitura fechou.
     expect(outraObra).toBe(inexistente);
@@ -101,7 +108,9 @@ describe('Exportação do RDO em PDF — páginas', () => {
   it('sem fotos, o documento é uma página só', async () => {
     const { service } = montar();
 
-    expect(await contarPaginas((await service.export(EMPRESA_A, ENGENHEIRO_A, 'rdo-existente')).bytes)).toBe(1);
+    expect(
+      await contarPaginas((await service.export(EMPRESA_A, ENGENHEIRO_A, 'rdo-existente')).bytes),
+    ).toBe(1);
   });
 
   // A contagem inclui a página das assinaturas quando a última página da
@@ -182,5 +191,70 @@ describe('Exportação do RDO em PDF — não altera nada', () => {
 
     // Exportar é leitura. Duas vezes seguidas também.
     expect(JSON.stringify({ reports: db.reports, media: db.media })).toBe(antes);
+  });
+});
+
+describe('Exportação em lote — vários RDOs num PDF', () => {
+  const tres = [
+    rdo({ id: 'r-3', number: 3, reportDate: new Date('2026-09-03T00:00:00.000Z') }),
+    rdo({ id: 'r-1', number: 1, reportDate: new Date('2026-09-01T00:00:00.000Z') }),
+    rdo({ id: 'r-2', number: 2, reportDate: new Date('2026-09-02T00:00:00.000Z') }),
+  ];
+
+  it('junta os relatórios, cada um começando em página nova', async () => {
+    const { service } = montar(tres);
+
+    const { bytes, nomeArquivo } = await service.exportBatch(EMPRESA_A, ENGENHEIRO_A, [
+      'r-3',
+      'r-1',
+      'r-2',
+    ]);
+
+    expect(bytes.subarray(0, 4).toString()).toBe('%PDF');
+    expect(await contarPaginas(bytes)).toBe(3);
+    // O período vem das datas dos relatórios, não da ordem em que chegaram.
+    expect(nomeArquivo).toMatch(/^RDOs-.+-2026-09-01-a-2026-09-03\.pdf$/);
+  });
+
+  it('relatório com fotos ocupa as mesmas páginas que ocuparia sozinho', async () => {
+    const midia = fotos(1);
+    const { service } = montar(tres, {
+      media: [{ ...midia[0]!, dailyReportId: 'r-1' }],
+    } as unknown as Partial<BancoFalso>);
+
+    const { bytes } = await service.exportBatch(EMPRESA_A, ENGENHEIRO_A, ['r-1', 'r-2']);
+
+    // r-1 com uma foto dá 2 páginas (como na exportação avulsa) e r-2, 1. A
+    // foto não vaza para o relatório seguinte.
+    expect(await contarPaginas(bytes)).toBe(3);
+  });
+
+  it('id repetido entra uma vez só', async () => {
+    const { service } = montar(tres);
+
+    const { bytes } = await service.exportBatch(EMPRESA_A, ENGENHEIRO_A, ['r-1', 'r-1', 'r-2']);
+
+    expect(await contarPaginas(bytes)).toBe(2);
+  });
+
+  it('um relatório de obra não vinculada derruba o lote inteiro', async () => {
+    const { service } = montar([...tres, rdo({ id: 'beta-1', constructionSiteId: BETA })]);
+
+    // Sair um PDF menor do que o pedido, calado, seria pior que o erro.
+    await expect(
+      service.exportBatch(EMPRESA_A, ENGENHEIRO_A, ['r-1', 'beta-1']),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('recusa lista vazia e lista acima do teto', async () => {
+    const { service } = montar(tres);
+
+    await expect(service.exportBatch(EMPRESA_A, ENGENHEIRO_A, [])).rejects.toThrow(
+      'Escolha ao menos um relatório.',
+    );
+    const muitos = Array.from({ length: MAX_RDOS_POR_LOTE + 1 }, (_, i) => `r-${i}`);
+    await expect(service.exportBatch(EMPRESA_A, ENGENHEIRO_A, muitos)).rejects.toThrow(
+      `Exporte até ${MAX_RDOS_POR_LOTE} relatórios por arquivo.`,
+    );
   });
 });

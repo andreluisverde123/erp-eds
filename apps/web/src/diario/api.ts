@@ -260,6 +260,19 @@ export function exportReportPdf(report: {
   return downloadFile(`/diario/relatorios/${report.id}/pdf`, nome);
 }
 
+/// Teto do lote, igual ao da API: um mês de uma obra por arquivo.
+export const MAX_RDOS_POR_PDF = 31;
+
+/// Vários RDOs num PDF só, na ordem de arquivo (obra, data, número). O nome
+/// leva o período, que é o que identifica o arquivo numa pasta de medição.
+export function exportReportsPdf(reports: { id: string; reportDate: string }[]): Promise<void> {
+  const datas = reports.map((report) => report.reportDate.slice(0, 10)).sort();
+  const nome = `RDOs-${datas[0]}-a-${datas[datas.length - 1]}.pdf`;
+  const ids = reports.map((report) => report.id).join(',');
+
+  return downloadFile(`/diario/relatorios/pdf?ids=${ids}`, nome);
+}
+
 /// Exclui um rascunho, definitivamente.
 ///
 /// Sem corpo na resposta (204): o recurso deixou de existir, então quem chamou

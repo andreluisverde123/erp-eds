@@ -2,6 +2,7 @@ import { Building2, ClipboardList, Home, Plus, UserRound } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { cn } from '@repo/ui';
 
+import { ActionBarProvider } from '../components/action-bar';
 import { DiarioHeader } from './diario-header';
 
 const NAV_ITEMS = [
@@ -24,48 +25,61 @@ export function DiarioLayout() {
   const location = useLocation();
 
   return (
-    <div className="flex min-h-svh flex-col bg-muted/40">
-      <DiarioHeader />
+    <ActionBarProvider>
+      {(faixaAtiva) => (
+        <div className="flex min-h-svh flex-col bg-muted/40">
+          <DiarioHeader />
 
-      {/* O padding inferior reserva a altura da barra + a área segura do
-          aparelho (a faixa do gesto de home no iPhone). Sem ele o último
-          cartão da lista fica permanentemente atrás da navegação. */}
-      <main className="flex-1 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-        <Outlet />
-      </main>
+          {/* O padding inferior reserva a altura da barra + a área segura do
+              aparelho (a faixa do gesto de home no iPhone). Sem ele o último
+              cartão da lista fica permanentemente atrás da navegação. Com a
+              faixa de ação no lugar da navegação, quem reserva a altura é a
+              própria faixa (ver `ActionBar`). */}
+          <main
+            className={cn('flex-1', !faixaAtiva && 'pb-[calc(5.5rem+env(safe-area-inset-bottom))]')}
+          >
+            <Outlet />
+          </main>
 
-      <nav
-        aria-label="Navegação principal"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background pb-[env(safe-area-inset-bottom)]"
-      >
-        <ul className="mx-auto flex max-w-2xl items-stretch">
-          {NAV_ITEMS.slice(0, 2).map((item) => (
-            <NavItem key={item.to} {...item} />
-          ))}
+          {!faixaAtiva && <NavegacaoInferior pathname={location.pathname} />}
+        </div>
+      )}
+    </ActionBarProvider>
+  );
+}
 
-          <li className="relative flex w-16 shrink-0 justify-center">
-            <NavLink
-              to="/relatorios/novo"
-              aria-label="Criar relatório"
-              className={cn(
-                'absolute -top-5 flex size-14 items-center justify-center rounded-full',
-                'bg-primary text-primary-foreground shadow-lg shadow-primary/25',
-                'transition-transform active:scale-95',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                location.pathname.startsWith('/relatorios/novo') &&
-                  'ring-2 ring-ring ring-offset-2',
-              )}
-            >
-              <Plus className="size-7" strokeWidth={2.5} />
-            </NavLink>
-          </li>
+function NavegacaoInferior({ pathname }: { pathname: string }) {
+  return (
+    <nav
+      aria-label="Navegação principal"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background pb-[env(safe-area-inset-bottom)]"
+    >
+      <ul className="mx-auto flex max-w-2xl items-stretch">
+        {NAV_ITEMS.slice(0, 2).map((item) => (
+          <NavItem key={item.to} {...item} />
+        ))}
 
-          {NAV_ITEMS.slice(2).map((item) => (
-            <NavItem key={item.to} {...item} />
-          ))}
-        </ul>
-      </nav>
-    </div>
+        <li className="relative flex w-16 shrink-0 justify-center">
+          <NavLink
+            to="/relatorios/novo"
+            aria-label="Criar relatório"
+            className={cn(
+              'absolute -top-5 flex size-14 items-center justify-center rounded-full',
+              'bg-primary text-primary-foreground shadow-lg shadow-primary/25',
+              'transition-transform active:scale-95',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+              pathname.startsWith('/relatorios/novo') && 'ring-2 ring-ring ring-offset-2',
+            )}
+          >
+            <Plus className="size-7" strokeWidth={2.5} />
+          </NavLink>
+        </li>
+
+        {NAV_ITEMS.slice(2).map((item) => (
+          <NavItem key={item.to} {...item} />
+        ))}
+      </ul>
+    </nav>
   );
 }
 

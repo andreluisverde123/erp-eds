@@ -18,9 +18,10 @@ import type { Response } from 'express';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { DailyReportsService } from './daily-reports.service';
-import { RdoPdfService } from './pdf/rdo-pdf.service';
+import { RdoPdfService, type RdoPdf } from './pdf/rdo-pdf.service';
 import { CopyDailyReportDto } from './dto/copy-daily-report.dto';
 import { CreateDailyReportDto } from './dto/create-daily-report.dto';
+import { ExportDailyReportsPdfDto } from './dto/export-daily-reports-pdf.dto';
 import { QueryDailyReportDto } from './dto/query-daily-report.dto';
 import { RenumberDailyReportDto } from './dto/renumber-daily-report.dto';
 import { UpdateDailyReportDto } from './dto/update-daily-report.dto';
@@ -52,6 +53,21 @@ export class DailyReportsController {
     @CurrentUser('sub') userId: string,
   ) {
     return this.reports.findAll(companyId, userId, query);
+  }
+
+  /// Vários RDOs num PDF só — o período escolhido na lista.
+  ///
+  /// GET com os ids na query, e não POST: é leitura, como a exportação avulsa,
+  /// e o teto de 31 ids mantém a URL longe de qualquer limite. Declarada ANTES
+  /// de `:id`, senão "pdf" cairia no `ParseUUIDPipe` daquela rota.
+  @Get('pdf')
+  async exportBatchPdf(
+    @Query() query: ExportDailyReportsPdfDto,
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Res() res: Response,
+  ) {
+    enviarPdf(res, await this.pdf.exportBatch(companyId, userId, query.ids));
   }
 
   @Get(':id')
@@ -140,20 +156,7 @@ export class DailyReportsController {
     @CurrentUser('sub') userId: string,
     @Res() res: Response,
   ) {
-    const { bytes, nomeArquivo } = await this.pdf.export(companyId, userId, id);
-
-    res.setHeader('Content-Type', 'application/pdf');
-    // `attachment`: o RDO é para guardar, não para navegar. E o nome vai entre
-    // aspas porque ele contém hífens e pontos que um cliente HTTP pode tratar
-    // como fim do valor.
-    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
-    res.setHeader('Content-Length', String(bytes.length));
-    // Documento gerado sob autorização: nenhum cache compartilhado pode
-    // guardá-lo. E nada de `max-age` — o rascunho muda a cada edição.
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    res.end(bytes);
+    enviarPdf(res, await this.pdf.export(companyId, userId, id));
   }
 
   /// Corrige a numeração a partir deste RDO; os de datas posteriores seguem
@@ -191,4 +194,19 @@ export class DailyReportsController {
       podeAdministrar: permissions.includes('diario.report.admin'),
     });
   }
+}
+
+function enviarPdf(res: Response, { bytes, nomeArquivo }: RdoPdf) {
+  res.setHeader('Content-Type', 'application/pdf');
+  // `attachment`: o RDO é para guardar, não para navegar. E o nome vai entre
+  // aspas porque ele contém hífens e pontos que um cliente HTTP pode tratar
+  // como fim do valor.
+  res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+  res.setHeader('Content-Length', String(bytes.length));
+  // Documento gerado sob autorização: nenhum cache compartilhado pode
+  // guardá-lo. E nada de `max-age` — o rascunho muda a cada edição.
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  res.end(bytes);
 }
