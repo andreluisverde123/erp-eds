@@ -2,6 +2,7 @@ import { ArrowLeft, ClipboardList } from 'lucide-react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { Button } from '@repo/ui';
 
+import { useAuth } from '@/features/auth/context';
 import { PurchaseRequestForm } from '@/features/compras/components/purchase-request-form';
 import { usePurchaseRequest } from '@/features/compras/hooks/use-purchase-request';
 import { useUpdatePurchaseRequest } from '@/features/compras/hooks/use-purchase-request-mutations';
@@ -11,6 +12,7 @@ import type { PurchaseRequestInput } from '@/features/compras/types';
 export function EditarSolicitacaoPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: request, isLoading, isError } = usePurchaseRequest(id);
   const updateMutation = useUpdatePurchaseRequest(id ?? '');
 
@@ -70,6 +72,7 @@ export function EditarSolicitacaoPage() {
         submitLabel="Salvar Alterações"
         submittingLabel="Salvando..."
         onSubmit={handleSubmit}
+        draftKey={user ? `compras:editar-solicitacao:${id}:${user.id}` : undefined}
         onCancel={() => navigate(`/engenharia/solicitacoes/${id}`)}
       />
     </div>

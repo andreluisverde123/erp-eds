@@ -197,10 +197,19 @@ export class AuthService {
 
     // Rotação: o token usado é revogado imediatamente, mesmo que a emissão
     // do novo par falhe em seguida — reuso de um token já trocado nunca é válido.
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
+    //
+    // A revogação é condicional (`revokedAt: null`) e é ELA que decide quem
+    // ganhou: duas renovações simultâneas liam o token ainda válido, as duas
+    // revogavam e as duas recebiam um par novo — o mesmo cookie virava duas
+    // sessões. Agora só uma passa; a outra recebe 401 como qualquer reuso.
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    if (count === 0) {
+      this.logger.warn(`Refresh falhou: token já trocado em paralelo (userId=${payload.sub}).`);
+      throw new UnauthorizedException(SESSION_EXPIRED_MESSAGE);
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },

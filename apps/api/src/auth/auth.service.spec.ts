@@ -85,3 +85,47 @@ describe('AuthService — empresa suspensa', () => {
     expect(erro.getResponse()).not.toMatchObject({ code: expect.anything() });
   });
 });
+
+/// Duas renovações com o mesmo cookie no mesmo instante liam o token ainda
+/// válido e as duas recebiam sessão nova. A revogação condicional decide:
+/// quem chega depois da troca leva 401, como qualquer reuso.
+describe('AuthService — renovação em paralelo', () => {
+  const SEGREDO = 'segredo-de-teste-com-no-minimo-32-caracteres';
+
+  function servicoComToken() {
+    let revogado = false;
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue(usuario('fulano@eds.com.br', 'ACTIVE')) },
+      refreshToken: {
+        create: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 't1',
+          userId: 'u1',
+          revokedAt: null,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+        // Simula o banco: só a primeira atualização encontra `revokedAt: null`.
+        updateMany: jest.fn(async () => {
+          const count = revogado ? 0 : 1;
+          revogado = true;
+          return { count };
+        }),
+      },
+    } as unknown as PrismaService;
+    const config = {
+      get: () => undefined,
+      getOrThrow: () => SEGREDO,
+    } as unknown as ConfigService;
+    const jwt = new JwtService();
+    const token = jwt.sign({ sub: 'u1' }, { secret: SEGREDO, expiresIn: '7d' });
+    return { service: new AuthService(prisma, jwt, config), token };
+  }
+
+  it('só uma das renovações simultâneas recebe sessão nova', async () => {
+    const { service, token } = servicoComToken();
+
+    const resultados = await Promise.allSettled([service.refresh(token), service.refresh(token)]);
+
+    expect(resultados.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+  });
+});

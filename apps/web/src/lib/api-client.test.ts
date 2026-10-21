@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { apiClient } from './api-client';
+import { apiClient, setAccessToken, setUnauthorizedHandler } from './api-client';
 
 /// Defeito relatado pelo cliente: nenhum anexo subia ("Selecione o arquivo…").
 /// O `post` serializava qualquer corpo em JSON, e um FormData vira "{}": a API
@@ -45,5 +45,44 @@ describe('apiClient com arquivo', () => {
     const init = fetchMock.mock.calls[0]![1];
     expect(init.body).toBe('{"title":"Cimento"}');
     expect(init.headers).toMatchObject({ 'Content-Type': 'application/json' });
+  });
+});
+
+/// Defeito em produção: quando o access token vencia, as chamadas que estavam
+/// no ar levavam 401 juntas e cada uma pedia um refresh. O cookie é de uso
+/// único, então as seguintes eram recusadas e a sessão caía no meio do
+/// preenchimento de uma solicitação.
+describe('apiClient com token vencido', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setUnauthorizedHandler(null);
+    setAccessToken(null);
+  });
+
+  it('várias chamadas com 401 ao mesmo tempo fazem UMA renovação só', async () => {
+    setAccessToken('vencido');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const autorizado = (init.headers as Record<string, string>).Authorization === 'Bearer novo';
+        return new Response('{}', { status: autorizado ? 200 : 401 });
+      }),
+    );
+    let liberar!: () => void;
+    const renovar = vi.fn(
+      () => new Promise<string | null>((resolve) => (liberar = () => resolve('novo'))),
+    );
+    setUnauthorizedHandler(renovar);
+
+    const chamadas = Promise.all([
+      apiClient.get('/purchase-requests'),
+      apiClient.get('/construction-sites'),
+      apiClient.get('/auth/me'),
+    ]);
+    await vi.waitFor(() => expect(renovar).toHaveBeenCalled());
+    liberar();
+
+    await expect(chamadas).resolves.toHaveLength(3);
+    expect(renovar).toHaveBeenCalledTimes(1);
   });
 });

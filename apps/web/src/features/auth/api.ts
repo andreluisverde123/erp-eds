@@ -27,8 +27,16 @@ export function signup(input: SignupInput): Promise<AuthSession> {
   return apiClient.post<AuthSession>('/onboarding/signup', input, AUTH_REQUEST_OPTIONS);
 }
 
+/// Renovações em FILA entre abas. O cookie de refresh é de uso único e é o
+/// mesmo para todas as abas: duas renovando juntas mandariam o mesmo cookie, e
+/// a segunda seria recusada e mandada para o login. Com o lock, a segunda só
+/// sai quando a primeira terminou — e aí o navegador já manda o cookie novo.
+/// Sem Web Locks (navegador antigo), segue sem fila, como antes.
 export function refresh(): Promise<AuthSession> {
-  return apiClient.post<AuthSession>('/auth/refresh', undefined, AUTH_REQUEST_OPTIONS);
+  const renovar = () =>
+    apiClient.post<AuthSession>('/auth/refresh', undefined, AUTH_REQUEST_OPTIONS);
+  if (typeof navigator === 'undefined' || !navigator.locks) return renovar();
+  return navigator.locks.request('eds-auth-refresh', renovar);
 }
 
 /// Login de desenvolvimento, sem senha. A API só responde no ambiente local

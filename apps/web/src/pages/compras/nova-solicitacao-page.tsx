@@ -2,6 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { Button } from '@repo/ui';
 
+import { useAuth } from '@/features/auth/context';
 import { PurchaseRequestForm } from '@/features/compras/components/purchase-request-form';
 import { useCreatePurchaseRequest } from '@/features/compras/hooks/use-purchase-request-mutations';
 import { PURCHASE_REQUEST_FORM_DEFAULTS } from '@/features/compras/purchase-request-form-schema';
@@ -9,6 +10,7 @@ import type { PurchaseRequestInput } from '@/features/compras/types';
 
 export function NovaSolicitacaoPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const createMutation = useCreatePurchaseRequest();
 
   async function handleSubmit(input: PurchaseRequestInput) {
@@ -43,6 +45,7 @@ export function NovaSolicitacaoPage() {
         submitLabel="Criar Solicitação"
         submittingLabel="Criando..."
         onSubmit={handleSubmit}
+        draftKey={user ? `compras:nova-solicitacao:${user.id}` : undefined}
         onCancel={() => navigate('/engenharia/solicitacoes')}
       />
     </div>

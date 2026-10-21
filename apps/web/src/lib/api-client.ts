@@ -30,6 +30,22 @@ export function setUnauthorizedHandler(handler: (() => Promise<string | null>) |
   unauthorizedHandler = handler;
 }
 
+/// UMA renovação por vez. Quando o access token vence, a tela costuma ter
+/// várias chamadas no ar ao mesmo tempo, e todas levam 401 juntas. Cada uma
+/// chamando o refresh por conta própria gastava o mesmo cookie de uso único:
+/// a primeira renovava, as seguintes eram recusadas e derrubavam a sessão —
+/// a pessoa ia parar no login no meio de uma solicitação e perdia o que
+/// estava digitando. Agora quem chega com o refresh em andamento espera o
+/// mesmo resultado.
+let refreshing: Promise<string | null> | null = null;
+
+function renewAccessToken(handler: () => Promise<string | null>): Promise<string | null> {
+  refreshing ??= handler().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
 interface RequestOptions extends RequestInit {
   skipAuthRetry?: boolean;
 }
@@ -51,7 +67,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (response.status === 401 && accessToken && !skipAuthRetry && unauthorizedHandler) {
-    const newToken = await unauthorizedHandler();
+    const newToken = await renewAccessToken(unauthorizedHandler);
     if (newToken) {
       accessToken = newToken;
       return request<T>(path, { ...options, skipAuthRetry: true });
@@ -86,7 +102,7 @@ async function requestResponse(path: string, options: RequestOptions = {}): Prom
   });
 
   if (response.status === 401 && accessToken && !skipAuthRetry && unauthorizedHandler) {
-    const newToken = await unauthorizedHandler();
+    const newToken = await renewAccessToken(unauthorizedHandler);
     if (newToken) {
       accessToken = newToken;
       return requestResponse(path, { ...options, skipAuthRetry: true });
@@ -113,7 +129,7 @@ async function requestBlob(path: string, options: RequestOptions = {}): Promise<
   });
 
   if (response.status === 401 && accessToken && !skipAuthRetry && unauthorizedHandler) {
-    const newToken = await unauthorizedHandler();
+    const newToken = await renewAccessToken(unauthorizedHandler);
     if (newToken) {
       accessToken = newToken;
       return requestBlob(path, { ...options, skipAuthRetry: true });
