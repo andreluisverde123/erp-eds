@@ -137,6 +137,8 @@ function makeService(
   const deleteManyCalls: unknown[] = [];
   const statusGravado: string[] = [];
   const travas: string[] = [];
+  /// Cada `UPDATE` da cotação, para o teste conferir que vai UMA instrução só.
+  const cotacoesGravadas: Prisma.Sql[] = [];
 
   const prisma = {
     // Todo acesso passa por aqui filtrando `companyId` — é o que faz o teste
@@ -336,6 +338,27 @@ function makeService(
       travas.push(strings.join('?'));
       return [];
     }),
+    /// A gravação da cotação: um `UPDATE ... FROM (VALUES ...)` com todas as
+    /// linhas. Os valores chegam achatados, seis por linha (id, preço,
+    /// indisponível, observação, tipo e valor do desconto) e, por último, o id
+    /// da solicitação — é assim que o simulador os aplica ao `store`.
+    $executeRaw: jest.fn(async (sql: Prisma.Sql) => {
+      cotacoesGravadas.push(sql);
+      const valores = sql.values.slice(0, -1);
+      for (let i = 0; i < valores.length; i += 6) {
+        const [id, preco, indisponivel, observacao, tipo, desconto] = valores.slice(i, i + 6);
+        const alvo = store.find((item) => item.id === id);
+        if (!alvo) continue;
+        Object.assign(alvo, {
+          estimatedUnitPrice: preco === null ? null : new Prisma.Decimal(preco as string),
+          unavailable: indisponivel,
+          unavailabilityNote: observacao,
+          discountType: tipo,
+          discountValue: new Prisma.Decimal(desconto as string),
+        });
+      }
+      return valores.length / 6;
+    }),
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: unknown) => Promise<unknown>)(prisma)
@@ -376,6 +399,7 @@ function makeService(
     statusGravado,
     assertThreshold,
     travas,
+    cotacoesGravadas,
   };
 }
 
@@ -407,6 +431,24 @@ describe('PurchaseRequestsService — cotação parcial e item não disponível'
       expect(store.every((item) => item.unavailable === false)).toBe(true);
       // 10×35 + 20×22 + 5×90 = 350 + 440 + 450
       expect(resultado.estimatedTotal).toBe(1240);
+    });
+
+    /// SOL-0471 (05/11/2026): 43 itens, um `update` por item, e a transação
+    /// passava dos 5 s do Prisma — a cotação voltava como erro interno. O
+    /// número de idas ao banco não pode crescer com o número de itens.
+    it('grava todas as linhas numa instrução só, qualquer que seja o número de itens', async () => {
+      const { service, prisma, cotacoesGravadas } = makeService();
+
+      await service.updateQuote(EMPRESA_A, SOLICITACAO, {
+        items: [
+          { id: CIMENTO, estimatedUnitPrice: 35 },
+          { id: PVC, estimatedUnitPrice: 22 },
+          { id: TORNEIRA, estimatedUnitPrice: 90 },
+        ],
+      });
+
+      expect(cotacoesGravadas).toHaveLength(1);
+      expect(prisma.purchaseRequestItem.update).not.toHaveBeenCalled();
     });
   });
 
@@ -1823,7 +1865,10 @@ describe('PurchaseRequestsService — excluir item e marcar em estoque', () => {
       await aceita.service.updateQuote(EMPRESA_A, SOLICITACAO, {
         items: [{ id: CIMENTO, estimatedUnitPrice: 40 }, { id: TORNEIRA }],
       });
-      expect(aceita.prisma.purchaseRequestItem.update).toHaveBeenCalledTimes(1);
+      // Só o cimento vai para a gravação: seis valores por linha, mais o id
+      // da solicitação no fim.
+      expect(aceita.cotacoesGravadas[0]!.values).toHaveLength(6 + 1);
+      expect(aceita.cotacoesGravadas[0]!.values[0]).toBe(CIMENTO);
       expect(linha(aceita.store, TORNEIRA)).toMatchObject({
         inStock: true,
         estimatedUnitPrice: null,

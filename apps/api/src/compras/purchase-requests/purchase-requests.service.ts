@@ -843,25 +843,39 @@ export class PurchaseRequestsService {
     const futuras = dto.items.map((item) => this.toQuoteItem(item, quantityById.get(item.id)!));
     this.assertDiscountsAreValid(futuras, dto);
 
+    // Todas as linhas numa instrução SÓ. Eram um `update` por item, e cada um
+    // é uma ida e volta ao banco: a SOL-0471, com 43 itens, passava dos 5 s
+    // que o Prisma dá a uma transação e a cotação inteira voltava como erro
+    // interno — nenhuma cotação acima de ~30 itens conseguia ser salva.
+    const linhas = dto.items.map((item, index) => {
+      const futura = futuras[index]!;
+      return Prisma.sql`(
+        ${item.id}::uuid,
+        ${futura.estimatedUnitPrice === null ? null : String(futura.estimatedUnitPrice)}::numeric,
+        ${futura.unavailable}::boolean,
+        ${futura.unavailable ? (item.unavailabilityNote ?? null) : null}::text,
+        ${futura.discountType}::"DiscountType",
+        ${String(futura.discountValue)}::numeric
+      )`;
+    });
+
     await this.prisma.$transaction([
-      ...dto.items.map((item, index) => {
-        const futura = futuras[index]!;
-        return this.prisma.purchaseRequestItem.update({
-          where: { id: item.id },
-          data: {
-            // Indisponível zera o preço em vez de manter o último cotado —
-            // do contrário, alternar disponível → indisponível deixaria para
-            // trás um valor que já não vale e continuaria no relatório.
-            estimatedUnitPrice: futura.estimatedUnitPrice as Prisma.Decimal | null,
-            unavailable: futura.unavailable,
-            // A observação pertence ao estado indisponível; voltar a
-            // disponível a leva junto.
-            unavailabilityNote: futura.unavailable ? (item.unavailabilityNote ?? null) : null,
-            discountType: futura.discountType,
-            discountValue: futura.discountValue as number,
-          },
-        });
-      }),
+      // Indisponível zera o preço em vez de manter o último cotado — do
+      // contrário, alternar disponível → indisponível deixaria para trás um
+      // valor que já não vale e continuaria no relatório. A observação
+      // pertence ao estado indisponível; voltar a disponível a leva junto.
+      this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "PurchaseRequestItem" AS item SET
+          "estimatedUnitPrice" = cotada.preco,
+          "unavailable" = cotada.indisponivel,
+          "unavailabilityNote" = cotada.observacao,
+          "discountType" = cotada.tipo_desconto,
+          "discountValue" = cotada.desconto,
+          "updatedAt" = now()
+        FROM (VALUES ${Prisma.join(linhas)})
+          AS cotada(id, preco, indisponivel, observacao, tipo_desconto, desconto)
+        WHERE item.id = cotada.id AND item."purchaseRequestId" = ${id}::uuid
+      `),
       // O desconto geral vive na solicitação — e é por isso que ele entra na
       // auditoria sozinho: `PurchaseRequest` já é um modelo auditado pela
       // extensão do Prisma (ver `common/prisma/audit-extension.ts`).
