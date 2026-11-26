@@ -437,20 +437,22 @@ describe('13. Permissões (RBAC existente)', () => {
 
   it('ver e comparar exigem apenas leitura', () => {
     expect(Reflect.getMetadata(PERMISSIONS_KEY, InboundInvoicesController)).toEqual([
-      'financeiro.view',
+      'conciliacao.view',
     ]);
     expect(permissaoDe('compare')).toBeUndefined();
     expect(permissaoDe('suggestions')).toBeUndefined();
   });
 
-  it('conciliar e marcar sem ordem exigem `financeiro.manage`', () => {
-    expect(permissaoDe('reconcile')).toEqual(['financeiro.manage']);
+  it('conciliar e marcar sem ordem exigem `conciliacao.manage`', () => {
+    expect(permissaoDe('reconcile')).toEqual(['conciliacao.manage']);
   });
 
-  it('nenhuma permissão nova foi criada nesta etapa', () => {
+  /// O aprendiz concilia sem ver contas a pagar: nenhuma rota daqui pode
+  /// voltar a exigir `financeiro.*`.
+  it('as ações usam só `conciliacao.manage`, nunca `financeiro.*`', () => {
     const usadas = (['create', 'reconcile', 'cancel'] as const).flatMap(
       (metodo) => permissaoDe(metodo) ?? [],
     );
-    expect(new Set(usadas)).toEqual(new Set(['financeiro.manage']));
+    expect(new Set(usadas)).toEqual(new Set(['conciliacao.manage']));
   });
 });

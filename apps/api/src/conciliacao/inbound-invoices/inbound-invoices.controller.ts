@@ -21,12 +21,13 @@ import { QueryInboundInvoiceDto } from './dto/query-inbound-invoice.dto';
 import { ReconcileInboundInvoiceDto } from './dto/reconcile-inbound-invoice.dto';
 import { InboundInvoicesService } from './inbound-invoices.service';
 
-/// Financeiro > Conciliação de Notas. Reusa as permissões do módulo financeiro
-/// (`view` para consultar, `manage` para agir) em vez de criar um par novo:
-/// quem concilia nota é a mesma pessoa que mexe em contas a pagar, e uma
-/// permissão a mais só apareceria como caixinha desmarcada na tela de perfis.
+/// Financeiro > Conciliação de Notas. Tem par próprio (`conciliacao.view` /
+/// `conciliacao.manage`) em vez de reusar `financeiro.*`: a EDS quis um perfil
+/// de aprendiz que concilia nota sem enxergar contas a pagar nem pagamentos.
+/// A migration que criou o par deu `conciliacao.*` a todo papel que já tinha
+/// o `financeiro.*` correspondente, então ninguém perdeu acesso.
 @Controller('inbound-invoices')
-@RequirePermissions('financeiro.view')
+@RequirePermissions('conciliacao.view')
 export class InboundInvoicesController {
   constructor(private readonly inboundInvoices: InboundInvoicesService) {}
 
@@ -91,7 +92,7 @@ export class InboundInvoicesController {
 
   /// Entrada manual — o único caminho de entrada desta versão. A captura
   /// automática (XML/SEFAZ) entrará por aqui também, mudando só a origem.
-  @RequirePermissions('financeiro.manage')
+  @RequirePermissions('conciliacao.manage')
   @Post()
   create(
     @Body() dto: CreateInboundInvoiceDto,
@@ -103,7 +104,7 @@ export class InboundInvoicesController {
   }
 
   /// Vincula a nota à ordem de compra e gera as parcelas de contas a pagar.
-  @RequirePermissions('financeiro.manage')
+  @RequirePermissions('conciliacao.manage')
   @HttpCode(HttpStatus.OK)
   @Post(':id/reconcile')
   reconcile(
@@ -116,7 +117,7 @@ export class InboundInvoicesController {
     return this.inboundInvoices.reconcile(companyId, actingUserId, ip, id, dto);
   }
 
-  @RequirePermissions('financeiro.manage')
+  @RequirePermissions('conciliacao.manage')
   @HttpCode(HttpStatus.OK)
   @Post(':id/cancel')
   cancel(

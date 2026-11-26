@@ -126,6 +126,21 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     action: 'manage',
     description: 'Lançar e alterar notas fiscais, contas a pagar e pagamentos.',
   },
+  /// Conciliação de Notas tem par próprio, fora de `financeiro.*`, para um
+  /// perfil conciliar nota sem enxergar contas a pagar e pagamentos (o
+  /// aprendiz da EDS). Quem tem o Financeiro inteiro recebe as duas também.
+  {
+    code: 'conciliacao.view',
+    module: 'conciliacao',
+    action: 'view',
+    description: 'Consultar as notas recebidas e compará-las com as ordens de compra.',
+  },
+  {
+    code: 'conciliacao.manage',
+    module: 'conciliacao',
+    action: 'manage',
+    description: 'Lançar notas recebidas, conciliá-las com a ordem de compra e cancelá-las.',
+  },
   {
     code: 'rh.view',
     module: 'rh',
@@ -322,6 +337,8 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       ...BASE_PERMISSIONS,
       'financeiro.view',
       'financeiro.manage',
+      'conciliacao.view',
+      'conciliacao.manage',
       // A nota fiscal é lançada a partir de uma ordem de compra.
       'compras.view',
       // As três permissões de `dados_bancarios` NÃO entram aqui, nem em papel
@@ -376,6 +393,8 @@ export const DEFAULT_ROLES: RoleTemplate[] = [
       'compras.manage',
       'financeiro.view',
       'financeiro.manage',
+      'conciliacao.view',
+      'conciliacao.manage',
       'rh.view',
       'rh.manage',
       'terceiros.view',

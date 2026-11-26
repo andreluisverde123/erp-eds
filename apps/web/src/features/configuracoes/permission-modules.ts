@@ -9,6 +9,7 @@ export const MODULE_LABELS: Record<string, string> = {
   orcamentos: 'Orçamentos',
   compras: 'Compras',
   financeiro: 'Financeiro',
+  conciliacao: 'Conciliação de Notas',
   rh: 'RH',
   terceiros: 'Terceirizados',
   relatorios: 'Relatórios',

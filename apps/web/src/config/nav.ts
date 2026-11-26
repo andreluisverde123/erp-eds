@@ -166,7 +166,7 @@ export const navEntries: NavEntry[] = [
         title: 'Conciliação de Notas',
         path: '/financeiro/conciliacao',
         icon: FileCheck2,
-        permission: 'financeiro.view',
+        permission: 'conciliacao.view',
       },
       {
         title: 'Pagamentos',
